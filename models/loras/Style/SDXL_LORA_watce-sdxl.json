@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Nov 14, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/199968/liquid-flow-style-lora-15sdxl?modelVersionId=225007",
+	"Version": "",
+	"Tags": "STYLE FLOW WATER ICE LIQUID STYLES",
+	"Usage_Tips": "Trigger Words WATCE",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: watce"
+}

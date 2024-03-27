@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Jan 25, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/277058?modelVersionId=312202",
+	"Version": "v1.0",
+	"Tags": "BASE MODEL PHOTO WOMAN PHOTOGRAPHY PHOTOREALISM REALISTIC",
+	"Usage_Tips": "",
+	"Author": "epinikion Supporter Badge November 2023",
+	"ReMark": "Introducing my Testmodel avoiding negatives can improve result"
+}

@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Jan 26, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/229002/icbinp-xl?modelVersionId=313378",
+	"Version": "v3",
+	"Tags": "BASE MODEL PHOTOREALISTIC PHOTO SDXL 1,0",
+	"Usage_Tips": "Training EPOCHS: 10  Usage Tips CLIP SKIP: 1",
+	"Author": "residentchiefnz Failed Generation Contest Participant",
+	"ReMark": "The long awaited followup to ICBINP, this model is merged to try and get the most realistic images possible. Version 3 now has that same realistic skin, but more details in the image, that more popular look (due to the merging with the DPO lora), and less reliance on the hi-res fix.It's the ICBINP you all know and love, but now with all of the benefits of SDXL (recommended 832x1216)The sample images are all made with the DPM++ 2M Karras, 30 steps, 832x1216, cfg 3, clip skip 1, and basic hi-res fix with 4x-Upscaler, and occassionally adetailer with the default settings (A1111). I liked the results I got with the Restart sampler as well, so that is recommended. I'm sure that some more experimentation and better workflows you will be able to achieve amazing results!"
+}

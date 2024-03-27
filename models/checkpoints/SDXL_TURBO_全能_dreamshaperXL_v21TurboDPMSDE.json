@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Feb 20, 2024",
+	"Base": "SDXL Turbo",
+	"Links": "https://civitai.work/models/112902?modelVersionId=351306",
+	"Version": "v2.1 Turbo DPM++ SDE",
+	"Tags": "ANIME ART ARTSTYLE PHOTOGRAPHY REALISTIC DREAMSHAPER TURBO XL SDXL",
+	"Usage_Tips": "Turbo version should be used at CFG scale 2 and with around 4-8 sampling steps. This should work only with DPM++ SDE Karras (NOT 2M). You can use this with LCM sampler, but don't do it unless you need speed vs quality.Sampler comparison at 8 steps: h66ttps://civitai.com/posts/951781",
+	"Author": "Lykon Diamond Creator Badge",
+	"ReMark": "You can use the Turbo version (not Lightning) as a non-Turbo model with DPM++ 2M SDE Karras / Euler at cfg 6 and 20-40 steps. Here is a comparison I made with some of the best non-Turbo XL models (with regular settings and turbo settings): h66ttps://civitai.com/posts/1414848 I have no idea why anyone would prefer 40 steps over 8, but you have the option."
+}

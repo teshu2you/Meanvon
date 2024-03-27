@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Jan 10, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/193834/realism-from-hades-xl?modelVersionId=293370",
+	"Version": "v3.0",
+	"Tags": "BASE MODEL PHOTOREALISTIC FUNNY ARTISTIC REALISTIC",
+	"Usage_Tips": "",
+	"Author": "DeViLDoNia Supporter Badge December 2023",
+	"ReMark": "Update v3.0 This version 3.0 marks the steps to follow for the future of Realism from HaDeS XL. In this update, the negative prompts are purely aesthetic and are only necessary to improve some specific detail in some images. To demonstrate this, all sample images have been created without a negative prompt and without rescaling. Tips, recomendations, favourite settings: Sampler: After testing with a multitude of samplers, DPM++ 2M Karras is my favorite without a doubt. Although DPM++ 3M SDE Exponential gives results with better colors, at high CFG, it also gives many errors. Steps: 20-50, with 30 being the setting I use the most. CFG: I normally use a scale between 10.5 - 14.5 (more than 14.5 the results are bad, with too many errors), although the model works well between 5 and 14.5, it will depend on the type of images you are looking to create.VAE: It's already included. Hires.fix: Not necessary but it can be useful sometimes. I sometimes use 4x-UltraSharp and 4x_fatal_Anime_500000_G.Upscaled by: It depends on your PC, for my garbager configuration I use 1.5, but on other machines I tried 2 and 2.5 and it rescaled perfectly.Give this model a lot of love, the reviews, five stars, questions and comments, your images filling the wall are appreciated, and as always... see you in the next update."
+}

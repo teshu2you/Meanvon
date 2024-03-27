@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Nov 25, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/210952/long-exposure-style-sdxl-lora?modelVersionId=237604",
+	"Version": "",
+	"Tags": "STYLE ART NIGHT PHOTOGRAPHY LIGHT EXPOSURE LONG EXPOSURE PHOTOGRAPHIC",
+	"Usage_Tips": "Trigger Words RAL-EXPOSURE",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger word: ral-exposure"
+}

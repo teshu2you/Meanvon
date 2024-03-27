@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Jan 26, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/161068/newrealityxl-all-in-one-photographic?modelVersionId=312982",
+	"Version": "2.1",
+	"Tags": "BASE MODEL PHOTOREALISTIC REALISM PHOTO PHOTOGRAPHY REALISTIC REAL PHOTOGRAPHIC LNHZ ALIENHAZE",
+	"Usage_Tips": "dpmpp_3m_sde/dmppp_sde + karras/ euler + normal, steps from 20-40, cfg 5-7",
+	"Author": "ALIENHAZE Supporter Badge January 2024",
+	"ReMark": "PHOTOGRAPHIC NEGATIVES: (high contrast, over saturated, glossy:1.1), (cartoon, 3d, 3d render, Photoshop, sketch, sketches, video game, draw, paint, painting, render, cgi, computer graphics, anime, manga, 2d art, 3d art, illustration:1.1), (canvas frame, watermark, signature, username, artist name:1.1),What's NewRealityXL?NewRealityXL intends to be a benchmark for my experimentation whose objective is to be as consistent as possible in the generation of photographic and photorealistic contents while maintaining a high level of creativity and imagination in the generation of the subject and the style of the image.I'm trying to work as much as possible to find the best parameters to perform the Merge, but the most difficult and time-consuming thing is to carry out the tests and analyzes on the quality of the resulting images and the variety of correct contents capable of creating.I therefore ask you, if you feel like it, to test the model and tell me all the critical issues, defects and shortcomings it presents so that I can concentrate as much as possible on offering you an increasingly high-performance model.Be a part of a growing community of digital artists and who are exploring the boundaries of AI-generated imagery. Share your creations, get inspired, and discover the endless potential of digital art."
+}

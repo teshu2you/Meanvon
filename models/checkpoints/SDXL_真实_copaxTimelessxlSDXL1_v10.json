@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Feb 15, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/118111/copax-timelessxl-sdxl10?modelVersionId=344540",
+	"Version": "V10",
+	"Tags": "BASE MODEL REALISM REALISTIC STYLES COPAXREALISTICXLSDXL1 COPAX TIMELESS XL",
+	"Usage_Tips": "Steps : 25~50 CFG : 7 DPM 3M++ SDE Exponential , DPM 3M++ SDE Karass, Euler a or DPM 2M ++ SDE Karass",
+	"Author": "Copax SDXL Training Contest Participant",
+	"ReMark": "Copax TimeLessXL Version V10 Adjust skin details, add more dark to images. Additional data on scenery, character appearance, pose, costumes, etc Recommend Steps : 25~50 CFG : 7 。You can also use hiresfix or After Detailer Sampling : DPM 3M++ SDE Exponential , DPM 3M++ SDE Karass, Euler a or DPM 2M ++ SDE Karass 。Nprompt:(worst quality, low quality, illustration, 3d, 2d), open mouth, tooth,ugly face, old face, long neck,"
+}

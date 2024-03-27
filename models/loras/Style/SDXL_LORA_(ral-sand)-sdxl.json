@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Nov 22, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/208699/sand-style-sdxl-lora?modelVersionId=235043",
+	"Version": "",
+	"Tags": "STYLE DESERT DRAGON CASTLE SAND STYLES DRY",
+	"Usage_Tips": "Trigger Words RAL-SAND",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger word: ral-sand"
+}

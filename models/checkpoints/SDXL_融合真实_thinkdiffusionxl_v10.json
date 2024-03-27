@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Oct 20, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/169868/thinkdiffusionxl?modelVersionId=190908",
+	"Version": "v1.0",
+	"Tags": "BASE MODEL",
+	"Usage_Tips": "",
+	"Author": "ThinkDiffusion Holiday 2023: Golden Donor",
+	"ReMark": "ThinkDiffusionXL is the result of our goal to build a go-to model capable of amazing photorealism that's also versatile enough to generate high-quality images across a variety of styles and subjects without needing to be a prompting genius.Data source: TDXL is trained on over 10,000 diverse images that span photorealism, digital art, anime, and more. The smallest resolution in our dataset is 1365x2048, but many images go up to resolutions as high as 4622x6753. In total, our dataset takes up 42GB.Training: With 1.8 million steps, we’ve put in the work. For comparison, Juggernaut is at 600k steps and RealVisXL is at 348k stepsHand-captioned images: Each image is carefully captioned by hand, enhancing the model's ability to generate accurate and high-quality results from minimal prompts.NSFW capabilities: The model includes over 1,000 tastefully curated NSFW images"
+}

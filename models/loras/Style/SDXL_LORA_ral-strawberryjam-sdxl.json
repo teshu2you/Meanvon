@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Dec 10, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/228484/strawberry-jam-style-sdxl?modelVersionId=257837",
+	"Version": "",
+	"Tags": "STYLE JAM STRAWBERRY STICKY",
+	"Usage_Tips": "Trigger Words RAL-STRAWBERRYJAM",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: ral-strawberryjam"
+}

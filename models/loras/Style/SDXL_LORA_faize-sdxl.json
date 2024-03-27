@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Nov 15, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/201098/fire-and-ice-style-lora-15sdxl?modelVersionId=226328",
+	"Version": "",
+	"Tags": "STYLE BLEND MIX FIRE ICE COMBINE MERGE COMBINED",
+	"Usage_Tips": "Trigger Words FAIZE",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: faize"
+}

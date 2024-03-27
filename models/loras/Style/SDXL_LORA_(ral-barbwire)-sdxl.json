@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Dec 23, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/241215/barbwire-style-sdxl?modelVersionId=272152",
+	"Version": "",
+	"Tags": "STYLE FENCE SECURITY BARBWIRE",
+	"Usage_Tips": "Trigger Words RAL-BARBWIRE",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: ral-barbwire"
+}

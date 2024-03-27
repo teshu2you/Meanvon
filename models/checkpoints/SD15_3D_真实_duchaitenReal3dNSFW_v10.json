@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Dec 14, 2023",
+	"Base": "SD 1.5",
+	"Links": "https://civitai.work/models/232442/duchaiten-real3d-nsfw",
+	"Version": "v1.0",
+	"Tags": "BASE MODEL 3D GIRLS REALISTIC NSFW",
+	"Usage_Tips": "",
+	"Author": "DucHaiten SDXL Training Contest Participant",
+	"ReMark": "This is a model specializing in realsitc 3D NSFW, so it's a bit lacking in variety in the prompts. The advantage of this model is that the Asian face is good-looking, but not too similar to the popular Asian faces today, a bit of my own style. I also increased the detail in the skin, and added quite a bit of big thick body rather than skinny Asian body.Note: please use my negative prompt correctly for best results. And remember to use hires fix with adetailer, strictly prohibit using face fix it's so bad, it makes me embarrassed Negative prompt:illustration, 3d, 2d, painting, cartoons, sketch, (worst quality:1.9), (low quality:1.9), (normal quality:1.9), lowres, bad anatomy, bad hands, vaginas in breasts, ((monochrome)), ((grayscale)), collapsed eyeshadow, multiple eyebrow, (cropped), oversaturated, extra limb, missing limbs, deformed hands, long neck, long body, imperfect, (bad hands), signature, watermark, username, artist name, conjoined fingers, deformed fingers, ugly eyes, imperfect eyes, skewed eyes, unnatural face, unnatural body, error, bad image, bad photo Sampling steps: 30 Sampling method: DPM++ 2M Karras CFG scale: 9"
+}

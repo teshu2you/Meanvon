@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Dec 15, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/232581/semiconductor-style-sdxl?modelVersionId=262526",
+	"Version": "",
+	"Tags": "COMPUTER SEMICONDUCTOR STYLES CHIPS RALFINGER MICROCHIP",
+	"Usage_Tips": "Trigger Words RAL-SEMICONDUCTOR",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: ral-semiconductor"
+}

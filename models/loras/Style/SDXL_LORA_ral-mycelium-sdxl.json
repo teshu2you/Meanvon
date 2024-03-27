@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Dec 27, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/244900/mycelium-style-sdxl?modelVersionId=276291",
+	"Version": "",
+	"Tags": "STYLE MUSHROOM MYTHICAL TRYPOPHOBIA SHROOMS MYCELIUM",
+	"Usage_Tips": "Trigger Words RAL-MYCELIUM",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: ral-mycelium"
+}

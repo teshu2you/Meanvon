@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Feb 26, 2024",
+	"Base": "SDXL Lightning",
+	"Links": "https://civitai.work/models/139562?modelVersionId=361593",
+	"Version": "V4.0 Lightning BakedVAE",
+	"Tags": "BASE MODEL PHOTOREALISTIC WOMAN MAN REALISTIC SEMI-REALISTIC NSFW SFW",
+	"Usage_Tips": "Use Lightning models with DPM++ SDE Karras / DPM++ SDE sampler, 4-6 steps and CFG Scale 1-2",
+	"Author": "SG_161222",
+	"ReMark": "Use Turbo models with DPM++ SDE Karras sampler, 4-10 steps and CFG Scale 1-2.5 Use Lightning models with DPM++ SDE Karras / DPM++ SDE sampler, 4-6 steps and CFG Scale 1-2Please pay attention to the model file name, the part of the name after the underscore is the true version of the model.The model is already available on Mage.Space (main sponsor)RealVisXL Hugging Face Full Collection It's important! Read it The model is still in the training phase. This is not the final version and may contain artifacts and perform poorly in some cases.RealVisXL V5.0 Status (Updated: Feb 15, 2024)- Training Images: +0 (V4.0: 3340)- Training Steps: +0k (V4.0: 672k)- Approximate percentage of completion: ~0%The model is aimed at photorealism. Can produce sfw and nsfw images of decent quality.Recommended Negative Prompt:(worst quality, low quality, illustration, 3d, 2d, painting, cartoons, sketch), open mouth or another negative prompt Recommended Generation Parameters Sampling Steps: 15-30+ Sampling Method: DPM++ 2M Karras / or another Hires Fix Parameters:Upscaler: 4x-UltraSharp upscaler / or another Denoising strength: 0.1-0.5 Upscale by: 1.1-1.5 Optional Parameters: ENSD: 31337"
+}

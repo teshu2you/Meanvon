@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Dec 29, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/162103?modelVersionId=278666",
+	"Version": "Turbo+LCM",
+	"Tags": "BASE MODEL NSFW",
+	"Usage_Tips": "",
+	"Author": "ErrethAkbe",
+	"ReMark": "-Turbo+LCM This model was created with the recipe below.( SDXL-Turbo + ( OnlyForNsfw118 - SDXL-Turbo ) ) + ( Latent Consistency Model (LCM) LoRA: SDXL : 0.5 ) + ( sd_xl_offset_example-lora_1.0 : 0.5 ),The recommended settings are Sampling method : DPM++ 2M SDE Exponential or DPM++ SDE Karras,Sampling steps : 8~ CFG Scale : 1.5 This model seems to generate no worse than the original."
+}

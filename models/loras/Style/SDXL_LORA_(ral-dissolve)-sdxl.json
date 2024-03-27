@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Dec 28, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/245889/dissolve-style-lora-15sdxl?modelVersionId=277389",
+	"Version": "SDXL",
+	"Tags": "STYLE STYLES BREAKING DISSOLVE TEARING",
+	"Usage_Tips": "Trigger Words RAL-DISSOLVE",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: ral-dissolve"
+}

@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Jan 15, 2024",
+	"Base": "SD 1.5",
+	"Links": "https://civitai.work/models/88173/duchaiten-darkniji",
+	"Version": "v2.0",
+	"Tags": "STYLE ANIME 3D HORROR REALISM NIJI NSFW NIJIV5",
+	"Usage_Tips": "",
+	"Author": "DucHaiten SDXL Training Contest Participant",
+	"ReMark": "For those who don't have a powerful enough GPU, or are just too lazy to install enough complex software to run the model. mage.space will be a great site for you, with the number of models increasing every month, including my model of course. Especially for only $15 per month you can have unlimited photo creation for yourself, no credit score, no time, absolutely truly unlimited photo creation in a month. Sampler: DPM++ 2M Karras Nprompt:illustration, 3d, 2d, painting, cartoons, sketch, (worst quality:1.9), (low quality:1.9), (normal quality:1.9), lowres, bad anatomy, bad hands, vaginas in breasts, ((monochrome)), ((grayscale)), collapsed eyeshadow, multiple eyebrow, (cropped), oversaturated, extra limb, missing limbs, deformed hands, long neck, long body, imperfect, (bad hands), signature, watermark, username, artist name, conjoined fingers, deformed fingers, ugly eyes, imperfect eyes, skewed eyes, unnatural face, unnatural body, error, bad image, bad photo"
+}

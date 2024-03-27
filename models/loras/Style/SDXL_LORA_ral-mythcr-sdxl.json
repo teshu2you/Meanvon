@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Dec 2, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/218327/mythical-creatures-lora-15sdxl?modelVersionId=246111",
+	"Version": "",
+	"Tags": "STYLE CREATURES MYTHICAL FAIRYTALES LEGENDS FABELWESEN",
+	"Usage_Tips": "Trigger Words RAL-MYTHCR",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: ral-mythcr vulpra, wolpertinger, mermaid, bigfoot, headless horseman, yeti, irrlicht, sphinx, easter bunny, griffin, wyvern, manticore, medusa, mandrake, gargoyle, wild hunt, firebird, mothman, kappa, yuki onna, shellycoat, abaddon, strigoi, nessie, house elf, dementor, jabberwock, belial, naga, draugr, djinn, lilith"
+}

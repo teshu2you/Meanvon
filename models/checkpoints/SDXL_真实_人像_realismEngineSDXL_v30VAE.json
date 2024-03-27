@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Jan 10, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/152525/realism-engine-sdxl?modelVersionId=293240",
+	"Version": "v3.0 vae",
+	"Tags": "BASE MODEL PHOTOREALISTIC REALISM ENGINE",
+	"Usage_Tips": "",
+	"Author": "razzz Holiday 2023: Golden Donor",
+	"ReMark": "Version 3.0 of the Realism Engine In this version we improved the skin realism, the eyes. We also improved the Male anatomy.Keep in mind that this is not a NSFW model. For that I recommend SDXXXL.Introducing Version 2.0 of the Realism EngineWe are excited to announce that Version 2.0 of the Realism Engine is now available, featuring significant enhancements.This updated model exhibits superior prompt responsiveness and offers markedly improved overall coherence, including more facial expressions, a greater variety of faces, more poses, and improved hands.Additionally, we have addressed several quirks from the previous version, such as the challenges in generating nighttime scenes and the issue where increasing the CFG Scale enhanced color vividness without proportionally adjusting contrast. While being capable of producing NSFW content it is less likely to produce it without asking.This version include the VAE to help newcomers with their setup.Realism Engine SDXL is hereVersion 1.0 is officially out.Here's the recommended setting for Auto1111Sampler: DPM++ 2S a,CFG scale range: 5-9,Hires sampler: DPM++ SDE Karras,Hires upscaler: ESRGAN_4x,Refiner switch at: 0.9 (ON THE FIRST PASS ONLY)"
+}

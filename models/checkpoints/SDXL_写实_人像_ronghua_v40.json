@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Dec 7, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/125634/sdxl-ronghua-or-or?modelVersionId=253479",
+	"Version": "v4.0",
+	"Tags": "BASE MODEL GUOFENG",
+	"Usage_Tips": "",
+	"Author": "fok3827 SDXL Training Contest Participant",
+	"ReMark": "4.0 is out!【容华】4.0发布！Big thanks to these friends for the buzz tips support! (Listed in no particular order, up to 2023/10/23): 9812chenditemin561、aibernardbittler714、Anbachi2021、chirenshuomeng、Dklove、dkorbat、firisu、jeffca2525105、jiutaogong、mmcCaterpillar、mr7th、nakaaachin、Radeux、rogerwang、Sini5555、spacemonkeyx01473、TracQuoc、wordsmaster、xibik10354751、yama4343、yi_yu、yuleirem123286、zhixuan08299144​ 3.0 is out! Man, this update felt like forever. We kicked off the training on September 12th, and it's been a ride since then with so many tweaks and adjustments. My graphics card and I? We're beat. Seriously, we both need a breather. But hey, good news! I've packed 3.0 with some cool surprises for you. It's like we've started from scratch, upping the game on the training set's quality and variety. And if you're into the ancient Chinese vibe, you're in for a treat with a bunch of new tags. Plus, we've learned from our past versions, so Ronghua 3.0? It's a whole lot smoother and more versatile.【容华】3.0发布，这次更新时间拖得很长，3.0从9月12号开始训练，期间没有过长时间停止（有很多很多次的回退和参数调整），无论是我还是显卡都到了一个极限，我们都要好好休息放松一下。言归正传，我在3.0为大家准备了非常多的惊喜，它是一个完完全全重新训练的版本，除了极大的完善了训练集的质量和种类，还扩充了非常多古风类标签，并且吸收了前面版本的训练经验，容华3.0无论平衡性还是兼容性都得到了质的提升。古风类标签：wuxia（武侠）xianxia fantasy（仙侠幻想）light hanfu（轻汉服，偏时尚）Hanfu photography（汉服写真）"
+}

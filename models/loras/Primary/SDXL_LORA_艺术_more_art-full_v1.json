@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Aug 31, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/124347/xlmoreart-full-xlreal-enhancer?modelVersionId=152309",
+	"Version": "xl_more_art-full_v1",
+	"Tags": "STYLE ANIME ANIMALS ART REALISM DETAILED ARMOR ILLUSTRATION DETAILED PHOTOREALISM REALISTIC LANDSCAPE DETAIL ENHANCER CREATIVE DETAILED TEXTURE DETAILER 3D CHARACTER REFINER PHOTOREALISIC",
+	"Usage_Tips": "",
+	"Author": "ledadu",
+	"ReMark": "All Sample image are made Base SDXL_1.0 with Hi-res fix only - (No refiner)This LoRas enhance/improve image to get more aesthetic/artistic/creative, detailled.xl_more_art-full_v1 this version is little more photorealistic than betas but you can also do anime/illustrations.Weight 0.8-1 is recommended but you ca push more than 1 on less detailled render. ^^This LoRa also contains a training for aerial photos (use ‘Aerial’ keywords), more details here : htt66ps://civitai.com/articles/2030/how-to-create-realistic-aerial-land-art"
+}

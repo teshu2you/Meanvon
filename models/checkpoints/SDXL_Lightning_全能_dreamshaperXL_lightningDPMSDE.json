@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Feb 22, 2024",
+	"Base": "SDXL Lightning",
+	"Links": "https://civitai.work/models/112902?modelVersionId=354657",
+	"Version": "Lightning DPM++ SDE",
+	"Tags": "ANIME ART ARTSTYLE PHOTOGRAPHY REALISTIC DREAMSHAPER TURBO XL SDXL",
+	"Usage_Tips": "Lightning version targets 3-6 sampling steps at CFG scale 2 and should also work only with DPM++ SDE Karras. Avoid going too far above 1024 in either direction for the 1st step.",
+	"Author": "Lykon Diamond Creator Badge",
+	"ReMark": "You can use the Turbo version (not Lightning) as a non-Turbo model with DPM++ 2M SDE Karras / Euler at cfg 6 and 20-40 steps. Here is a comparison I made with some of the best non-Turbo XL models (with regular settings and turbo settings): h66ttps://civitai.com/posts/1414848 I have no idea why anyone would prefer 40 steps over 8, but you have the option."
+}

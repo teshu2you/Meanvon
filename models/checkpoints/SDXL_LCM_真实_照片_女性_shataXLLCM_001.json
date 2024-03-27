@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Dec 4, 2023",
+	"Base": "SDXL 1.0 LCM",
+	"Links": "https://civitai.work/models/221029/shataxllcm?modelVersionId=249273",
+	"Version": "001",
+	"Tags": "BASE MODEL PHOTOREALISTIC SEXY FEMALE REALISTIC",
+	"Usage_Tips": "Suggestion:Sampling method: LCM Sampling steps: 7~12 CFG Scale: 1.5~2 ;Usage Tips CLIP SKIP: 1",
+	"Author": "Hustmox Holiday 2023: 15 lights",
+	"ReMark": "Used to create better realistic images.First of all, thank you very much for the work of the LCM research team, so that I can produce high quality images at such a fast speed, just 8 step.This is a model that produces a real effect of a high quality image, which can be used to make movie scenes and photos. I hope you like to use it.Do not use ADetailer unless the face is broken, you will find that the restored face will reduce a lot of detail.The biggest support for me is posting more pictures, :)Suggestion:Sampling method: LCM Sampling steps: 7~12 CFG Scale: 1.5~2 Attention: Please don't do anything illegal with this model. Thanks!!!"
+}

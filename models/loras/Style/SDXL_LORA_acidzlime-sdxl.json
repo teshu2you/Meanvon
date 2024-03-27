@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Oct 28, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/179353/acid-slime-bubbles-lora-15sdxl?modelVersionId=201277",
+	"Version": "",
+ 	"Tags": "STYLE SMOKE CLOUD SLIME BUBBLE ACID",
+	"Usage_Tips": "Trigger Words ACIDZLIME",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger word: acidzlime"
+}

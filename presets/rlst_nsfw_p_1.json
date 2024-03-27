@@ -1,0 +1,54 @@
+{
+    "default_model": "SDXL_奇幻_miamodelSFWNSFWSDXL_v20.safetensors",
+    "default_refiner": "None",
+    "default_refiner_switch": 0.5,
+    "default_loras": [
+        [
+            true,
+            "SDXL_FILM_PHOTOGRAPHY_STYLE_BetaV0.4.safetensors",
+            0.25
+        ],
+        [
+            true,
+            "None",
+            1.0
+        ],
+        [
+            true,
+            "None",
+            1.0
+        ],
+        [
+            true,
+            "None",
+            1.0
+        ],
+        [
+            true,
+            "None",
+            1.0
+        ]
+    ],
+    "default_cfg_scale": 3.0,
+    "default_sample_sharpness": 2.0,
+    "default_sampler": "dpmpp_2m_sde_gpu",
+    "default_scheduler": "karras",
+    "default_performance": "Speed",
+    "default_prompt": "",
+    "default_prompt_negative": "low quality, bad hands, bad eyes, cropped, missing fingers, extra digit",
+    "default_styles": [
+        "Fooocus V2",
+        "Fooocus Photograph",
+        "Fooocus Negative"
+    ],
+    "default_aspect_ratio": "896*1152",
+    "checkpoint_downloads": {
+        "realisticStockPhoto_v10.safetensors": "https://huggingface.co/lllyasviel/fav_models/resolve/main/fav/realisticStockPhoto_v10.safetensors"
+    },
+    "embeddings_downloads": {},
+    "lora_downloads": {
+        "SDXL_FILM_PHOTOGRAPHY_STYLE_BetaV0.4.safetensors": "https://huggingface.co/lllyasviel/fav_models/resolve/main/fav/SDXL_FILM_PHOTOGRAPHY_STYLE_BetaV0.4.safetensors"
+    },
+    "previous_default_models": [],
+	"remark": "Positive prompt tips to get higher quality images:(best quality), (masterpiece), (best lighting), (high detailed skin:1.0), detailed eyes, 8k uhd, dslr, soft lighting, best quality, film grain, Fujifilm XT3, Example 2:detailed and realistic close portrait of ................... portrait photography, magical photography, dramatic lighting, photo realism, ultra-detailed, intimate portrait composition, Leica 50mm, f1. 4 Example 3:masterpiece, best quality, (colorful), cinematic lighting, extremely detailed CG unity 8k wallpaper,"
+}

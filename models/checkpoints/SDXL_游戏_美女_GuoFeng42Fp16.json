@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT",
+	"NSFW": "True",
+	"Update_Date":"2023年10月25日 14:05",
+	"Base": "SDXL 1.0",
+	"Links": "https://tusiart.com/models/652585701864425297",
+	"Version": "4.2",
+	"Tags": "国风",
+	"Usage_Tips": "",
+	"Author": "小李xiaolxl",
+	"ReMark": "模型介绍-ModelIntroduction 欢迎使用GuoFeng4模型-这是一个中国华丽古风风格模型，也可以说是一个古风游戏角色模型，具有2.5D的质感。基于SDXL1.0训练，目前处于测试阶段。=====如果你的出图全身图时出现脸部崩坏建议删除fullbody关键词或者使用脸部自动修复插件：国外源地址：h66ttps://github.com/ototadana/sd-face-editor.git国内加速地址：h66ttps://jihulab.com/xiaolxl_pub/sd-face-editor.git======建议参数：采样器：DPM++2MSDEKarras提示词相关性(CFGScale)：8FaceEditor(或者其他修脸插件)：开启======模型C站链接：h66ttps://civitai.com/models/118009/4-guofeng4-xl"
+}

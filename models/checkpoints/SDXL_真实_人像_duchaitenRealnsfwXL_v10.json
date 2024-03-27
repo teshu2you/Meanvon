@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Jan 15, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://aitool.ai/model/150171",
+	"Version": "v1.0",
+	"Tags": "all in one base model nsfw",
+	"Usage_Tips": "",
+	"Author": "DucHaiten SDXL Training Contest Participant",
+	"ReMark": "Hello everyone, it’s been a while since I posted a new model. As the name suggests, this is a NSFW-oriented model, it can create many different styles, this is a hard-to-change feature of SDXL models, but this model of mine does best with realistic styles. It has both training and merger, I spent quite a bit of time with it just to balance NSFW and SFW, so the sex scenes will be cut down, but it’s not a big deal since there are a lot of Loras available now can help you do that, and I’ve deliberately made this model extremely suitable for use with those loras. I did this because I tried to create the model with the highest quality and best stability, too much NSFW makes the model lose its stability and artistic quality.PS: Denoising strength of hires fix should be set to 0.1, setting it too high will easily cause image distortion"
+}

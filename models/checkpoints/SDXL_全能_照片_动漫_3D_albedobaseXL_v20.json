@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Jan 1, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/140737/albedobase-xl?modelVersionId=281176",
+	"Version": "v2.0",
+	"Tags": "BASE MODEL ANIME 3D PHOTOREALISTIC ALL IN ONE 2D CINEMATIC GAME ULTIMATE UNIFY",
+	"Usage_Tips": "",
+	"Author": "albedobond Holiday 2023: Red Victory",
+	"ReMark": "Stable Diffusion XL has 6.6 billion parameters, which is about 6.6 times more than the SD v1.5 version. I believe that this is not just a number, but a number that can lead to a significant improvement in performance.It has been a while since we realized that the overall performance of SD v1.5 has improved beyond imagination thanks to the explosive contributions of our community. Therefore, I am working on completing this AlbedoBase XL model in order to optimally reproduce the performance improvement that occurred in v1.5 in this XL version as well.My goal is to directly test the performance of all Checkpoints and LoRAs that are publicly uploaded to Civitai, and merge only the resources that are judged to be optimal after passing through several filters. This will surpass the performance of image-generating AI of companies such as Midjourney.As of now, AlbedoBase XL v1.3 has merged exactly 141 selected checkpoints and 251 LoRAs."
+}

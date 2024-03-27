@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Feb 3, 2024",
+	"Base": "SD 1.5",
+	"Links": "https://civitai.work/models/290515/xenomorph-sfwnsfw-consistent-scenes-with-flexible-body-control",
+	"Version": "v1",
+	"Tags": "BASE MODEL PORTRAIT SCENERY TRANSFORMATION BREASTS WOMEN PHOTOREALISIC",
+	"Usage_Tips": "",
+	"Author": "iamxenos",
+	"ReMark": "In my quest to find that 'consistent' but 'flexible' workflow for storytelling, game creation, and the like, I started playing with some new ideas and concepts. I came to the realization that if I paired a 'Consistent' model with sliders/LoRas that could be used to 'step through' some transformation and fun sequences like that - it actually worked well. So I started playing with this. (Backstory and ingredients are listed at the end).XenoMORPH is a checkpoint that is both flexible and efficient at both portraits and scenery PLUS, it has been optimized for use with other LoRas and Sliders so that it holds the style and general aesthetic as best it can no matter what you throw at it. Many of the popular sliders and morphing type LoRas have been merged in here at VERY low levels to start out - so they don't really have much effect on the model, but then when you actually decide to 'use' that LoRa, the checkpoint has already been 'primed' so to speak. This means that changes to styles and outfits as you 'morph' your subject into other things change a lot less since it's already got the idea from that initial 'low level' merge as to where to go. In many cases that worked well - better than expected really. And in other cases, it doesn't seem to make a huge difference, but it's primed nonetheless.That means that:It should work well with most (decent) LoRas, Sliders, Embeds, etc.It pushes toward a realistic look, but style and aesthetic prompts and LoRas might change the 'shape' of things (at low levels anyway) without affecting the actual style. It reduces the tendency to, for example, go from a dark dungeon to a Barbie dreamhouse as you use your favorite transformation/slider type LoRas at different weights. It's not perfect, but does a REALLY good job, IMO.Handles simple prompts REALLY well, and does a pretty good job with (most) more complicated prompts. I did find a few avenues where things get a bit weird - but that's true with just about every checkpoint I've ever tried."
+}

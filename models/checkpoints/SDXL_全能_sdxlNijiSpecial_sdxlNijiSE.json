@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Sep 3, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/120765/sdxlnijispecial-edition?modelVersionId=154625",
+	"Version": "SDXL_Niji_SE",
+	"Tags": "STYLE MIDJOURNEY NIJI",
+	"Usage_Tips": "",
+	"Author": "Stan_Katayama SDXL Training Contest Participant",
+	"ReMark": "Hi all ! Special Edition is available!What's new?-the special edition has really better quality and also much less problem. This is the model as I would have liked to release it.A few tips for use:-Simple prompts can do wonders. When I say prompt simple, I mean don't add words like detailed, realistic or don't ask for a specific artist. Simply describe what you want to see -A cfg scale between 3 and 8.5 works (I recommend 7)-A minimum of 36 steps -Works great with Hires fix -Works great with unaestheticXLv31 embedding. The results are also very good without, sometimes better.-Sampling method: DPM++ 2M SDE Karras or DPM++ 2M Karras Have fun ! 😊"
+}

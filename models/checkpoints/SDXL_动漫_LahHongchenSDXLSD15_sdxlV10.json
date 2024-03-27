@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Oct 6, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/157665?modelVersionId=177115",
+	"Version": "",
+	"Tags": "BASE MODEL ANIME CHINESE NIJI STYLE ART",
+	"Usage_Tips": "",
+	"Author": "LahIntheFutureland SDXL Training Contest Participant",
+	"ReMark": "add ‘illustration’ for more stroke and 2D style Recommend:CFG scale: 3-9 Sampling Step: 30-60 Sampling Method: DPM++ 2M SDE Karras or Euler a ADetailer ON"
+}

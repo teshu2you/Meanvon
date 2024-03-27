@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Dec 25, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/243123/3d-cube-style-sdxl?modelVersionId=274319",
+	"Version": "",
+	"Tags": "STYLE 3D VOXEL MINECRAFT CUBED CUBES",
+	"Usage_Tips": "Trigger Words RAL-3DCUBES",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: ral-3dcubes"
+}

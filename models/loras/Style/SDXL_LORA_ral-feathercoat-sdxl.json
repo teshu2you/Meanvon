@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Nov 28, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/214969/federkleid-lora-15sdxl?modelVersionId=242189",
+	"Version": "",
+	"Tags": "CLOTHING DRESS CLOTHES FEATHERS COAT PEACOCK FEATHER BOA CLOTHING STYLE CLOTHING DESIGN",
+	"Usage_Tips": "Trigger Words RAL-FEATHERCOAT",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: ral-feathercoat"
+}

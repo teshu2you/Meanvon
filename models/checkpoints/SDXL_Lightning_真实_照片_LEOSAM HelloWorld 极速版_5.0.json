@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Feb 22, 2024",
+	"Base": "SDXL Lightning",
+	"Links": "https://civitai.work/models/118111/copax-timelessxl-sdxl10?modelVersionId=344540",
+	"Version": "HW5.0_Euler_a_Lightning",
+	"Tags": "PHOTOREALISTIC PHOTO WOMAN REALISTIC REAL",
+	"Usage_Tips": "Sampler: Eular a CFG scale: 1 Sampling steps: 8 steps (6~8 steps are acceptable) Hires algorithm: ESRGAN 4x / 8x_NMKD-Faces_160000_G Hires Upscale factor: 1.5x Hires steps: 8 steps Hires Denoising strength: 0.3",
+	"Author": "LEOSAM",
+	"ReMark": "This model is a run-accelerated version of the HelloWorld SDXL base model, incorporating both SDXL-Lightning technologies. Equipped with the Eular a sampler and CFG 1, it is capable of generating images in 6-8 steps, which is three times faster than the original SDXL version. Moreover, upon comparison, its imaging results are superior to those of LCM or Turbo versions."
+}

@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"2023年10月29日 18:02",
+	"Base": "SD1.5",
+	"Links": "https://tusiart.com/models/654131078342252097",
+	"Version": "v1.2",
+	"Tags": "摄影 动漫",
+	"Usage_Tips": "推荐权重0.6-0.9",
+	"Author": "我是麻袋",
+	"ReMark": "推荐权重0.6-0.9 会出一些比较较刁钻的视角(需抽卡)由于审核的原因,例图会比较收敛一些,咳咳,...V1版本和TAG直出差不了太多,也不稳定,通宵更新了V1.2版本.真人二次元底模都适用,角度LORA,从下往上的视角.TAG用 from below,full body,Fisheyelens,walking,其他自己调整推荐权重0.5-0.8之间 例图底模:LSP2.5D_NSFW"
+}

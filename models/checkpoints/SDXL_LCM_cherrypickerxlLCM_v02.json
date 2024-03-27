@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Dec 1, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/125680?modelVersionId=245878",
+	"Version": "",
+	"Tags": "STYLE 3D PHOTOREALISTIC WOMAN",
+	"Usage_Tips": "896x896or higher.",
+	"Author": "tkvier Failed Generation Contest Participant",
+	"ReMark": "Cherry Picker XL A photorealistic model that merges carefully selected models.About This model is a model that has been carefully selected and merged with real models.このモデルはリアル系モデルを厳選してマージしたモデルですInfomationSince it is a SDXL base model, you cannot use LoRA and others from SD1.x or SD2.x.SDXLベースモデルなので、SD1.xやSD2.xのLoRAなどは使用できません。The recommended resolution for the generated images is 896x896or higher.生成画像の解像度は896x896以上がおすすめです。The quality will be poor at 512x512.512x512では画質が悪くなります。"
+}

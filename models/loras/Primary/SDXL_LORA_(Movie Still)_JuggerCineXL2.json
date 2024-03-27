@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Aug 3, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/120663/juggernaut-cinematic-xl-lora?modelVersionId=131991",
+	"Version": "Version 2",
+	"Tags": "STYLE CINEMATIC CINEMATIC LIGHTING CHARACTERS MOVIE STILL",
+	"Usage_Tips": "STEPS: 8,100 EPOCHS: 100 | Trigger Words--》 MOVIE STILL，FILM STILL，CINEMATIC，CINEMATIC SHOT，CINEMATIC LIGHTING",
+	"Author": "KandooAI Holiday 2023: Golden Donor",
+	"ReMark": "Version 2 is ready with 8100 Steps, its now way more stable then the first release.This Time the images are made with RunDiffusion XL .Its just the RAW Output with the LoRA . You can refine it with every Model u like (for example : SDXL Refiner, RunDiffusion XL, Juggernaut ;) )Hope to see some of your masterpieces in the gallery :)Hi my Friends here I am again.While Juggernaut is still in the queue, of course, I have tried first attempts with a few LoRAs. Most of the attempts were completely uninteresting and did not create any added value for the community, so I did not even upload them.The SDXL base version already has a large knowledge of cinematic stuff.However, I wanted to focus on it a bit more and therefore decided for a cinematic LoRA project. The whole thing is still in a really early stage (35 epochs, about 3000 steps), but already delivers good output :) (Better Cinematic Lighting for example, Skin Texture is a bit better)The first 10 pictures are the raw output from SDXL and the LoRA at :1 The last 10 pictures are 1.5 upscaled with Juggernaut Aftermath (but you can of course also use the XL Refiner)If you like the model and want to see its further development, feel free to write it in the comments. Post some of your creations and leave a rating in the best case ;)"
+}

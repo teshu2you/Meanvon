@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoints Merge",
+	"NSFW": "True",
+	"Update_Date":"",
+	"Base": "SDXL 1.0",
+	"Links": "https://aitool.ai/model/122608",
+	"Version": "v2",
+	"Tags": "CHECKPOINTbase model female girls nsfw person PHOTOREALISTIC portraits realistic sexy woman",
+	"Usage_Tips": "https://civitai.work/models/122608/miamodel-sfw-and-nsfw-sdxl?modelVersionId=145196",
+	"Author": "mia286",
+	"ReMark": "For this merge I did a lot of tests with different values, which I don’t remember exactly. What I do know is the “recipe” for merge:talmendoxlSDXL_v11Beta (by talmendo) + xl6HEPHAISTOSSD10XLSWF_v10 (by Afroman4peace) = MiaModel_v1altxl_v30 (by altron) + MiaModel_v1 = MiaModel_v2 The idea of the merge is to get the maximum power from the models used until reaching a model that offers incredible results in almost all the generations carried out. Positive prompt tips to get higher quality imagesExample 1:(best quality), (masterpiece), (best lighting), (high detailed skin:1.0), detailed eyes, 8k uhd, dslr, soft lighting, best quality, film grain, Fujifilm XT3, …….. …………Example 2:detailed and realistic close portrait of ………………. portrait photography, magical photography, dramatic lighting, photo realism, ultra-detailed, intimate portrait composition, Leica 50mm, f1. 4Example 3:masterpiece, best quality, (colorful), cinematic lighting, extremely detailed CG unity 8k wallpaper, ……………….."
+}

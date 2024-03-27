@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Jun 30, 2023",
+	"Base": "SD 1.5",
+	"Links": "https://civitai.work/models/71590/wrav-china?modelVersionId=107114",
+	"Version": "v1.0",
+	"Tags": "CELEBRITY JAV JAPANESE GIRL JAPANESE IDOL",
+	"Usage_Tips": "pureerosface_v1, best quality, photorealistic, 8k, high res, full color, 1girl, woman, 20 years old woman, (closed mouth:1.2), (skindentation), (portrait:0.6), trees, park bench, daylight, ((park background:1.52)), full color, ((necksweater:1.68)), straight-looking at viewer:1.8, (1girl eyes looking at viewer:1.55), (short-length hair, blackhair, partedhair:1.45), (bokeh), lora:AAV-china:0.7 Training STEPS: 3,000 EPOCHS: 50 Usage Tips CLIP SKIP: 2",
+	"Author": "warrensky Holiday 2023: Red Victory",
+	"ReMark": "Use any checkpoint based on SD1.5 its 768,768 image turn on Hires.fix (or not, please experiment with it yourself) Hires steps: 10-17, denoising:04-65 ish.. just try it yourself CGE: 4-7 Use ERSGAN 4X+Anime 6B, DPM++ 2M Karras or DPM++ SDE Karras Use 20-50 sampling steps Strength: 0.4-1 I suggest turn off the restore faces check mark for better results of this Lora She might look like someone from real life, but she is not what you think. She is a totally fictional character."
+}

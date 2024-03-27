@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Nov 29, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/215185/dream-guardian-lora-15sdxl?modelVersionId=242446",
+	"Version": "1.0",
+	"Tags": "CHARACTER ANIME FICTIONAL CHARACTER CHARACTER STUDY",
+	"Usage_Tips": "Trigger Words RAL-DREAMGUARDIAN",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger: ral-dreamguardian"
+}

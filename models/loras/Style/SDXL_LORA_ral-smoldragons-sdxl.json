@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Dec 15, 2023",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/233316/smol-dragons-lora-15sdxl?modelVersionId=263231",
+	"Version": "",
+	"Tags": "STYLE ANIMALS DRAGONS CHIBI CUTE DRAGON SMALL SMOL CHIBISTYLE",
+	"Usage_Tips": "Trigger Words RAL-SMOLDRAGONS",
+	"Author": "RalFinger Diamond Style Badge",
+	"ReMark": "Trigger word: ral-smoldragons"
+}
