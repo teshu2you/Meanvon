@@ -12,7 +12,7 @@ __pycache__
 *.incomplete
 *.tar
 *.dll
-/sdxl_styles_samples
+/sdxl_styles_samples/*.png
 *.xlsx
 *.corrupted
 *.partial

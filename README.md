@@ -1,6 +1,13 @@
 # Meanvon
 meavon is a self-hosted integrated AI tool that can generate all kinds of pictures and videos. You can run it on your own computer, not to need to rely on high-perform GPU cloud servers. just start with 4GB GPU RAM. 
 
+Based on the following libs --
+# Github
+📚 Fooocus 📚 Fooocus-MRE 📚 Fooocus-API 📚 RuinedFooocus
+📚 stable-diffusion-webui 📚 stable-diffusion-webui-forge
+📚 ComfyUI
+📚 biniou
+
 # Updates
 - 2024.03.27
 - -  init version
@@ -72,7 +79,6 @@ This application uses the following softwares and technologies :
 * MusicLDM : MusicLDM
 * Bark : text2speech
 * AnimateLCM : txt2vid
-... and all their dependencies
 
 # BUG Fix
 - fix1:
