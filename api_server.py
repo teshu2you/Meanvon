@@ -90,8 +90,8 @@ if __name__ == "__main__":
     if pc.prepare_environments(args):
         sys.argv = [sys.argv[0]]
 
-        task_schedule_thread = Thread(target=task_schedule_loop(request_source="api"), daemon=True)
-        task_schedule_thread.start()
+        # task_schedule_thread = Thread(target=task_schedule_loop(request_source="api"), daemon=True)
+        # task_schedule_thread.start()
 
         # Start api server
         from adapter.api import start_app

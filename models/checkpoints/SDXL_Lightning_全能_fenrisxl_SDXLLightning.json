@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Mar 3, 2024",
+	"Base": "SDXL Lightning",
+	"Links": "https://civitai.work/models/122793/fenrisxl?modelVersionId=370565",
+	"Version": "",
+	"Tags": "ANIMAL ANIME LANDSCAPES ANIMALS CITY DARK CREATURES PHOTOREALISTIC FEMALE GENERAL PURPOSE ART DIGITAL ART CYBERPUNK DYSTOPIAN CLOTHES EPIC WOMAN ANTHRO CARS FANTASY GAME CHARACTER MAN PORTRAITS REALISTIC WOLF CREATURE WEAPON POSTAPOCALYPSE BACKGROUNDS SDXL LIGHTNING",
+    "Usage_Tips": "teps: 8 CFG: 1-2 Sampler:  euler Scheduler: sgm_uniform  |  STEPS: 1,900,000",
+	"Author": "freek22",
+	"ReMark": "Fenris ( Fenrisúlfr) , Fenrir or also old norse Vánagandr , the First son of Loki it is foretold that he will kill Odin in Ragnarok.....This model was actually made for animals and creatures but with the further progress of the model it's also good as an general model for all sorts of generations. needs no refiner because the base model was XL6 HEPHAISTOS Details about Current Version V16.4 for FenrisXL [SDLX Lightning] see changelog:I used some parts of my general use model Bifröst Project to update the model.i can highly recommend also to check out also this model ;-) too more Photorealistic more consistent runs better on low cfg and step count more flexible In my tests it was better to hold the CFG and steps a bit more down (4-7) then in V15.8 I made an CFG matrix for this model see gallery"
+}

@@ -347,7 +347,7 @@ class taskManager:
 
             args.reverse()
 
-            self.current_task = args.pop()
+            # self.current_task = args.pop()
             self.generate_image_grid = args.pop()
 
             self.prompt = args.pop()
@@ -534,7 +534,7 @@ class taskManager:
 
         print(f"queue_task:{queue_task.__dict__}")
         print(f"worker_queue:{worker_queue.__dict__}")
-        # print(f"async_task:{async_task.__dict__}")
+        print(f"async_task:{async_task.__dict__}")
         worker_queue.start_task(queue_task.job_id)
         printF(name=MasterName.get_master_name(),
                info="[Task Queue] Task queue start task, job_id={}".format(queue_task.job_id)).printf()
@@ -605,11 +605,16 @@ class taskManager:
     def yield_result(self, async_task, imgs, do_not_show_finished_images=False):
         if not isinstance(imgs, list):
             imgs = [imgs]
+
         if self.request_source == "webui":
             async_task.results = async_task.results + imgs
 
             if do_not_show_finished_images:
                 return
+
+            for r in async_task.results[:]:
+                if isinstance(r, ImageGenerationResult):
+                    async_task.results.remove(r)
 
             async_task.yields.append(['results', async_task.results])
             return
@@ -903,8 +908,12 @@ class taskManager:
             self.fixed_steps = constants.STEPS_LCM
             printF(name=MasterName.get_master_name(), info="[Warning] Enter LCM mode.").printf()
             self.progressbar(async_task, 1, 'Downloading LCM components ...')
-            self.loras += [[True, modules.config.downloading_sdxl_lcm_lora(), 1.0]]
+            if self.loras == [[]]:
+                self.loras[0] = [True, modules.config.downloading_sdxl_lcm_lora(), 1.0]
+            else:
+                self.loras += [[True, modules.config.downloading_sdxl_lcm_lora(), 1.0]]
 
+            self.loras = list(set(self.loras))
             if self.refiner_model_name in ['None', 'Not Exist!->']:
                 printF(name=MasterName.get_master_name(), info="[Warning] Refiner disabled in LCM mode.").printf()
                 self.refiner_model_name = 'None'
@@ -926,8 +935,12 @@ class taskManager:
             self.fixed_steps = constants.STEPS_TURBO
             printF(name=MasterName.get_master_name(), info="[Warning] Enter TURBO mode.").printf()
             self.progressbar(async_task, 1, 'Downloading TURBO components ...')
-            self.loras += [[True, modules.config.downloading_sdxl_turbo_lora(), 1.0]]
+            if self.loras == [[]]:
+                self.loras[0] = [True, modules.config.downloading_sdxl_turbo_lora(), 1.0]
+            else:
+                self.loras += [[True, modules.config.downloading_sdxl_turbo_lora(), 1.0]]
 
+            self.loras = list(set(self.loras))
             if self.refiner_model_name in ['None', 'Not Exist!->']:
                 printF(name=MasterName.get_master_name(), info="[Warning] Refiner disabled in TURBO mode.").printf()
                 self.refiner_model_name = 'None'
@@ -951,8 +964,12 @@ class taskManager:
             self.progressbar(async_task, 1, 'Downloading Lightning components ...')
             printF(name=MasterName.get_master_name(), info="[Warning] force to replace the 1st lora.").printf()
             print(f"self.loras: {self.loras}")
-            self.loras[0] = [True, modules.config.downloading_sdxl_lightning_lora(), 1.0]
+            if self.loras == [[]]:
+                self.loras[0] = [True, modules.config.downloading_sdxl_lightning_lora(), 1.0]
+            else:
+                self.loras += [[True, modules.config.downloading_sdxl_lightning_lora(), 1.0]]
 
+            self.loras = list(set(self.loras))
             if not self.switch_sampler:
                 self.sampler_name = advanced_parameters.sampler_name = 'euler'
                 self.scheduler_name = advanced_parameters.scheduler_name = 'sgm_uniform'
@@ -1892,17 +1909,19 @@ class taskManager:
                     continue
                 else:
                     print('User stopped')
-                    self.results.append(ImageGenerationResult(
-                        im=None, seed=task['task_seed'], finish_reason=GenerationFinishReason.user_cancel))
-                    queue_task.set_result(task_result=self.results, finish_with_error=True, error_message=str(e))
+                    if self.request_source == "api":
+                        self.results.append(ImageGenerationResult(
+                            im=None, seed=task['task_seed'], finish_reason=GenerationFinishReason.user_cancel))
+                        queue_task.set_result(task_result=self.results, finish_with_error=True, error_message=str(e))
                     break
             except Exception as e:
                 printF(name=MasterName.get_master_name(),
                        info="[Error] Process error: {}".format(e)).printf()
                 logging.exception(e)
-                self.results.append(ImageGenerationResult(
-                    im=None, seed=task['task_seed'], finish_reason=GenerationFinishReason.error))
-                queue_task.set_result(task_result=self.results, finish_with_error=True, error_message=str(e))
+                if self.request_source == "api":
+                    self.results.append(ImageGenerationResult(
+                        im=None, seed=task['task_seed'], finish_reason=GenerationFinishReason.error))
+                    queue_task.set_result(task_result=self.results, finish_with_error=True, error_message=str(e))
                 break
 
             execution_time = time.perf_counter() - execution_start_time
@@ -1978,9 +1997,13 @@ class taskManager:
             metadata_string.append(
                 ('FreeU', 'freeu', str((self.freeu_b1, self.freeu_b2, self.freeu_s1, self.freeu_s2))))
 
-        for idx, mmm in enumerate(self.loras):
-            if mmm[1] not in ['None', 'NONE', "Not Exist!->"]:
-                metadata_string.append((f'LoRA {idx + 1}', f'lora_combined_{idx + 1}', f'{mmm[1]} : {mmm[2]}'))
+        if self.loras == [[]]:
+            metadata_string.append(
+                ('LoRA', 'lora', 'none:none'))
+        else:
+            for idx, mmm in enumerate(self.loras):
+                if mmm[1] not in ['None', 'NONE', "Not Exist!->"]:
+                    metadata_string.append((f'LoRA {idx + 1}', f'lora_combined_{idx + 1}', f'{mmm[1]} : {mmm[2]}'))
 
         execution_time = time.perf_counter() - self.execution_start_time
         metadata_string.append(('Execution Time', 'time', f'{execution_time:.2f} seconds'))
@@ -2041,15 +2064,15 @@ def task_schedule_loop(request_source="api"):
     printF(name=MasterName.get_master_name(), info="[Function] Enter-> task_schedule_loop").printf()
     global worker_queue, queue_task
     task_manager = taskManager(request_source=request_source)
-    # _tq = TaskQueue(queue_size=5, hisotry_size=0)
+    async_tasks = task_manager.async_tasks
 
     igp = ImageGenerationParams()
 
     print(f"worker_queue:{worker_queue.__dict__}")
     worker_queue.add_task(type=adapter.task_queue.TaskType.text_2_img, req_param=igp)
     queue_task = QueueTask(job_id=worker_queue.last_job_id, type=adapter.task_queue.TaskType.text_2_img,
-                    req_param=igp,
-                    in_queue_millis=int(round(time.time() * 1000)))
+                           req_param=igp,
+                           in_queue_millis=int(round(time.time() * 1000)))
     worker_queue.queue.append(queue_task)
     worker_queue.queue[0].start_millis = 0
 
@@ -2062,8 +2085,15 @@ def task_schedule_loop(request_source="api"):
                     time.sleep(0.1)
                     continue
 
-                current_task = worker_queue.queue[0]
-                if current_task.start_millis == 0:
+                if not async_tasks:
+                    current_task = task_manager.AsyncTask
+                    current_task.last_stop = False
+                    current_task.processing = False
+                    current_task.yields = []
+                    current_task.results = []
+                else:
+                    current_task = async_tasks.pop(0)
+                if worker_queue.queue[0].start_millis == 0:
                     print(
                         f"current_task:{current_task.__dict__} \nworker_queue:{worker_queue.__dict__}")
                     task_manager.process_generate(current_task, wq=worker_queue, qt=queue_task)

@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"Mar 7, 2024",
+	"Base": "SD 1.5",
+	"Links": "https://www.civitai.work/models/337736/igawa-asagi-hentai-taimanin-asagi-sd-15-ponyxl-nsfw?modelVersionId=378155",
+	"Version": "v1.0",
+ 	"Tags": "CHARACTER ANIME SEXY FEMALE WOMAN GAME CHARACTER GIRLS VIDEO GAME LORA KUNOICHI",
+	"Usage_Tips": "IgawaAsagi 1girl, long hair, hair between eyes, black hair, blue hair, green eyes, purple bodysuit, bare shoulders, elbow gloves, fishnets, high heel boots orange sweater dress, pantyhose, no shoes white blouse, frills, pencil skirt, pantyhose, high heels short hair, hair up, folded ponytail bride, bridal gauntlet, bridal beil, white thighhighs, wedding dress",
+	"Author": "Enigmata Bronze Mature Badge",
+	"ReMark": "PonyDiffusion v6 (SDXL) settings (for 1.5 scroll down):It is my first SDXL-based LoRA. So it is little experimental. PonyDiffusion has specific style (sometimes shitty) but it is more interesting in concepts and it understands natural language (not only tags).Style settings:score_9, score_8_up, score_7_up, score_6_up, source_anime, masterpiece, high quality, source_hentai, uncensored, kagami hirotaka Also you can change or remove artist but Kagami Hirotaka is author of Taimanin girls and Pony knows his style!Negative prompt:lowres, censored, mosaic censoring, bad perspective, blurry, bloom, bad anatomy, deformed, head out of frame, watermark, worst quality, low quality, jpeg artifacts Last is important because sadly Pony generate jpeg artefacts.Character prompt:The same as in SD 1.5 version but I highly recommend use natural language + tags:1) style tags2) Sentence (for example, IgawaAsagi is standing with crossed arms and smiles)3) tags for concepts, camera, face, body, clothes, background, etc.Preview images can help.Remember that it is experimental LoRA because nobody knows optimal settings and Pony is very smart checkpoint but it lacks styles. It is still wild west of Stable Diffusion.So I strongly recommend use artist tags with score and source_ (like Kagami Hirotaka or maybe Takeda Hiromitsu) or these style LoRAs which can help you too"
+}

@@ -96,18 +96,21 @@ def get_task(*args):
     return task_manager.AsyncTask(args=args)
 
 
-def generate_clicked(*args):
+def generate_clicked(task: task_manager.AsyncTask):
     import ldm_patched.modules.model_management as model_management
 
     with model_management.interrupt_processing_mutex:
         model_management.interrupt_processing = False
 
     # outputs=[progress_html, progress_window, progress_gallery, gallery]
-    execution_start_time = time.perf_counter()
 
-    # task = worker.AsyncTask(args=list(args))
-    task = task_manager.AsyncTask(args=list(args))
+    if len(task.args) == 0:
+        return
+
+    execution_start_time = time.perf_counter()
     finished = False
+    # task = worker.AsyncTask(args=list(args))
+    # task = task_manager.AsyncTask(args=list(args))
 
     yield gr.update(visible=True, value=modules.html.make_progress_html(1, 'Waiting for task to start ...')), \
         gr.update(visible=True, value=None), \
@@ -118,6 +121,7 @@ def generate_clicked(*args):
         gr.update(), \
         gr.update(value=None), \
         gr.update()
+
     task_manager.async_tasks.append(task)
 
     while not finished:
@@ -128,12 +132,12 @@ def generate_clicked(*args):
             # progress_gallery   gallery=output_gallery , both in gallery_tabs, gallery_tabs in gallery_holder
             # progress_html, progress_window, remain_images_progress, gallery_holder, output_gallery, progress_gallery, finish_image_viewer, metadata_viewer, gallery_tabs
             if flag == 'preview':
-                percentage, title, image, img_pp, img_rr = product
                 # help bad internet connection by skipping duplicated preview
                 if len(task.yields) > 0:  # if we have the next item
                     if task.yields[0][0] == 'preview':  # if the next item is also a preview
                         # print('Skipped one preview for better internet connection.')
                         continue
+                percentage, title, image, img_pp, img_rr = product
                 yield gr.update(visible=True, value=modules.html.make_progress_html(percentage, title)), \
                     gr.update(visible=True, value=image) if image is not None else gr.update(), \
                     gr.update(visible=True,
@@ -152,7 +156,7 @@ def generate_clicked(*args):
                 yield gr.update(visible=True), \
                     gr.update(visible=True), \
                     gr.update(visible=True, value="Partially done"), \
-                    gr.update(visible=True), \
+                    gr.update(visible=False), \
                     gr.update(), \
                     gr.update(visible=True, value=product) if product is not None else gr.update(visible=False), \
                     gr.update(open=True), \
@@ -1862,7 +1866,7 @@ with (gr.Blocks(
                 def stop_clicked(currentTask):
                     import ldm_patched.modules.model_management as model_management
                     currentTask.last_stop = 'stop'
-                    if (currentTask.processing):
+                    if currentTask.processing:
                         model_management.interrupt_current_processing()
                     return currentTask
 
@@ -1870,7 +1874,7 @@ with (gr.Blocks(
                 def skip_clicked(currentTask):
                     import ldm_patched.modules.model_management as model_management
                     currentTask.last_stop = 'skip'
-                    if (currentTask.processing):
+                    if currentTask.processing:
                         model_management.interrupt_current_processing()
                     return currentTask
 
@@ -3162,7 +3166,6 @@ with (gr.Blocks(
                               outputs=[stop_button, skip_button, generate_button, output_gallery,
                                        state_is_generating]) \
             .then(fn=refresh_seed, inputs=[seed_random, image_seed], outputs=image_seed) \
-            .then(fn=get_task, inputs=ctrls, outputs=currentTask) \
             .then(fn=verify_enhance_image, inputs=[image_factory_checkbox, img2img_mode], outputs=[img2img_mode]) \
             .then(fn=verify_input,
                   inputs=[img2img_mode, control_lora_canny, control_lora_depth, input_gallery, revision_gallery,
@@ -3170,7 +3173,8 @@ with (gr.Blocks(
                   outputs=[img2img_mode, control_lora_canny, control_lora_depth, input_gallery]) \
             .then(fn=verify_revision, inputs=[revision_mode, input_gallery, revision_gallery, output_gallery],
                   outputs=[revision_mode, revision_gallery]) \
-            .then(fn=generate_clicked, inputs=ctrls + [input_gallery, revision_gallery, keep_input_names],
+            .then(fn=get_task, inputs=ctrls + [input_gallery, revision_gallery, keep_input_names], outputs=currentTask) \
+            .then(fn=generate_clicked, inputs=currentTask,
                   outputs=[progress_html, progress_window, remain_images_progress, gallery_holder, output_gallery,
                            progress_gallery, finish_image_viewer,
                            metadata_viewer, gallery_tabs]) \

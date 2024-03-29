@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Mar 22, 2024",
+	"Base": "SDXL Lightning",
+	"Links": "https://www.civitai.work/models/118111?modelVersionId=404559",
+	"Version": "V11-lightning",
+	"Tags": "BASE MODEL REALISM REALISTIC STYLES COPAXREALISTICXLSDXL1 COPAX TIMELESS XL",
+	"Usage_Tips": "Recommend Steps : 8~15 CFG : 1 Dimension: 768x1024, 1024x1024 DPM 2M ++ SDE Karass",
+	"Author": "KandooAI Holiday 2023: Golden Donor",
+	"ReMark": "Copax TimeLessXL Version V11-lightning The model is combined with the lightning model to get good image quality at a low number of steps model work at step 8 and CFG 1. You can increase the number of steps to about 13 if you want finer detail. You can also try other settings but some of them may not work well Recommend Steps : 8~15 CFG : 1 Dimension: 768x1024, 1024x1024 (error may occur when using 576x1024 with adetailer) You can also using After Detailer for face Don't using Hires fix or setting denoising strength value at 0 when using hires fix. May affect the color of the photo Sampling :DPM 2M ++ SDE Karass Nprompt:(worst quality, low quality, illustration, 3d, 2d), open mouth, tooth,ugly face, old face, long neck,"
+}

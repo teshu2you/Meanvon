@@ -252,6 +252,9 @@ def refresh_loras(loras, base_model_additional_loras=None, performance_selection
            info="[Parameters] performance_selection = {}".format(performance_selection)).printf()
     printF(name=MasterName.get_master_name(), info="[Parameters] loras = {}".format(loras)).printf()
 
+    if loras == [[]]:
+        return
+
     for k in loras:
         for enable, name, weight in loras:
             if "Not Exist" in name:

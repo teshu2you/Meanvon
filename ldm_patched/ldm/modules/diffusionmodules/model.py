@@ -280,7 +280,6 @@ class AttnBlock(nn.Module):
                                    padding=0)
 
         if model_management.xformers_enabled_vae():
-            print("")
             printF(name=MasterName.get_master_name(), info="Using xformers attention in VAE").printf()
             self.optimized_attention = xformers_attention
         elif model_management.pytorch_attention_enabled():

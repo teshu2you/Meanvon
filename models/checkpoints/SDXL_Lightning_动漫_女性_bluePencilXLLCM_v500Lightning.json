@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Mar 2, 2024",
+	"Base": "SDXL Lightning",
+	"Links": "https://civitai.work/models/202108/bluepencil-xl-lcm-lightning?modelVersionId=369896",
+	"Version": "v5.0.0",
+	"Tags": "BASE MODEL ANIME FEMALE LCM",
+	"Usage_Tips": "",
+	"Author": "blue_pen5805 404 Image Contest Participant",
+	"ReMark": "variant of blue_pencil-XL"
+}

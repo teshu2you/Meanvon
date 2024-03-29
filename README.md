@@ -1,12 +1,15 @@
 # Meanvon
 meavon is a self-hosted integrated AI tool that can generate all kinds of pictures and videos. You can run it on your own computer, not to need to rely on high-perform GPU cloud servers. just start with 4GB GPU RAM. 
 
-Based on the following libs --
-# Github
-📚 Fooocus 📚 Fooocus-MRE 📚 Fooocus-API 📚 RuinedFooocus
-📚 stable-diffusion-webui 📚 stable-diffusion-webui-forge
-📚 ComfyUI
-📚 biniou
+# Based on the following Github:
+1. 📚 Fooocus 
+2. 📚 Fooocus-MRE 
+3. 📚 Fooocus-API 
+4. 📚 RuinedFooocus
+5. 📚 stable-diffusion-webui 
+6. 📚 stable-diffusion-webui-forge
+7. 📚 ComfyUI
+8. 📚 biniou
 
 # Updates
 - 2024.03.27
@@ -27,7 +30,6 @@ Based on the following libs --
 - - Linux Mint 21.2
 - - Windows 10 22H2
 - - Windows 11 22H2
-
 
 # Installation
 - Windows 10 / Windows 11
@@ -63,6 +65,15 @@ other features:
 - Customizable styles through a user-friendly configuration edition.
 - Ability to switch between slider and number input modes, allowing users to enter values manually without drag the slider.
 
+# How to use
+- API
+```bazaar
+python api_server.py
+```
+- WebUI
+```bazaar
+python webui_server.py
+```
 
 # Credits
 This application uses the following softwares and technologies :
@@ -82,7 +93,7 @@ This application uses the following softwares and technologies :
 
 # BUG Fix
 - fix1:
-ModuleNotFoundError: No module named 'torchvision.transforms.functional_tensor'
+description: ModuleNotFoundError: No module named 'torchvision.transforms.functional_tensor'
 ```
 from scipy import special
 from scipy.stats import multivariate_normal
@@ -90,7 +101,20 @@ from torchvision.transforms._functional_tensor import rgb_to_grayscale
 ```
 
 - fix2:
-sing xformers cross attention
+description: sing xformers cross attention
 X:\python_project\Meanvon\venv\lib\site-packages\diffusers\utils\outputs.py:63: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
   torch.utils._pytree._register_pytree_node(
+
+- fix3:
+description: A matching Triton is not available, some optimizations will not be enabled.
+Error caught was: No module named 'triton'
+- download two files:
+triton: https://huggingface.co/r4ziel/xformers_pre_built/resolve/main/triton-2.0.0-cp310-cp310-win_amd64.whl
+cmake: https://pypi.org/project/cmake/#files
+- install 
+```bazaar
+pip install https://huggingface.co/r4ziel/xformers_pre_built/resolve/main/triton-2.0.0-cp310-cp310-win_amd64.whl
+python -m pip install cmake-3.29.0.1-py3-none-win_amd64.whl
+```
+
 

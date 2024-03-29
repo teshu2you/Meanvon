@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Mar 17, 2024",
+	"Base": "SDXL Lightning",
+	"Links": "https://civitai.work/models/194768/jib-mix-realistic-xl?modelVersionId=395827",
+	"Version": "v10",
+	"Tags": "BASE MODEL REALISTIC",
+	"Usage_Tips": "CFG: 1-2 and can use steps a low as: Steps: 4-8 and DPM++ SDE Sampler ",
+	"Author": "J1B Holiday 2023: 5 lights",
+	"ReMark": "Important: VAE is already baked in.This is a Merge model of many of my favorite realistic SDXL Models (and some more artistic models put in for style and consistency) and I really like the output it makes.Version 10: Is merged with the SDXL Lighting Lora. (If you want to do non photographic artworks like Watercolours, you should stick with version 9 I think.)You need to use a CFG of :CFG: 1-2 and can use steps a low as: Steps: 4-8 and DPM++ SDE Sampler is best."
+}
