@@ -913,7 +913,6 @@ class taskManager:
             else:
                 self.loras += [[True, modules.config.downloading_sdxl_lcm_lora(), 1.0]]
 
-            self.loras = list(set(self.loras))
             if self.refiner_model_name in ['None', 'Not Exist!->']:
                 printF(name=MasterName.get_master_name(), info="[Warning] Refiner disabled in LCM mode.").printf()
                 self.refiner_model_name = 'None'
@@ -940,7 +939,6 @@ class taskManager:
             else:
                 self.loras += [[True, modules.config.downloading_sdxl_turbo_lora(), 1.0]]
 
-            self.loras = list(set(self.loras))
             if self.refiner_model_name in ['None', 'Not Exist!->']:
                 printF(name=MasterName.get_master_name(), info="[Warning] Refiner disabled in TURBO mode.").printf()
                 self.refiner_model_name = 'None'
@@ -969,7 +967,6 @@ class taskManager:
             else:
                 self.loras += [[True, modules.config.downloading_sdxl_lightning_lora(), 1.0]]
 
-            self.loras = list(set(self.loras))
             if not self.switch_sampler:
                 self.sampler_name = advanced_parameters.sampler_name = 'euler'
                 self.scheduler_name = advanced_parameters.scheduler_name = 'sgm_uniform'
