@@ -35,19 +35,19 @@ from util.printf import printF, MasterName
 class PatchSettings:
 
     def __init__(self,
-                 sharpness=2.0,
-                 adm_scaler_end=0.3,
-                 positive_adm_scale=1.5,
-                 negative_adm_scale=0.8,
-                 controlnet_softness=0.25,
-                 adaptive_cfg=7.0):
+                 sharpness: float = 2.0,
+                 adm_scaler_end: float = 0.3,
+                 positive_adm_scale: float = 1.5,
+                 negative_adm_scale: float = 0.8,
+                 controlnet_softness: float = 0.25,
+                 adaptive_cfg: float = 7.0):
         self.sharpness = sharpness
         self.adm_scaler_end = adm_scaler_end
         self.positive_adm_scale = positive_adm_scale
         self.negative_adm_scale = negative_adm_scale
         self.controlnet_softness = controlnet_softness
         self.adaptive_cfg = adaptive_cfg
-        self.global_diffusion_progress = 0
+        self.global_diffusion_progress = float(0.0)
         self.eps_record = None
 
 
@@ -260,7 +260,11 @@ def patched_sampling_function(model, x, timestep, uncond, cond, cond_scale, mode
     positive_eps = x - positive_x0
     negative_eps = x - negative_x0
 
-    alpha = 0.001 * patch_settings[pid].sharpness * patch_settings[pid].global_diffusion_progress
+    # print(type(patch_settings[pid].sharpness))
+    # print(type(patch_settings[pid].global_diffusion_progress))
+    # print(f"patch_settings[pid].sharpness:{patch_settings[pid].sharpness} - patch_settings[pid].global_diffusion_progress:{patch_settings[pid].global_diffusion_progress}")
+
+    alpha = 0.001 * float(patch_settings[pid].sharpness) * patch_settings[pid].global_diffusion_progress
 
     positive_eps_degraded = anisotropic.adaptive_anisotropic_filter(x=positive_eps, g=positive_x0)
     positive_eps_degraded_weighted = positive_eps_degraded * alpha + positive_eps * (1.0 - alpha)

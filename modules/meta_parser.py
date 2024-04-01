@@ -178,7 +178,7 @@ def get_freeu(key: str, fallback: str | None, source_dict: dict, results: list, 
 
 def get_lora(key: str, fallback: str | None, source_dict: dict, results: list):
     try:
-        split_data = source_dict.get(key, source_dict.get(fallback)).split(' : ')
+        split_data = source_dict.get(key, source_dict.get(fallback)).split(':')
         enabled = True
         name = split_data[0]
         weight = split_data[1]
@@ -414,13 +414,13 @@ class A1111MetadataParser(MetadataParser):
             lora_filenames = modules.config.lora_filenames.copy()
             self.remove_special_loras(lora_filenames)
             for li, lora in enumerate(lora_data.split(', ')):
-                lora_split = lora.split(': ')
+                lora_split = lora.split(':')
                 lora_name = lora_split[0]
                 lora_weight = lora_split[2] if len(lora_split) == 3 else lora_split[1]
                 for filename in lora_filenames:
                     path = Path(filename)
                     if lora_name == path.stem:
-                        data[f'lora_combined_{li + 1}'] = f'{filename} : {lora_weight}'
+                        data[f'lora_combined_{li + 1}'] = f'{filename}:{lora_weight}'
                         break
 
         return data
@@ -516,9 +516,9 @@ class FooocusMetadataParser(MetadataParser):
         for li, (label, key, value) in enumerate(metadata):
             # remove model folder paths from metadata
             if key.startswith('lora_combined_'):
-                name, weight = value.split(' : ')
+                name, weight = value.split(':')
                 name = Path(name).stem
-                value = f'{name} : {weight}'
+                value = f'{name}:{weight}'
                 metadata[li] = (label, key, value)
 
         res = {k: v for _, k, v in metadata}
@@ -545,9 +545,9 @@ class FooocusMetadataParser(MetadataParser):
         for filename in filenames:
             path = Path(filename)
             if key.startswith('lora_combined_'):
-                name, weight = value.split(' : ')
+                name, weight = value.split(':')
                 if name == path.stem:
-                    return f'{filename} : {weight}'
+                    return f'{filename}:{weight}'
             elif value == path.stem:
                 return filename
 
@@ -578,9 +578,9 @@ class MeanVonMetadataParser(MetadataParser):
         for li, (label, key, value) in enumerate(metadata):
             # remove model folder paths from metadata
             if key.startswith('lora_combined_'):
-                name, weight = value.split(' : ')
+                name, weight = value.split(':')
                 name = Path(name).stem
-                value = f'{name} : {weight}'
+                value = f'{name}:{weight}'
                 metadata[li] = (label, key, value)
 
         res = {k: v for _, k, v in metadata}
@@ -607,9 +607,9 @@ class MeanVonMetadataParser(MetadataParser):
         for filename in filenames:
             path = Path(filename)
             if key.startswith('lora_combined_'):
-                name, weight = value.split(' : ')
+                name, weight = value.split(':')
                 if name == path.stem:
-                    return f'{filename} : {weight}'
+                    return f'{filename}:{weight}'
             elif value == path.stem:
                 return filename
 

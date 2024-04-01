@@ -186,7 +186,7 @@ def generate_clicked(task: task_manager.AsyncTask):
 
 
 def metadata_to_ctrls(metadata, ctrls):
-    # webui parameters related!
+    # important webui parameters!
     if not isinstance(metadata, Mapping):
         return ctrls
 
@@ -227,6 +227,10 @@ def metadata_to_ctrls(metadata, ctrls):
         #     ctrls[3] = 'Custom'
     if 'cfg' in metadata:
         ctrls[16] = metadata.get('cfg')
+
+    if 'guidance_scale' in metadata:
+        ctrls[16] = metadata.get('guidance_scale')
+
     if 'base_model' in metadata:
         ctrls[17] = metadata.get('base_model')
     elif 'base_model_name' in metadata:
@@ -241,16 +245,25 @@ def metadata_to_ctrls(metadata, ctrls):
         ctrls[20] = metadata.get('refiner_clip_skip')
     if 'refiner_switch' in metadata:
         ctrls[21] = metadata.get('refiner_switch')
-    if 'loras' in metadata:
-        # 'loras': "[['sdxl_lightning_4step_lora.safetensors', 1.0], ['None', 0.73], ['None', 0.63], ['None', 0.47], ['None', 1.0]]",
-        _tmp_loras = ast.literal_eval(metadata.get('loras'))
-        _tmp_cursor_num = 22
-        for tl in _tmp_loras:
-            _tmp_cursor_num += 1
-            ctrls[_tmp_cursor_num] = tl[0]
-            _tmp_cursor_num += 1
-            ctrls[_tmp_cursor_num] = tl[1]
-            _tmp_cursor_num += 1
+
+    lora_begin_idx = 22
+    lora_num = 5
+
+    for lrn in range(lora_num):
+        index = 'lora_combined_' + str(lrn + 1)
+        if index in metadata:
+            ctrls[lora_begin_idx] = True
+            kv = metadata.get(index).split(":")
+            ctrls[lora_begin_idx + 1] = kv[0].strip()
+            ctrls[lora_begin_idx + 2] = kv[1].strip()
+        else:
+            ctrls[lora_begin_idx] = False
+            ctrls[lora_begin_idx + 1] = "None"
+            ctrls[lora_begin_idx + 2] = 1
+        lora_begin_idx += 3
+
+    # if there are more than 5 loras, ignore them. (can not be seen on webui)
+    #  'lora_combined_1': 'Primary\\SDXL_LORA_(Movie Still)_JuggerCineXL2.safetensors : 0.42', 'lora_combined_2': 'Primary\\SDXL_LORA_控制_add-detail-xl增加细节.safetensors : 0.69', 'lora_combined_3': 'Primary\\SDXL_LORA_艺术_more_art-full_v1.safetensors : 0.76',
 
     # seed_random 无需设置 , not all parameters should be set here, just use above.
     if 'seed_random' in metadata:
@@ -2425,14 +2438,14 @@ with (gr.Blocks(
 
 
                 def get_thumbnail_info(x):
-                    print(f"x:----{x}")
                     if x is None:
                         x = "None"
                     if x is not None and "lora" in x.lower():
                         path = modules.config.paths_loras[0] + "\\"
                     else:
                         path = modules.config.paths_checkpoints[0] + "\\"
-                    printF(name=MasterName.get_master_name(), info="[Parameters] path = {}".format(path)).printf()
+                    printF(name=MasterName.get_master_name(),
+                           info="[Parameters] path,x = {}{}".format(path, x)).printf()
 
                     file_subfix = [".jpg", ".jpeg", ".png", ".webp", ".tiff", ".jp2"]
                     if "." in x:
@@ -2701,12 +2714,12 @@ with (gr.Blocks(
                                          value=modules.config.default_output_format)
                 with gr.Row():
                     save_metadata_to_images = gr.Checkbox(label='Save Metadata to Images',
-                                                          value=modules.config.default_save_metadata_to_images,
+                                                          value=True,
                                                           info='Adds parameters to generated images allowing manual regeneration.')
                     metadata_scheme = gr.Radio(label='Metadata Scheme', choices=flags.metadata_scheme,
                                                value=modules.config.default_metadata_scheme,
                                                info='Image Prompt parameters are not included. Use png and a1111 for compatibility with Civitai.',
-                                               visible=modules.config.default_save_metadata_to_images)
+                                               visible=True)
 
                     save_metadata_to_images.change(lambda x: gr.update(visible=x),
                                                    inputs=[save_metadata_to_images],
@@ -2737,9 +2750,13 @@ with (gr.Blocks(
                            outputs=[prompt, style_selections], show_progress=True, queue=True)
 
 
-        def adjust_refiner_model_config(x, y):
-            refiner = modules.config.get_config_from_model_preset(y).get("default_refiner")
-            print(f"x,y,z = {x} - {y} - {refiner}")
+        def adjust_refiner_model_config(x, y, z):
+            r = modules.config.get_config_from_model_preset(y).get("default_refiner")
+            if x == "Custom":
+                refiner = z
+            else:
+                refiner = r
+            print(f"x,y,refiner = {x} - {y} - {refiner}")
             if x.lower() == constants.TYPE_LIGHTNING:
                 cis = ['None'] + [c for c in modules.config.model_filenames if constants.TYPE_LIGHTNING in c.lower()]
                 return gr.update(label=x.title() + " model(for SDXL)", choices=cis, value=cis[0], show_label=True)
@@ -2805,7 +2822,7 @@ with (gr.Blocks(
                                       base_model] + lora_ctrls + [sharpness, guidance_scale, sampler_name,
                                                                   scheduler_name, refiner_switch, style_selections,
                                                                   model_lora_remark, refiner_model]) \
-            .then(fn=adjust_refiner_model_config, inputs=[performance_selection, model_presets],
+            .then(fn=adjust_refiner_model_config, inputs=[performance_selection, model_presets, refiner_model],
                   outputs=refiner_model)
 
 
@@ -2921,7 +2938,7 @@ with (gr.Blocks(
                                          adm_scaler_negative, refiner_switch, refiner_model, adaptive_cfg,
                                          sampler_name, scheduler_name, refiner_swap_method, guidance_scale
                                      ], queue=False, show_progress=False) \
-            .then(fn=adjust_refiner_model_config, inputs=[performance_selection, model_presets],
+            .then(fn=adjust_refiner_model_config, inputs=[performance_selection, model_presets, refiner_model],
                   outputs=refiner_model)
 
         output_format.input(lambda x: gr.update(output_format=x), inputs=output_format)
@@ -3034,13 +3051,13 @@ with (gr.Blocks(
         ctrls += canny_ctrls + depth_ctrls
         ctrls += ip_ctrls
 
-        if not adapter.args_manager.args.disable_metadata:
-            ctrls += [save_metadata_to_images, metadata_scheme]
-
         load_prompt_button.upload(fn=load_prompt_handler, inputs=[load_prompt_button] + ctrls + [seed_random],
                                   outputs=ctrls + [seed_random])
         load_last_prompt_button.click(fn=load_last_prompt_handler, inputs=ctrls + [seed_random],
                                       outputs=ctrls + [seed_random])
+
+        if not adapter.args_manager.args.disable_metadata:
+            ctrls += [save_metadata_to_images, metadata_scheme]
 
         nums_ctrls = len(ctrls)
         printF(name=MasterName.get_master_name(), info="WebUI Server init ctrls: {}".format(nums_ctrls)).printf()

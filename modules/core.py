@@ -6,7 +6,6 @@ import os
 import einops
 import torch
 import numpy as np
-
 import ldm_patched.modules.model_management
 import ldm_patched.modules.model_detection
 import ldm_patched.modules.model_patcher
@@ -16,20 +15,22 @@ import modules.sample_hijack
 import ldm_patched.modules.samplers
 import ldm_patched.modules.latent_formats
 import modules.advanced_parameters
-
+from ldm_patched.contrib.external_canny import Canny
+from ldm_patched.contrib.external_freelunch import FreeU, FreeU_V2
 from ldm_patched.modules.sd import load_checkpoint_guess_config
 from ldm_patched.contrib.external import VAEDecode, EmptyLatentImage, VAEEncode, VAEEncodeTiled, VAEDecodeTiled, \
     VAEEncodeForInpaint, \
     ControlNetApplyAdvanced, ConditioningZeroOut, ConditioningAverage, CLIPVisionEncode, unCLIPConditioning, \
     ControlNetApplyAdvanced
-from ldm_patched.contrib.external_freelunch import FreeU_V2
 from ldm_patched.modules.sample import prepare_mask
+from ldm_patched.modules.model_base import SDXL, SDXLRefiner
 from modules.lora import match_lora
-from ldm_patched.modules.lora import model_lora_keys_unet, model_lora_keys_clip
+from ldm_patched.modules.lora import model_lora_keys_unet, model_lora_keys_clip, load_lora
 from modules.config import path_embeddings
 from modules.util import get_file_from_folder_list
 from ldm_patched.contrib.external_model_advanced import ModelSamplingDiscrete
 from ldm_patched.contrib.external_post_processing import ImageScaleToTotalPixels
+
 
 opEmptyLatentImage = EmptyLatentImage()
 opVAEDecode = VAEDecode()
@@ -39,15 +40,25 @@ opVAEEncodeTiled = VAEEncodeTiled()
 opControlNetApplyAdvanced = ControlNetApplyAdvanced()
 opFreeU = FreeU_V2()
 opModelSamplingDiscrete = ModelSamplingDiscrete()
-
 opConditioningZeroOut = ConditioningZeroOut()
 opConditioningAverage = ConditioningAverage()
 opCLIPVisionEncode = CLIPVisionEncode()
 opImageScaleToTotalPixels = ImageScaleToTotalPixels()
+opCanny = Canny()
+opFreeU = FreeU()
 
 
 class StableDiffusionModel:
     def __init__(self, unet=None, vae=None, clip=None, clip_vision=None, filename=None):
+        if isinstance(filename, str):
+            is_refiner = isinstance(unet.model, SDXLRefiner)
+            if unet is not None:
+                unet.model.model_file = dict(filename=filename, prefix='model')
+            if clip is not None:
+                clip.cond_stage_model.model_file = dict(filename=filename,
+                                                        prefix='refiner_clip' if is_refiner else 'base_clip')
+            if vae is not None:
+                vae.first_stage_model.model_file = dict(filename=filename, prefix='first_stage_model')
         self.unet = unet
         self.vae = vae
         self.clip = clip
@@ -84,7 +95,8 @@ class StableDiffusionModel:
         if self.unet is None:
             return
 
-        printF(name=MasterName.get_master_name(), info="Request to load LoRAs {} for model [{}].".format(loras,self.filename)).printf()
+        printF(name=MasterName.get_master_name(),
+               info="Request to load LoRAs {} for model [{}].".format(loras, self.filename)).printf()
 
         loras_to_load = []
 
@@ -162,6 +174,11 @@ def load_controlnet(ckpt_filename):
     return ldm_patched.modules.controlnet.load_controlnet(ckpt_filename)
 
 
+# @torch.no_grad()
+# @torch.inference_mode()
+# def encode_prompt_condition(clip, prompt):
+#     return opCLIPTextEncode.encode(clip=clip, text=prompt)[0]
+
 @torch.no_grad()
 @torch.inference_mode()
 def encode_clip_vision(clip_vision, image):
@@ -182,6 +199,37 @@ def load_model(ckpt_filename, model_file_type=constants.TYPE_NORMAL):
     unet, clip, vae, clip_vision = load_checkpoint_guess_config(ckpt_filename, embedding_directory=path_embeddings,
                                                                 model_file_type=model_file_type)
     return StableDiffusionModel(unet=unet, clip=clip, vae=vae, clip_vision=clip_vision, filename=ckpt_filename)
+
+
+@torch.no_grad()
+@torch.inference_mode()
+def load_sd_lora(model, lora_filename, strength_model=1.0, strength_clip=1.0):
+    if strength_model == 0 and strength_clip == 0:
+        return model
+
+    lora = ldm_patched.modules.utils.load_torch_file(lora_filename, safe_load=False)
+
+    if lora_filename.lower().endswith('.fooocus.patch'):
+        loaded = lora
+    else:
+        key_map = model_lora_keys_unet(model.unet.model)
+        key_map = model_lora_keys_clip(model.clip.cond_stage_model, key_map)
+        loaded = load_lora(lora, key_map)
+
+    new_modelpatcher = model.unet.clone()
+    k = new_modelpatcher.add_patches(loaded, strength_model)
+
+    new_clip = model.clip.clone()
+    k1 = new_clip.add_patches(loaded, strength_clip)
+
+    k = set(k)
+    k1 = set(k1)
+    for x in loaded:
+        if (x not in k) and (x not in k1):
+            print("Lora missed: ", x)
+
+    unet, clip = new_modelpatcher, new_clip
+    return StableDiffusionModel(unet=unet, clip=clip, vae=model.vae, clip_vision=model.clip_vision)
 
 
 @torch.no_grad()

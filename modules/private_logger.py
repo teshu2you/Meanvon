@@ -11,7 +11,7 @@ from PIL.PngImagePlugin import PngInfo
 from modules.util import generate_temp_filename
 from modules.meta_parser import MetadataParser, get_exif
 from util.printf import printF, MasterName
-from shutil import copy
+
 
 log_cache = {}
 
@@ -51,8 +51,9 @@ def log(img, metadata, metadata_parser: MetadataParser | None = None, output_for
             json_file.close()
 
         if save_metadata_json:
+            import shutil
             json_path = local_temp_filename.replace(f'.{output_format}', '.json')
-            copy(modules.config.last_prompt_path, json_path)
+            shutil.copy(modules.config.last_prompt_path, json_path)
 
     if output_format == OutputFormat.PNG.value:
         if parsed_parameters != '':

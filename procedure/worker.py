@@ -68,6 +68,7 @@ class taskManager:
             self.processing = False
 
     def __init__(self, request_source="webui"):
+        self.direct_return = False
         self.api_first_run_flag = True
         self.read_wildcards_in_order = None
         self.save_extension = "png"
@@ -135,7 +136,7 @@ class taskManager:
         self.raw_style_selections = ""
         self.use_expansion = ""
 
-        self.initial_latent = ""
+        self.initial_latent = None
         self.denoising_strength = 1.0
         self.tiled = False
         self.skip_prompt_processing = False
@@ -168,11 +169,11 @@ class taskManager:
         self.results = []
         self.metadata_strings = []
         self.input_gallery_size = 0
-        self.cfg_scale = 7
+        self.guidance_scale = 7.0
         self.imgs = ""
         self.use_style = ""
 
-        self.adaptive_cfg = 7
+        self.adaptive_cfg = 7.0
         self.adm_scaler_positive = 1.5
         self.adm_scaler_negative = 0.8
         self.adm_scaler_end = 0.3
@@ -195,13 +196,12 @@ class taskManager:
         self.aspect_ratios_selection = "1024×1024 (1:1)",
         self.image_number = 1
         self.image_seed = 0
-        self.sharpness = 2
+        self.sharpness = 2.0
         self.sampler_name = "dpmpp_2m_sde_gpu"
         self.scheduler_name = "karras"
         self.generate_image_grid = True
         self.custom_steps = 4
         self.custom_switch = 0.4
-        self.cfg = 4
         self.base_model_name = ""
         self.refiner_model_name = ""
         self.base_clip_skip = -2
@@ -235,7 +235,7 @@ class taskManager:
         self.depth_stop = 0.4
         self.depth_strength = 0.8
         self.depth_model = "control-lora-depth-rank128.safetensors"
-        self.input_image_checkbox = False
+        self.image_factory_checkbox = False
         self.current_tab = "uov"
         self.uov_method = "Disabled"
         self.uov_input_image = None
@@ -262,13 +262,13 @@ class taskManager:
             self.image_number = params.image_number
             self.image_seed = None if params.image_seed == -1 else params.image_seed
             self.sharpness = params.sharpness
-            self.cfg = params.guidance_scale
+            self.guidance_scale = params.guidance_scale
             self.refiner_swap_method = params.refiner_swap_method if hasattr(params, "refiner_swap_method") else "joint"
             self.base_model_name = params.base_model_name
             self.refiner_model_name = params.refiner_model_name
             self.refiner_switch = params.refiner_switch
             self.loras = params.loras
-            self.input_image_checkbox = params.uov_input_image is not None or params.inpaint_input_image is not None or len(
+            self.image_factory_checkbox = params.uov_input_image is not None or params.inpaint_input_image is not None or len(
                 params.image_prompts) > 0
             self.current_tab = 'uov' if params.uov_method != flags.disabled else 'ip' if len(
                 params.image_prompts) > 0 else 'inpaint' if params.inpaint_input_image is not None else None
@@ -366,7 +366,7 @@ class taskManager:
             self.custom_steps = args.pop()
             self.custom_switch = args.pop()
             # cfg ======= guidance_scale
-            self.cfg = args.pop()
+            self.guidance_scale = args.pop()
             # index - 17
             self.base_model_name = args.pop()
             self.refiner_model_name = args.pop()
@@ -544,6 +544,9 @@ class taskManager:
         self.outputs = []
         self.results = []
         self.tasks = []
+        self.goals = []
+        self.direct_return = False
+        self.initial_latent = None
 
         procedure_list = [
             self.pre_process,
@@ -562,6 +565,11 @@ class taskManager:
             for x in procedure_list:
                 print('-' * 200)
                 printF(name=MasterName.get_master_name(), info=x).printf()
+                if self.direct_return:
+                    printF(name=MasterName.get_master_name(),
+                           info="[Return directly, ignore ...] self.direct_return: {}".format(
+                               self.direct_return)).printf()
+                    continue
                 start_time = time.perf_counter()
                 x(async_task=async_task)
                 cost_time = time.perf_counter() - start_time
@@ -595,11 +603,10 @@ class taskManager:
             return random.randint(constants.MIN_SEED, constants.MAX_SEED)
 
     def progressbar(self, async_task, number, text):
+        print(f'[MeanVon] {text}')
         if self.request_source == "api":
-            print(f'[MeanVon] {text}')
             self.outputs.append(['preview', (number, text, None)])
         elif self.request_source == "webui":
-            print(f'[MeanVon] {text}')
             async_task.yields.append(['preview', (number, text, None, 0, 0)])
 
     def yield_result(self, async_task, imgs, do_not_show_finished_images=False):
@@ -663,7 +670,7 @@ class taskManager:
         self.scheduler_name = config.get("scheduler_name")
         self.custom_steps = config.get("custom_steps")
         self.custom_switch = config.get("custom_switch")
-        self.cfg = config.get("cfg")
+        self.guidance_scale = config.get("guidance_scale")
 
         self.base_model_name = config.get("base_model_name")
         self.refiner_model_name = config.get("refiner_model_name")
@@ -703,7 +710,7 @@ class taskManager:
         self.depth_strength = config.get("depth_strength")
         self.depth_model = config.get("depth_model")
 
-        self.input_image_checkbox = config.get("input_image_checkbox")
+        self.image_factory_checkbox = config.get("image_factory_checkbox")
         self.current_tab = config.get("current_tab")
         self.uov_method = config.get("uov_method")
         self.uov_input_image = config.get("uov_input_image")
@@ -762,7 +769,7 @@ class taskManager:
         self.results = config.get("results")
         self.metadata_strings = config.get("metadata_strings")
         self.input_gallery_size = config.get("input_gallery_size")
-        self.cfg_scale = config.get("cfg_scale")
+        self.guidance_scale = config.get("guidance_scale")
         self.imgs = config.get("imgs")
         self.use_style = config.get("use_style")
 
@@ -921,7 +928,7 @@ class taskManager:
                 self.sampler_name = advanced_parameters.sampler_name = 'lcm'
                 self.scheduler_name = advanced_parameters.scheduler_name = 'lcm'
             modules.patch.sharpness = self.sharpness = 0.0
-            self.cfg = self.guidance_scale = 1.0
+            self.guidance_scale = 1.0
             modules.patch.adaptive_cfg = advanced_parameters.adaptive_cfg = 1.0
             self.refiner_switch = 1.0
             modules.patch.positive_adm_scale = advanced_parameters.adm_scaler_positive = 1.0
@@ -947,7 +954,7 @@ class taskManager:
                 self.sampler_name = advanced_parameters.sampler_name = 'euler_ancestral'
                 self.scheduler_name = advanced_parameters.scheduler_name = 'karras'
             modules.patch.sharpness = self.sharpness = 0.0
-            self.cfg = self.guidance_scale = 1.0
+            self.guidance_scale = 1.0
             modules.patch.adaptive_cfg = advanced_parameters.adaptive_cfg = 1.0
             self.refiner_switch = 1.0
             modules.patch.positive_adm_scale = advanced_parameters.adm_scaler_positive = 1.0
@@ -972,7 +979,7 @@ class taskManager:
                 self.scheduler_name = advanced_parameters.scheduler_name = 'sgm_uniform'
 
             modules.patch.sharpness = self.sharpness = 2.0
-            self.cfg = self.guidance_scale = 1.0
+            self.guidance_scale = 1.0
             modules.patch.adaptive_cfg = advanced_parameters.adaptive_cfg = 1.0
             self.refiner_switch = 1.0
             modules.patch.positive_adm_scale = advanced_parameters.adm_scaler_positive = 1.0
@@ -1000,7 +1007,6 @@ class taskManager:
         printF(name=MasterName.get_master_name(),
                info="[Parameters] scheduler_name: {}".format(self.scheduler_name)).printf()
         printF(name=MasterName.get_master_name(), info="[Parameters] Sharpness = {}".format(self.sharpness)).printf()
-        printF(name=MasterName.get_master_name(), info="[Parameters] cfg = {}".format(self.cfg)).printf()
         printF(name=MasterName.get_master_name(),
                info="[Parameters] Adaptive CFG = {}".format(self.adaptive_cfg)).printf()
         printF(name=MasterName.get_master_name(),
@@ -1018,12 +1024,9 @@ class taskManager:
             self.adaptive_cfg
         )
 
-        self.cfg_scale = float(self.cfg)
-        printF(name=MasterName.get_master_name(), info="[Parameters] cfg_scale = {}".format(self.cfg_scale)).printf()
-
-        self.initial_latent = None
-        self.denoising_strength = 1.0
-        self.tiled = False
+        self.guidance_scale = float(self.guidance_scale)
+        printF(name=MasterName.get_master_name(),
+               info="[Parameters] guidance_scale = {}".format(self.guidance_scale)).printf()
 
         self.width, self.height = self.aspect_ratios_selection.replace('×', ' ').split(' ')[:2]
         self.width, self.height = int(self.width), int(self.height)
@@ -1079,9 +1082,9 @@ class taskManager:
 
     def download_image_func_models(self, async_task):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> download_image_func_models").printf()
-        if not self.input_image_checkbox:
-            printF(name=MasterName.get_master_name(), info="[Warning] input_image_checkbox is not ENABLED!").printf()
-        if self.input_image_checkbox:
+        if not self.image_factory_checkbox:
+            printF(name=MasterName.get_master_name(), info="[Warning] image_factory_checkbox is not ENABLED!").printf()
+        if self.image_factory_checkbox:
             if (self.current_tab == 'uov' or (
                     self.current_tab == 'ip' and self.mixing_image_prompt_and_vary_upscale)) \
                     and self.uov_method != modules.flags.disabled and self.uov_input_image is not None:
@@ -1401,7 +1404,7 @@ class taskManager:
                 t['c'] = pipeline.clip_encode(texts=t['positive'], pool_top_k=t['positive_top_k'])
 
             for i, t in enumerate(self.tasks):
-                if abs(float(self.cfg_scale) - 1.0) < 1e-4:
+                if abs(float(self.guidance_scale) - 1.0) < 1e-4:
                     t['uc'] = pipeline.clone_cond(t['c'])
                 else:
                     self.progressbar(async_task, 10, f'Encoding negative #{i + 1} ...')
@@ -1472,7 +1475,7 @@ class taskManager:
             shape_ceil = get_shape_ceil(H * f, W * f)
 
             if shape_ceil < 1024:
-                print(f'[Upscale] Image is resized because it is too small.')
+                printF(name=MasterName.get_master_name(), info="[Upscale] Image is resized because it is too small.").printf()
                 uov_input_image = set_image_shape_ceil(uov_input_image, 1024)
                 shape_ceil = 1024
             else:
@@ -1481,18 +1484,18 @@ class taskManager:
             image_is_super_large = shape_ceil > 2800
 
             if 'fast' in self.uov_method:
-                direct_return = True
+                self.direct_return = True
             elif image_is_super_large:
                 printF(name=MasterName.get_master_name(),
                        info="[Warning] Image is too large. Directly returned the SR image. Usually directly return SR image at 4K resolution.yields better results than SDXL diffusion.").printf()
-                direct_return = True
+                self.direct_return = True
             else:
-                direct_return = False
+                self.direct_return = False
 
-            if direct_return:
-                d = [('Upscale (Fast)', '2x')]
-                log(uov_input_image, d, single_line_number=1)
-                self.yield_result(async_task, uov_input_image, do_not_show_finished_images=True)
+            if self.direct_return:
+                d = [('Upscale (Fast)', 'upscale_fast', '2x')]
+                uov_input_image_path = log(uov_input_image, d, output_format=self.output_format)
+                self.yield_result(async_task, uov_input_image_path, do_not_show_finished_images=True)
                 return
 
             self.tiled = True
@@ -1511,7 +1514,7 @@ class taskManager:
                 refiner_swap_method=self.refiner_swap_method
             )
 
-            initial_latent = modules.core.encode_vae(
+            self.initial_latent = modules.core.encode_vae(
                 vae=candidate_vae,
                 pixels=initial_pixels, tiled=True)
 
@@ -1626,7 +1629,7 @@ class taskManager:
                     )
 
                 if not self.inpaint_disable_initial_latent:
-                    initial_latent = {'samples': latent_fill}
+                    self.initial_latent = {'samples': latent_fill}
 
                 B, C, H, W = latent_fill.shape
                 height, width = H * 8, W * 8
@@ -1648,7 +1651,7 @@ class taskManager:
                 cn_img = resize_image(HWC3(cn_img), width=self.width, height=self.height)
 
                 if not self.skipping_cn_preprocessor:
-                    cn_img = preprocessors.canny_pyramid(cn_img)
+                    cn_img = preprocessors.canny_pyramid(cn_img, self.canny_low_threshold, self.canny_high_threshold)
 
                 cn_img = HWC3(cn_img)
                 task[0] = modules.core.numpy_to_pytorch(cn_img)
@@ -1687,7 +1690,7 @@ class taskManager:
 
                 # https://github.com/tencent-ailab/IP-Adapter/blob/d580c50a291566bbf9fc7ac0f760506607297e6d/README.md?plain=1#L75
                 cn_img = resize_image(cn_img, width=224, height=224, resize_mode=0)
-
+                print(f"self.ip_adapter_face_path:{self.ip_adapter_face_path}")
                 task[0] = ip_adapter.preprocess(cn_img, ip_adapter_path=self.ip_adapter_face_path)
                 if self.debugging_cn_preprocessor:
                     self.yield_result(async_task, cn_img, do_not_show_finished_images=True)
@@ -1853,7 +1856,7 @@ class taskManager:
                        info="[Parameters] denoise = {}".format(self.denoise)).printf()
                 printF(name=MasterName.get_master_name(), info="[Parameters] tiled = {}".format(self.tiled)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] cfg_scale = {}".format(self.cfg_scale)).printf()
+                       info="[Parameters] guidance_scale = {}".format(self.guidance_scale)).printf()
                 printF(name=MasterName.get_master_name(),
                        info="[Parameters] refiner_swap_method = {}".format(self.refiner_swap_method)).printf()
                 printF(name=MasterName.get_master_name(),
@@ -1886,7 +1889,7 @@ class taskManager:
                     latent=self.initial_latent,
                     denoise=self.denoise,
                     tiled=self.tiled,
-                    cfg_scale=self.cfg_scale,
+                    cfg_scale=self.guidance_scale,
                     refiner_swap_method=self.refiner_swap_method
                 )
 
@@ -1952,7 +1955,7 @@ class taskManager:
                             ('Base Model', 'base_model', self.base_model_name),
                             ('Refiner Model', 'refiner_model', self.refiner_model_name),
                             ('CFG & CLIP Skips', "cfg_clip_skips",
-                             (self.cfg_scale, self.base_clip_skip, self.refiner_clip_skip)),
+                             (self.guidance_scale, self.base_clip_skip, self.refiner_clip_skip)),
                             ('Image-2-Image', "image_2_image",
                              (self.img2img_mode, self.start_step, self.denoise, self.img2img_scale,
                               self.input_image_filename) if self.img2img_mode else (
@@ -2000,7 +2003,7 @@ class taskManager:
         else:
             for idx, mmm in enumerate(self.loras):
                 if mmm[1] not in ['None', 'NONE', "Not Exist!->"]:
-                    metadata_string.append((f'LoRA {idx + 1}', f'lora_combined_{idx + 1}', f'{mmm[1]} : {mmm[2]}'))
+                    metadata_string.append((f'LoRA {idx + 1}', f'lora_combined_{idx + 1}', f'{mmm[1]}:{mmm[2]}'))
 
         execution_time = time.perf_counter() - self.execution_start_time
         metadata_string.append(('Execution Time', 'time', f'{execution_time:.2f} seconds'))
