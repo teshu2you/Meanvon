@@ -49,7 +49,6 @@ user_path_config-deprecated.txt
 /.logs
 /.tmp
 /notification.ogg
-/notification.mp3
 /SwinIR
 /textual_inversion
 .vscode
