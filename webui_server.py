@@ -1,45 +1,29 @@
-import threading
-import gradio as gr
-import random
-import os
-import sys
-import time
 import ssl
-import util.printf
 from util.printf import printF, MasterName
 
 ssl._create_default_https_context = ssl._create_unverified_context
 import warnings
-from boot.pre_check import PreCheck
-import torch.cuda
-import gc
 import shared
 import modules.config
-from version import main_version, api_version
+from version import main_version
 import modules.html
 # import modules.async_worker as worker
-import procedure.worker_ui_patch as new_worker
 import modules.constants as constants
 import modules.flags as flags
 import modules.gradio_hijack as grh
-import modules.advanced_parameters as advanced_parameters
 import modules.style_sorter as style_sorter
 import modules.meta_parser
 import adapter.args_manager
-import copy
 from os.path import exists
-from modules.sdxl_styles import legal_style_names
 from collections.abc import Mapping
-from PIL import Image
 import json
 from fastapi import FastAPI
 from modules.settings import default_settings, infer_args
-from modules.resolutions import get_resolution_string, resolutions, get_resolution_new_string
-from modules.sdxl_styles import legal_style_names, aspect_ratios, default_aspect_ratio, style_keys, fooocus_expansion, \
-    default_style, hot_style_keys, normalize_key, migrate_style_from_v1, default_legal_style_names
+from modules.resolutions import get_resolution_new_string
+from modules.sdxl_styles import legal_style_names, style_keys, fooocus_expansion, \
+    hot_style_keys, normalize_key, migrate_style_from_v1, default_legal_style_names
 from modules.private_logger import get_current_html_path
-from modules.util import get_current_log_path, get_previous_log_path, show_cuda_info, free_cuda_mem, free_cuda_cache, \
-    is_json
+from modules.util import get_current_log_path, get_previous_log_path, is_json
 from modules.ui_gradio_extensions import reload_javascript
 from modules.auth import auth_enabled, check_auth
 import ast
@@ -48,8 +32,7 @@ from resources import *
 from resources.musicgen_mel import modellist_musicgen_mel, initiate_stop_musicgen_mel, music_musicgen_mel
 import socket
 from procedure.worker_ui_patch import task_manager
-from modules.meta_parser import get_metadata_parser, MetadataScheme
-from adapter.task_queue import QueueTask, TaskQueue, TaskOutputs
+from adapter.task_queue import QueueTask, TaskQueue
 
 worker_queue: TaskQueue = None
 queue_task: QueueTask = None

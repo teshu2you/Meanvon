@@ -159,17 +159,18 @@ class TaskQueue(object):
 
             if self.persistent:
                 from util.sql import add_history
-                add_history(task.req_param, task.type, task.job_id,
-                            ','.join([job["url"] for job in data["job_result"]]),
-                            task.task_result[0].finish_reason)
+                add_history(params=task.req_param.__dict__, task_type=task.type, task_id=task.job_id,
+                            result_url=','.join([job["url"] for job in data["job_result"]]),
+                            finish_reason=task.task_result[0].finish_reason)
 
             # Clean history
             if len(self.history) > self.history_size != 0:
                 removed_task = self.history.pop(0)
                 if isinstance(removed_task.task_result, List):
                     for item in removed_task.task_result:
-                        if isinstance(item,
-                                      ImageGenerationResult) and item.finish_reason == GenerationFinishReason.success and item.im is not None:
+                        if (isinstance(item,
+                                       ImageGenerationResult) and item.finish_reason == GenerationFinishReason.success
+                                and item.im is not None):
                             delete_output_file(item.im)
                 print(f"Clean task history, remove task: {removed_task.job_id}")
 
