@@ -113,7 +113,7 @@ class Steps(IntEnum):
     EXTREME_SPEED = 8
     LCM = 8
     TURBO = 8
-    Lightning = 4
+    Lightning = 8
     Custom = 30
 
 

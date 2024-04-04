@@ -74,7 +74,7 @@ class taskManager:
         self.save_extension = "png"
         self.img_paths = None
         self.base_model_name_prefix = ""
-        self.fixed_steps = None
+        self.fixed_steps = 4
         self.img2img_ctrls = None
         self.image_factory_checkbox = None
         self.inpaint_mask_image = None
@@ -93,9 +93,9 @@ class taskManager:
         self.metadata_scheme = flags.MetadataScheme.FOOOCUS
         self.save_metadata_to_images = None
         self.current_task = None
-        self.seed = None
+        self.seed = 0
         self.max_seed = int(1024 * 1024 * 1024)
-        self.guidance_scale = None
+        self.guidance_scale = 4.0
         self.pid = None
         self.outpaint_distance_bottom = None
         self.outpaint_distance_right = None
@@ -156,7 +156,7 @@ class taskManager:
 
         self.goals = []
         self.tasks = []
-        self.steps = 30
+        self.steps: int = 30
         self.switch = 20
         self.mixing_image_prompt_and_vary_upscale = False
         self.overwrite_step = -1
@@ -181,7 +181,7 @@ class taskManager:
         self.inpaint_engine = "v2.6"
         self.overwrite_vary_strength = -1
         self.start_step = 0
-        self.denoise = 1
+        self.denoise = 1.0
         self.input_image_filename = ""
         self.debugging_cn_preprocessor = False
         self.revision_images_filenames = ""
@@ -969,10 +969,11 @@ class taskManager:
             self.progressbar(async_task, 1, 'Downloading Lightning components ...')
             printF(name=MasterName.get_master_name(), info="[Warning] force to replace the 1st lora.").printf()
             print(f"self.loras: {self.loras}")
-            if self.loras == [[]]:
-                self.loras[0] = [True, modules.config.downloading_sdxl_lightning_lora(), 1.0]
-            else:
-                self.loras += [[True, modules.config.downloading_sdxl_lightning_lora(), 1.0]]
+            # lightning -- ignore adding default loras.
+            # if self.loras == [[]]:
+            #     self.loras[0] = [True, modules.config.downloading_sdxl_lightning_lora(), 1.0]
+            # else:
+            #     self.loras += [[True, modules.config.downloading_sdxl_lightning_lora(), 1.0]]
 
             if not self.switch_sampler:
                 self.sampler_name = advanced_parameters.sampler_name = 'euler'

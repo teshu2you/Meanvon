@@ -16,7 +16,7 @@ class printF:
 
     def printf(self):
         time_string = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        print(f"[{self.name: <45}] - {time_string}  : {self.info}")
+        print("[{0:<45}] - {1} : {2}".format(self.name, time_string, self.info))
 
 
 class MasterName:

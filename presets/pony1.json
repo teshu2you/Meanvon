@@ -1,0 +1,50 @@
+{
+  "default_model": "SDXL_PONY_动漫_autismmixSDXL_autismmixPony.safetensors",
+  "default_refiner": "None",
+  "default_refiner_switch": 0.5,
+  "default_loras": [
+    [
+      true,
+      "None",
+      1.0
+    ],
+    [
+      true,
+      "None",
+      1.0
+    ],
+    [
+      true,
+      "None",
+      1.0
+    ],
+    [
+      true,
+      "None",
+      1.0
+    ],
+    [
+      true,
+      "None",
+      1.0
+    ]
+  ],
+  "default_cfg_scale": 4.0,
+  "default_sample_sharpness": 2.0,
+  "default_sampler": "dpmpp_2m_sde_gpu",
+  "default_scheduler": "karras",
+  "default_performance": "Speed",
+  "default_prompt": "score_9, score_8_up, score_8, medium breasts, (curvy), cute, eyelashes, princess zelda, solo, long hair, green eyes, crown braid, hairclip, pointy ears, blue shirt, long sleeves, fingerless gloves, black gloves, black pants, tight pants, smile, curvy, head tilt, hearts, blush",
+  "default_prompt_negative": "score_6_up, score_5_up, score_4_up, (worst quality:1.5), (low quality:1.5), (normal quality:1.5), lowres, bad anatomy, bad hands, multiple eyebrow, (cropped), extra limb, missing limbs, deformed hands, long neck, long body, (bad hands), signature, username, artist name, conjoined fingers, deformed fingers, ugly eyes, imperfect eyes, skewed eyes, unnatural face, unnatural body, error, painting by bad-artist",
+  "default_styles": [
+    "Fooocus V2",
+    "Fooocus Enhance",
+    "Fooocus Sharp"
+  ],
+  "default_aspect_ratio": "1152*896",
+  "checkpoint_downloads": {},
+  "embeddings_downloads": {},
+  "lora_downloads": {},
+  "previous_default_models": [],
+  "remark": ""
+}

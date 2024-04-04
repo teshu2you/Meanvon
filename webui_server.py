@@ -202,8 +202,8 @@ def metadata_to_ctrls(metadata, ctrls):
     if 'scheduler' in metadata:
         ctrls[12] = metadata.get('scheduler')
     if 'steps' in metadata:
-        ctrls[13] = metadata.get('steps')
-        ctrls[14] = metadata.get('steps')
+        ctrls[13] = int(metadata.get('steps'))
+        ctrls[14] = int(metadata.get('steps'))
     if 'switch' in metadata:
         ctrls[15] = round(metadata.get('switch') / metadata.get('steps'), 2)
         # if ctrls[12] != round(constants.SWITCH_SPEED / constants.STEPS_SPEED, 2):
@@ -1931,7 +1931,7 @@ with (gr.Blocks(
 
                 def get_scope_of_influence():
                     return '<b>Valid Saved Parameters (as below):</b>' \
-                        + ' <br> <font color="blue" size="1">-->Prompt, Negative Prompt,  Performance, Custom Steps, Aspect Ratios, Image Number, Image Seed, </font>' \
+                        + ' <br> <font color="blue" size="1">-->Prompt, Negative Prompt,  Performance, Custom Steps, Aspect Ratios, Image Seed, </font>' \
                         + ' <br> <font color="blue" size="1">-->Final Style Keys, </font>' \
                         + ' <br> <font color="blue" size="1">-->Base Model, Refiner, Refiner Switch, LoRAs,</font>' \
                         + ' <br> <font color="blue" size="1">-->Base CLIP Skip, Refiner CLIP Skip, Sharpness, Guidance Scale, Sampler, Scheduler.</font>' \
@@ -2005,15 +2005,27 @@ with (gr.Blocks(
                                          interactive=False), gr.update(visible=False), gr.update(
                             visible=False), gr.update(visible=False)
                     elif ps == "Lightning":
-                        return gr.update(visible=True, label="Fixed Steps", value=constants.STEPS_LIGHTNING,
+                        if fs is None or fs == "" or int(fs) < 1 or int(fs) > 8:
+                            _v = constants.STEPS_LIGHTNING
+                        else:
+                            _v = fs
+                        return gr.update(visible=True, label="Fixed Steps", value=_v,
                                          interactive=True), gr.update(visible=False), gr.update(
                             visible=False), gr.update(visible=False)
                     elif ps == "LCM":
-                        return gr.update(visible=True, label="Fixed Steps", value=constants.STEPS_LCM,
+                        if fs is None or fs == "" or int(fs) < 1 or int(fs) > 8:
+                            _v = constants.STEPS_LCM
+                        else:
+                            _v = fs
+                        return gr.update(visible=True, label="Fixed Steps", value=_v,
                                          interactive=True), gr.update(visible=False), gr.update(
                             visible=False), gr.update(visible=False)
                     elif ps == "TURBO":
-                        return gr.update(visible=True, label="Fixed Steps", value=constants.STEPS_TURBO,
+                        if fs is None or fs == "" or int(fs) < 1 or int(fs) > 8:
+                            _v = constants.STEPS_TURBO
+                        else:
+                            _v = fs
+                        return gr.update(visible=True, label="Fixed Steps", value=_v,
                                          interactive=True), gr.update(visible=False), gr.update(
                             visible=False), gr.update(visible=False)
 
@@ -3190,7 +3202,7 @@ with (gr.Blocks(
                 break
 
 # dump_default_english_config()
-app = gr.mount_gradio_app(app, shared.gradio_root.queue(), '/')
+app = gr.mount_gradio_app(app, shared.gradio_root.queue(concurrency_count=2, max_size=2), '/')
 async_gradio_app = shared.gradio_root
 async_gradio_app.launch(
     inbrowser=adapter.args_manager.args.in_browser,
