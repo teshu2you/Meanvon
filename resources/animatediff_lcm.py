@@ -14,13 +14,13 @@ import tomesd
 from modules.util import free_cuda_mem, free_cuda_cache
 import traceback
 
-model_path_animatediff_lcm = "./models/AnimateLCM/checkpoints/"
+model_path_animatediff_lcm = "./models/Animate/checkpoints/"
 os.makedirs(model_path_animatediff_lcm, exist_ok=True)
 
-adapter_path_animatediff_lcm = "./models/AnimateLCM/adapter/"
+adapter_path_animatediff_lcm = "./models/Animate/AnimateLCM/adapter/"
 os.makedirs(adapter_path_animatediff_lcm, exist_ok=True)
 
-lora_path_animatediff_lcm = "./models/AnimateLCM/loras/"
+lora_path_animatediff_lcm = "./models/Animate/AnimateLCM/loras/"
 os.makedirs(lora_path_animatediff_lcm, exist_ok=True)
 
 model_list_animatediff_lcm_builtin = [
@@ -80,7 +80,7 @@ def initiate_stop_animatediff_lcm():
 
 def check_animatediff_lcm(pipe, step_index, timestep, callback_kwargs):
     global stop_animatediff_lcm
-    if stop_animatediff_lcm == True:
+    if stop_animatediff_lcm:
         print(">>>[AnimateLCM 📼 ]: generation canceled by user")
         stop_animatediff_lcm = False
         pipe._interrupt = True

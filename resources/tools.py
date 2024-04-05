@@ -15,6 +15,11 @@ import torch
 
 class mattModelsManager:
     def __init__(self, models_dir):
+        self.delete_model = None
+        self.delete_models_list = None
+        self.directory = None
+        self.size_final = None
+        self.size = None
         self.models_dir = models_dir
 
     def human_readable_size(self, size):
@@ -48,7 +53,7 @@ class mattModelsManager:
                     size = 0
                     for r, d, f in os.walk(name, followlinks=False):
                         for fi in f:
-                            if os.path.islink(os.path.join(r, fi)) == False:
+                            if not os.path.islink(os.path.join(r, fi)):
                                 size += os.path.getsize(os.path.join(r, fi))
                     size_final = self.human_readable_size(size)
                     content = f"{name}:{size_final}"
@@ -105,6 +110,15 @@ class mattModelsManager:
 
 class mattLoraModelsManager:
     def __init__(self, models_dir):
+        self.path = None
+        self.filename = None
+        self.version = None
+        self.url = None
+        self.delete_model = None
+        self.delete_models_list = None
+        self.models_list = None
+        self.filtered_list_models = None
+        self.directory = None
         self.models_dir = models_dir
 
     def dirlister_models(self, directory):
@@ -126,7 +140,7 @@ class mattLoraModelsManager:
                     size = 0
                     for r, d, f in os.walk(name, followlinks=False):
                         for fi in f:
-                            if os.path.islink(os.path.join(r, fi)) == False:
+                            if not os.path.islink(os.path.join(r, fi)):
                                 size += os.path.getsize(os.path.join(r, fi))
                     size_final = mattModelsManager(self.directory).human_readable_size(size)
                     content = f"{name}:{size_final}"
@@ -166,6 +180,9 @@ class mattLoraModelsManager:
 
 class mattSDModelsDownloader:
     def __init__(self, models_dir):
+        self.path = None
+        self.filename = None
+        self.url = None
         self.models_dir = models_dir
 
     def modelsdownloader(self, url, progress=gr.Progress(track_tqdm=True)):

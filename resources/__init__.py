@@ -37,3 +37,4 @@ from .vid2vid_ze import *
 from .txt2shape import *
 from .img2shape import *
 from .tools import *
+from .animatediff_lightning import *

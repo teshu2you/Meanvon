@@ -425,6 +425,12 @@ with (gr.Blocks(
                     content[7]), int(content[8]), int(content[9]), int(content[10]), int(content[11]), bool(
                     int(content[12])), float(content[13])
 
+            def read_ini_animatediff_lightning(module):
+                content = read_ini(module)
+                return str(content[0]), str(content[1]), int(content[2]), str(content[3]), float(
+                    content[4]), int(content[5]), int(
+                    content[6]), int(content[7]), int(content[8]), int(content[9]), int(content[10]), bool(
+                    int(content[11])), float(content[12])
 
             ## Functions specific to MusicGen Melody
             def read_ini_musicgen_mel(module):
@@ -484,6 +490,28 @@ with (gr.Blocks(
                         value=10), guidance_scale_animatediff_lcm.update(), negative_prompt_animatediff_lcm.update(
                         interactive=True)
 
+            def change_model_type_animatediff_lightning(model_animatediff_lightning):
+                if (model_animatediff_lightning == "stabilityai/sdxl-turbo"):
+                    return sampler_animatediff_lightning.update(
+                        value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
+                        value=2), guidance_scale_animatediff_lightning.update(
+                        value=0.0), negative_prompt_animatediff_lightning.update(interactive=False)
+                elif ("XL" in model_animatediff_lightning.upper()) or (model_animatediff_lightning == "segmind/SSD-1B") or (
+                        model_animatediff_lightning == "dataautogpt3/OpenDalleV1.1"):
+                    return sampler_animatediff_lightning.update(
+                        value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
+                        value=10), guidance_scale_animatediff_lightning.update(
+                        value=7.5), negative_prompt_animatediff_lightning.update(interactive=True)
+                elif (model_animatediff_lightning == "segmind/Segmind-Vega"):
+                    return sampler_animatediff_lightning.update(
+                        value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
+                        value=10), guidance_scale_animatediff_lightning.update(
+                        value=9.0), negative_prompt_animatediff_lightning.update(interactive=True)
+                else:
+                    return sampler_animatediff_lightning.update(
+                        value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
+                        value=10), guidance_scale_animatediff_lightning.update(), negative_prompt_animatediff_lightning.update(
+                        interactive=True)
 
             def change_output_type_txt2prompt(output_type_txt2prompt):
                 if output_type_txt2prompt == "ChatGPT":
@@ -1485,6 +1513,236 @@ with (gr.Blocks(
                                     tkme_animatediff_lcm,
                                 ],
                                 outputs=out_animatediff_lcm,
+                                show_progress="full",
+                            )
+
+                    if ram_size() >= 16:
+                        titletab_tab_animatediff_lightning = "Animate Lightning 📼"
+                    else:
+                        titletab_tab_animatediff_lightning = "Animate Lightning ⛔"
+                    with gr.TabItem(titletab_tab_animatediff_lightning, id=143) as tab_animatediff_lightning:
+                        with gr.Accordion("About", open=False):
+                            with gr.Box():
+                                gr.HTML(
+                                    """
+                                    <h1 style='text-align: left'; text-decoration: underline;>Informations</h1>
+                                    <b>Module : </b>Animate Lightning</br>
+                                    <b>Function : </b>Generate video from a prompt and a negative prompt using <a href='https://hf-mirror.com/ByteDance/AnimateDiff-Lightning/' target='_blank'>Animate Lightning</a> with <a href='https://stability.ai/stablediffusion' target='_blank'>Stable Diffusion</a> Models</br>
+                                    <b>Input(s) : </b>Prompt, negative prompt</br>
+                                    <b>Output(s) : </b>Video</br>
+                                    <b>HF model page : </b>
+                                    <a href='https://huggingface.co/emilianJR/epiCRealism' target='_blank'>emilianJR/epiCRealism</a>, 
+                                    <a href='https://huggingface.co/SG161222/Realistic_Vision_V3.0_VAE' target='_blank'>SG161222/Realistic_Vision_V3.0_VAE</a>, 
+                                    <a href='https://huggingface.co/nitrosocke/Ghibli-Diffusion' target='_blank'>nitrosocke/Ghibli-Diffusion</a></br>
+                                    """
+                                )
+                            with gr.Box():
+                                gr.HTML(
+                                    """
+                                    <h1 style='text-align: left'; text-decoration: underline;>Help</h1>
+                                    <div style='text-align: justified'>
+                                    <b>Usage :</b></br>
+                                    - (optional) Modify the settings to use another model, modify the number of frames to generate or change dimensions of the outputs</br>
+                                    - Fill the <b>prompt</b> with what you want to see in your output video</br>
+                                    - Fill the <b>negative prompt</b> with what you DO NOT want to see in your output video</br>
+                                    - Click the <b>Generate</b> button</br>
+                                    - After generation, generated video is displayed in the <b>Generated video</b> field.
+                                    </br>
+                                    <b>Models :</b></br>
+                                    - You could place <a href='https://huggingface.co/' target='_blank'>huggingface.co</a> or  <a href='https://www.civitai.com/' target='_blank'>civitai.com</a> Stable diffusion based safetensors models in the directory /models/Stable Diffusion. Restart to see them in the models list.
+                                    </div>
+                                    """
+                                )
+                        with gr.Accordion("Settings", open=True):
+                            with gr.Row():
+                                with gr.Column():
+                                    model_animatediff_lightning = gr.Dropdown(choices=model_list_animatediff_lightning,
+                                                                              value=model_list_animatediff_lightning[0],
+                                                                              label="Model",
+                                                                              info="Choose model to use for inference")
+                            with gr.Row():
+                                with gr.Column():
+                                    adapter_animatediff_lightning = gr.Dropdown(
+                                        choices=adapter_list_animatediff_lightning,
+                                        value=adapter_list_animatediff_lightning[0],
+                                        label="adapter",
+                                        info="Choose adapter to use for inference")
+                            # with gr.Row():
+                            #     with gr.Column():
+                            #         lora_animatediff_lightning = gr.Dropdown(choices=lora_list_animatediff_lightning,
+                            #                                                  value=lora_list_animatediff_lightning[0],
+                            #                                                  label="Lora",
+                            #                                                  info="Choose Lora to use for inference")
+                            with gr.Row():
+                                with gr.Column():
+                                    num_inference_step_animatediff_lightning = gr.Slider(1, 100, step=1, value=4,
+                                                                                         label="Steps",
+                                                                                         info="Number of iterations per video. Results and speed depends of sampler")
+                                with gr.Column():
+                                    sampler_animatediff_lightning = gr.Dropdown(choices=list(SCHEDULER_MAPPING.keys()),
+                                                                                value="Euler", label="Sampler",
+                                                                                info="Sampler to use for inference",
+                                                                                interactive=False)
+                            with gr.Row():
+                                with gr.Column():
+                                    guidance_scale_animatediff_lightning = gr.Slider(0.1, 20.0, step=0.1, value=2.0,
+                                                                                     label="CFG scale",
+                                                                                     info="Low values : more creativity. High values : more fidelity to the prompts")
+                                with gr.Column():
+                                    seed_animatediff_lightning = gr.Slider(0, 10000000000, step=1, value=0,
+                                                                           label="Seed(0 for random)",
+                                                                           info="Seed to use for generation. Depending on scheduler, may permit reproducibility")
+                                with gr.Column():
+                                    num_frames_animatediff_lightning = gr.Slider(1, 1200, step=1, value=16,
+                                                                                 label="Video Length (frames)",
+                                                                                 info="Number of frames in the output video (@8fps)")
+                            with gr.Row():
+                                with gr.Column():
+                                    width_animatediff_lightning = gr.Slider(128, 1280, step=64, value=512,
+                                                                            label="Video Width",
+                                                                            info="Width of outputs")
+                                with gr.Column():
+                                    height_animatediff_lightning = gr.Slider(128, 1280, step=64, value=512,
+                                                                             label="Video Height",
+                                                                             info="Height of outputs")
+                                with gr.Column():
+                                    num_videos_per_prompt_animatediff_lightning = gr.Slider(1, 4, step=1, value=1,
+                                                                                            label="Batch size",
+                                                                                            info="Number of videos to generate in a single run",
+                                                                                            interactive=False)
+                            with gr.Row():
+                                with gr.Column():
+                                    num_prompt_animatediff_lightning = gr.Slider(1, 32, step=1, value=1,
+                                                                                 label="Batch count",
+                                                                                 info="Number of batch to run successively")
+                                with gr.Column():
+                                    use_gfpgan_animatediff_lightning = gr.Checkbox(value=True,
+                                                                                   label="Use GFPGAN to restore faces",
+                                                                                   info="Use GFPGAN to enhance faces in the outputs",
+                                                                                   visible=True)
+                                with gr.Column():
+                                    tkme_animatediff_lightning = gr.Slider(0.0, 1.0, step=0.01, value=0,
+                                                                           label="Token Merging ratio",
+                                                                           info="0=slow,best quality, 1=fast,worst quality",
+                                                                           visible=True)
+                            with gr.Row():
+                                with gr.Column():
+                                    save_ini_btn_animatediff_lightning = gr.Button("Save custom defaults settings 💾")
+                                with gr.Column():
+                                    module_name_animatediff_lightning = gr.Textbox(value="animatediff_lightning",
+                                                                                   visible=False,
+                                                                                   interactive=False)
+                                    del_ini_btn_animatediff_lightning = gr.Button("Delete custom defaults settings 🗑️",
+                                                                                  interactive=True if test_cfg_exist(
+                                                                                      module_name_animatediff_lightning.value) else False)
+                                    save_ini_btn_animatediff_lightning.click(
+                                        fn=write_ini,
+                                        inputs=[
+                                            module_name_animatediff_lightning,
+                                            model_animatediff_lightning,
+                                            adapter_animatediff_lightning,
+                                            # lora_animatediff_lightning,
+                                            num_inference_step_animatediff_lightning,
+                                            sampler_animatediff_lightning,
+                                            guidance_scale_animatediff_lightning,
+                                            seed_animatediff_lightning,
+                                            num_frames_animatediff_lightning,
+                                            width_animatediff_lightning,
+                                            height_animatediff_lightning,
+                                            num_videos_per_prompt_animatediff_lightning,
+                                            num_prompt_animatediff_lightning,
+                                            use_gfpgan_animatediff_lightning,
+                                            tkme_animatediff_lightning,
+                                        ]
+                                    )
+                                    save_ini_btn_animatediff_lightning.click(fn=lambda: gr.Info('Settings saved'))
+                                    save_ini_btn_animatediff_lightning.click(
+                                        fn=lambda: del_ini_btn_animatediff_lightning.update(interactive=True),
+                                        outputs=del_ini_btn_animatediff_lightning)
+                                    del_ini_btn_animatediff_lightning.click(
+                                        fn=lambda: del_ini(module_name_animatediff_lightning.value))
+                                    del_ini_btn_animatediff_lightning.click(fn=lambda: gr.Info('Settings deleted'))
+                                    del_ini_btn_animatediff_lightning.click(
+                                        fn=lambda: del_ini_btn_animatediff_lightning.update(interactive=False),
+                                        outputs=del_ini_btn_animatediff_lightning)
+                            if test_cfg_exist(module_name_animatediff_lightning.value):
+                                readcfg_animatediff_lightning = read_ini_animatediff_lightning(
+                                    module_name_animatediff_lightning.value)
+                                model_animatediff_lightning.value = readcfg_animatediff_lightning[0]
+                                adapter_animatediff_lightning.value = readcfg_animatediff_lightning[1]
+                                # lora_animatediff_lightning.value = readcfg_animatediff_lightning[2]
+                                num_inference_step_animatediff_lightning.value = readcfg_animatediff_lightning[2]
+                                sampler_animatediff_lightning.value = readcfg_animatediff_lightning[3]
+                                guidance_scale_animatediff_lightning.value = readcfg_animatediff_lightning[4]
+                                seed_animatediff_lightning.value = readcfg_animatediff_lightning[5]
+                                num_frames_animatediff_lightning.value = readcfg_animatediff_lightning[6]
+                                width_animatediff_lightning.value = readcfg_animatediff_lightning[7]
+                                height_animatediff_lightning.value = readcfg_animatediff_lightning[8]
+                                num_videos_per_prompt_animatediff_lightning.value = readcfg_animatediff_lightning[9]
+                                num_prompt_animatediff_lightning.value = readcfg_animatediff_lightning[10]
+                                use_gfpgan_animatediff_lightning.value = readcfg_animatediff_lightning[11]
+                                tkme_animatediff_lightning.value = readcfg_animatediff_lightning[12]
+                        with gr.Row():
+                            with gr.Column(scale=2):
+                                with gr.Row():
+                                    with gr.Column():
+                                        prompt_animatediff_lightning = gr.Textbox(lines=5, max_lines=5, label="Prompt",
+                                                                                  info="Describe what you want in your video",
+                                                                                  placeholder="A space rocket with trails of smoke behind it launching into space from the desert, 4k, high resolution")
+                                with gr.Row():
+                                    with gr.Column():
+                                        negative_prompt_animatediff_lightning = gr.Textbox(lines=5, max_lines=5,
+                                                                                           label="Negative Prompt",
+                                                                                           info="Describe what you DO NOT want in your video",
+                                                                                           placeholder="bad quality, worst quality, low resolution")
+                            model_animatediff_lightning.change(
+                                fn=change_model_type_animatediff_lightning,
+                                inputs=[model_animatediff_lightning],
+                                outputs=[
+                                    sampler_animatediff_lightning,
+                                    width_animatediff_lightning,
+                                    height_animatediff_lightning,
+                                    num_inference_step_animatediff_lightning,
+                                    guidance_scale_animatediff_lightning,
+                                    negative_prompt_animatediff_lightning,
+                                ]
+                            )
+                            with gr.Column(scale=1):
+                                out_animatediff_lightning = gr.Video(label="Generated video", height=400,
+                                                                     interactive=False)
+                        with gr.Row():
+                            btn_animatediff_lightning = gr.Button("Generate 🚀", variant="primary")
+                            btn_animatediff_lightning_cancel = gr.Button("Cancel 🛑", variant="stop")
+                            btn_animatediff_lightning_cancel.click(fn=initiate_stop_animatediff_lightning, inputs=None,
+                                                                   outputs=None)
+                            btn_animatediff_lightning_clear_input = gr.ClearButton(
+                                components=[prompt_animatediff_lightning, negative_prompt_animatediff_lightning],
+                                value="Clear inputs 🧹")
+                            btn_animatediff_lightning_clear_output = gr.ClearButton(
+                                components=[out_animatediff_lightning],
+                                value="Clear outputs 🧹")
+                            btn_animatediff_lightning.click(
+                                fn=video_animatediff_lightning,
+                                inputs=[
+                                    model_animatediff_lightning,
+                                    adapter_animatediff_lightning,
+                                    # lora_animatediff_lightning,
+                                    num_inference_step_animatediff_lightning,
+                                    sampler_animatediff_lightning,
+                                    guidance_scale_animatediff_lightning,
+                                    seed_animatediff_lightning,
+                                    num_frames_animatediff_lightning,
+                                    height_animatediff_lightning,
+                                    width_animatediff_lightning,
+                                    num_videos_per_prompt_animatediff_lightning,
+                                    num_prompt_animatediff_lightning,
+                                    prompt_animatediff_lightning,
+                                    negative_prompt_animatediff_lightning,
+                                    nsfw_filter,
+                                    use_gfpgan_animatediff_lightning,
+                                    tkme_animatediff_lightning,
+                                ],
+                                outputs=out_animatediff_lightning,
                                 show_progress="full",
                             )
 
