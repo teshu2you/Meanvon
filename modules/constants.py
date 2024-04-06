@@ -3,7 +3,7 @@ AUTH_FILENAME = 'auth.json'
 STEPS_SPEED = 30
 STEPS_QUALITY = 60
 STEPS_EXTREME_SPEED = 8
-STEPS_LIGHTNING = 4
+STEPS_LIGHTNING = 8
 STEPS_LCM = 8
 STEPS_TURBO = 8
 SWITCH_SPEED = 20
@@ -12,9 +12,11 @@ SWITCH_QUALITY = 40
 TYPE_LIGHTNING = "lightning"
 TYPE_LCM = "lcm"
 TYPE_TURBO = "turbo"
+# extreme_speed disused
 TYPE_EXTREME_SPEED = "extreme_speed"
 TYPE_NORMAL = "normal"
 
+# import parameter, used by webui_server.py and work.py
 MIN_SEED = 0
 MAX_SEED = 2**32 - 1
 

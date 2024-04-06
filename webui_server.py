@@ -215,13 +215,29 @@ def metadata_to_ctrls(metadata, ctrls):
         ctrls[16] = metadata.get('guidance_scale')
 
     if 'base_model' in metadata:
-        ctrls[17] = metadata.get('base_model')
+        _tmp = metadata.get('base_model')
+        if ".safetensors" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
+            ctrls[17] = _tmp + ".safetensors"
+        else:
+            ctrls[17] = _tmp
     elif 'base_model_name' in metadata:
-        ctrls[17] = metadata.get('base_model_name')
+        _tmp = metadata.get('base_model_name')
+        if ".safetensors" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
+            ctrls[17] = _tmp + ".safetensors"
+        else:
+            ctrls[17] = _tmp
     if 'refiner_model' in metadata:
-        ctrls[18] = metadata.get('refiner_model')
+        _tmp = metadata.get('refiner_model')
+        if ".safetensors" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
+            ctrls[18] = _tmp + ".safetensors"
+        else:
+            ctrls[18] = _tmp
     elif 'refiner_model_name' in metadata:
-        ctrls[18] = metadata.get('refiner_model_name')
+        _tmp = metadata.get('refiner_model_name')
+        if ".safetensors" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
+            ctrls[18] = _tmp + ".safetensors"
+        else:
+            ctrls[18] = _tmp
     if 'base_clip_skip' in metadata:
         ctrls[19] = metadata.get('base_clip_skip')
     if 'refiner_clip_skip' in metadata:
@@ -237,7 +253,11 @@ def metadata_to_ctrls(metadata, ctrls):
         if index in metadata:
             ctrls[lora_begin_idx] = True
             kv = metadata.get(index).split(":")
-            ctrls[lora_begin_idx + 1] = kv[0].strip()
+            _tmp = kv[0].strip()
+            if ".safetensors" not in _tmp:
+                ctrls[lora_begin_idx + 1] = _tmp + ".safetensors"
+            else:
+                ctrls[lora_begin_idx + 1] = _tmp
             ctrls[lora_begin_idx + 2] = kv[1].strip()
         else:
             ctrls[lora_begin_idx] = False
@@ -277,10 +297,10 @@ def load_prompt_handler(_file, *args):
             image = Image.open(image_file)
             image_file.close()
 
-            if path.endswith('.png') and 'Comment' in image.info:
-                metadata_string = image.info['Comment']
-            elif path.endswith('.jpg') and 'comment' in image.info:
-                metadata_bytes = image.info['comment']
+            if path.endswith('.png') and 'parameters' in image.info:
+                metadata_string = image.info['parameters']
+            elif path.endswith('.jpg') and 'parameters' in image.info:
+                metadata_bytes = image.info['parameters']
                 metadata_string = metadata_bytes.decode('utf-8').split('\0')[0]
             else:
                 metadata_string = None
@@ -3375,12 +3395,12 @@ with (gr.Blocks(
         # prompt.input(parse_meta, inputs=[prompt, state_is_generating],
         #              outputs=[prompt, generate_button, load_parameter_button], queue=False, show_progress=False)
         #
-        # load_data_outputs = [image_number, prompt, negative_prompt, style_selections,
-        #                      performance_selection, overwrite_step, overwrite_switch, aspect_ratios_selection,
-        #                      overwrite_width, overwrite_height, guidance_scale, sharpness, adm_scaler_positive,
-        #                      adm_scaler_negative, adm_scaler_end, refiner_swap_method, adaptive_cfg, base_model,
-        #                      refiner_model, refiner_switch, sampler_name, scheduler_name, seed_random, image_seed,
-        #                      generate_button, load_parameter_button] + freeu_ctrls + lora_ctrls
+        load_data_outputs = [image_number, prompt, negative_prompt, style_selections,
+                             performance_selection, overwrite_step, overwrite_switch, aspect_ratios_selection,
+                             overwrite_width, overwrite_height, guidance_scale, sharpness, adm_scaler_positive,
+                             adm_scaler_negative, adm_scaler_end, refiner_swap_method, adaptive_cfg, base_model,
+                             refiner_model, refiner_switch, sampler_name, scheduler_name, seed_random, image_seed,
+                             generate_button] + freeu_ctrls + lora_ctrls
         #
         # load_parameter_button.click(modules.meta_parser.load_parameter_button_click,
         #                             inputs=[prompt, state_is_generating], outputs=load_data_outputs, queue=False,
@@ -3425,8 +3445,8 @@ with (gr.Blocks(
             return modules.meta_parser.load_parameter_button_click(parsed_parameters, state_is_generating)
 
 
-        # metadata_import_button.click(trigger_metadata_import, inputs=[metadata_input_image, state_is_generating],
-        #                              outputs=load_data_outputs, queue=False, show_progress=True) \
+        metadata_import_button.click(trigger_metadata_import, inputs=[metadata_input_image, state_is_generating],
+                                     outputs=load_data_outputs, queue=False, show_progress=True)
         #     .then(style_sorter.sort_styles, inputs=style_selections, outputs=style_selections, queue=False,
         #           show_progress=False)
 

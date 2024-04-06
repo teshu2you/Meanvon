@@ -1953,8 +1953,8 @@ class taskManager:
                                 modules.patch.patch_settings[self.pid].positive_adm_scale,
                                 modules.patch.patch_settings[self.pid].negative_adm_scale,
                                 modules.patch.patch_settings[self.pid].adm_scaler_end))),
-                            ('Base Model', 'base_model', self.base_model_name),
-                            ('Refiner Model', 'refiner_model', self.refiner_model_name),
+                            ('Base Model', 'base_model', self.base_model_name + ".safetensors"),
+                            ('Refiner Model', 'refiner_model', self.refiner_model_name + ".safetensors"),
                             ('CFG & CLIP Skips', "cfg_clip_skips",
                              (self.guidance_scale, self.base_clip_skip, self.refiner_clip_skip)),
                             ('Image-2-Image', "image_2_image",
@@ -2004,7 +2004,7 @@ class taskManager:
         else:
             for idx, mmm in enumerate(self.loras):
                 if mmm[1] not in ['None', 'NONE', "Not Exist!->"]:
-                    metadata_string.append((f'LoRA {idx + 1}', f'lora_combined_{idx + 1}', f'{mmm[1]}:{mmm[2]}'))
+                    metadata_string.append((f'LoRA {idx + 1}', f'lora_combined_{idx + 1}', f'{mmm[1]+".safetensors"}:{mmm[2]}'))
 
         execution_time = time.perf_counter() - self.execution_start_time
         metadata_string.append(('Execution Time', 'time', f'{execution_time:.2f} seconds'))

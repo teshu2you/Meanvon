@@ -18,7 +18,7 @@ def auth_list_to_dict(auth_list):
 
 def load_auth_data(filename=None):
     auth_dict = None
-    if filename != None and exists(filename):
+    if filename is not None and exists(filename):
         with open(filename, encoding='utf-8') as auth_file:
             try:
                 auth_obj = json.load(auth_file)
@@ -37,5 +37,5 @@ auth_enabled = auth_dict != None
 def check_auth(user, password):
     if user not in auth_dict:
         return False
-    else:   
+    else:
         return hashlib.sha256(bytes(password, encoding='utf-8')).hexdigest() == auth_dict[user]

@@ -18,7 +18,7 @@ from util.printf import printF, MasterName
 def get_config_path(key, default_value):
     env = os.getenv(key)
     if env is not None and isinstance(env, str):
-        print(f"Environment: {key} = {env}")
+        printF(name=MasterName.get_master_name(), info="Environment: {} = {}".format(key, env)).printf()
         return env
     else:
         return os.path.abspath(default_value)
@@ -83,7 +83,7 @@ def load_paths(paths_filename):
                     paths_dict['temp_outputs_path'] = paths_obj['path_outputs']
 
             except Exception as e:
-                print('load_paths, e: ' + str(e))
+                printF(name=MasterName.get_master_name(), info="[ERROR] load_paths, e: {}".format(e)).printf()
             finally:
                 paths_file.close()
 
@@ -94,8 +94,7 @@ try:
     with open(os.path.abspath(f'./presets/default.json'), "r", encoding="utf-8") as json_file:
         config_dict.update(json.load(json_file))
 except Exception as e:
-    print(f'Load default preset failed.')
-    print(e)
+    printF(name=MasterName.get_master_name(), info="[ERROR] Load default preset failed. e: {}".format(e)).printf()
 
 try:
     if os.path.exists(config_path_mre):
@@ -105,8 +104,7 @@ try:
         with open(os.path.abspath(f'./presets/default.json'), "r", encoding="utf-8") as json_file:
             config_dict.update(json.load(json_file))
 except Exception as e:
-    print(f'Load default preset failed.')
-    print(e)
+    printF(name=MasterName.get_master_name(), info="[ERROR] Load default preset failed. e: {}".format(e)).printf()
 
 try:
     if os.path.exists(config_path):
@@ -114,12 +112,16 @@ try:
             config_dict.update(json.load(json_file))
             always_save_keys = list(config_dict.keys())
 except Exception as e:
-    print(f'Failed to load config file "{config_path}" . The reason is: {str(e)}')
-    print('Please make sure that:')
-    print(f'1. The file "{config_path}" is a valid text file, and you have access to read it.')
-    print('2. Use "\\\\" instead of "\\" when describing paths.')
-    print('3. There is no "," before the last "}".')
-    print('4. All key/value formats are correct.')
+    printF(name=MasterName.get_master_name(),
+           info="[ERROR] Failed to load config file {}. The reason is: {}".format(config_path, e)).printf()
+    printF(name=MasterName.get_master_name(), info="[ERROR] Please make sure that:").printf()
+    printF(name=MasterName.get_master_name(),
+           info="[ERROR] 1. The file {} is a valid text file, and you have access to read it.".format(
+               config_path)).printf()
+    printF(name=MasterName.get_master_name(),
+           info="[ERROR] 2. Use \'\\\\\' instead of \'\\' when describing paths.").printf()
+    printF(name=MasterName.get_master_name(), info="[ERROR] 3. There is no ',' before the last '}'").printf()
+    printF(name=MasterName.get_master_name(), info="[ERROR] 4. All key/value formats are correct.").printf()
 
 
 def try_load_deprecated_user_path_config():

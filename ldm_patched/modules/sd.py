@@ -491,22 +491,25 @@ def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, o
             printF(name=MasterName.get_master_name(), info="loaded straight to GPU").printf()
             model_management.load_model_gpu(model_patcher)
 
-    return (model_patcher, clip, vae, clipvision)
+    return model_patcher, clip, vae, clipvision
 
 
-def load_unet_state_dict(sd): #load unet in diffusers format
+def load_unet_state_dict(sd):
+    # load unet in diffusers format
     parameters = ldm_patched.modules.utils.calculate_parameters(sd)
     unet_dtype = model_management.unet_dtype(model_params=parameters)
     load_device = model_management.get_torch_device()
     manual_cast_dtype = model_management.unet_manual_cast(unet_dtype, load_device)
 
-    if "input_blocks.0.0.weight" in sd: #ldm
+    if "input_blocks.0.0.weight" in sd:
+        # ldm
         model_config = model_detection.model_config_from_unet(sd, "", unet_dtype)
         if model_config is None:
             return None
         new_sd = sd
 
-    else: #diffusers
+    else:
+        # diffusers
         model_config = model_detection.model_config_from_diffusers_unet(sd, unet_dtype)
         if model_config is None:
             return None
@@ -533,7 +536,7 @@ def load_unet(unet_path):
     sd = ldm_patched.modules.utils.load_torch_file(unet_path)
     model = load_unet_state_dict(sd)
     if model is None:
-        print("ERROR UNSUPPORTED UNET", unet_path)
+        printF(name=MasterName.get_master_name(), info="[ERROR] UNSUPPORTED unet_path = {}".format(unet_path)).printf()
         raise RuntimeError("ERROR: Could not detect model type of: {}".format(unet_path))
     return model
 

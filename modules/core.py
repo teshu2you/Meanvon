@@ -1,5 +1,4 @@
 import sys
-
 from util.printf import printF, MasterName
 import modules.constants as constants
 import os
@@ -38,15 +37,13 @@ opVAEEncode = VAEEncode()
 opVAEDecodeTiled = VAEDecodeTiled()
 opVAEEncodeTiled = VAEEncodeTiled()
 opControlNetApplyAdvanced = ControlNetApplyAdvanced()
-opFreeU = FreeU_V2()
 opModelSamplingDiscrete = ModelSamplingDiscrete()
 opConditioningZeroOut = ConditioningZeroOut()
 opConditioningAverage = ConditioningAverage()
 opCLIPVisionEncode = CLIPVisionEncode()
 opImageScaleToTotalPixels = ImageScaleToTotalPixels()
 opCanny = Canny()
-opFreeU = FreeU()
-
+opFreeU = FreeU_V2()
 
 class StableDiffusionModel:
     def __init__(self, unet=None, vae=None, clip=None, clip_vision=None, filename=None):
@@ -119,6 +116,7 @@ class StableDiffusionModel:
         self.unet_with_lora = self.unet.clone() if self.unet is not None else None
         self.clip_with_lora = self.clip.clone() if self.clip is not None else None
 
+        # format like: true,"sd_xl_offset_example-lora_1.0.safetensors",0.1
         for lora_enable, lora_filename, weight in loras_to_load:
             lora_unmatch = ldm_patched.modules.utils.load_torch_file(lora_filename, safe_load=False)
             lora_unet, lora_unmatch = match_lora(lora_unmatch, self.lora_key_map_unet)

@@ -7,6 +7,7 @@ import ldm_patched.modules.model_management
 
 class ModelPatcher:
     def __init__(self, model, load_device, offload_device, size=0, current_device=None, weight_inplace_update=False):
+        self.model_keys = None
         self.size = size
         self.model = model
         self.patches = {}
