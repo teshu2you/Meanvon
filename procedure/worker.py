@@ -2004,8 +2004,7 @@ class taskManager:
         else:
             for idx, mmm in enumerate(self.loras):
                 if mmm[1] not in ['None', 'NONE', "Not Exist!->"]:
-                    metadata_string.append((f'LoRA {idx + 1}', f'lora_combined_{idx + 1}', f'{mmm[1]+".safetensors"}:{mmm[2]}'))
-
+                    metadata_string.append((f'LoRA {idx + 1}', f'lora_combined_{idx + 1}', f'{mmm[1]}:{mmm[2]}'))
         execution_time = time.perf_counter() - self.execution_start_time
         metadata_string.append(('Execution Time', 'time', f'{execution_time:.2f} seconds'))
 

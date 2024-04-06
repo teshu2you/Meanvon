@@ -311,10 +311,13 @@ def load_prompt_handler(_file, *args):
                     metadata = json.loads(metadata_string)
                     printF(name=MasterName.get_master_name(),
                            info="[Parameters] metadata = {}".format(metadata)).printf()
+                    if metadata.get("loras"):
+                        for idx, mmm in enumerate(metadata["loras"]):
+                            metadata["lora_combined_" + str(idx+1)] = mmm[0] + ":" + str(mmm[1])
                     ctrls = metadata_to_ctrls(metadata, ctrls)
                 except Exception as e:
                     printF(name=MasterName.get_master_name(),
-                           info="[ERROR] load_prompt_handler e = {} - {}".format(len(ctrls), ctrls)).printf()
+                           info="[ERROR] load_prompt_handler e = {} -  {} - {}".format(e, len(ctrls), ctrls)).printf()
     return ctrls
 
 
@@ -330,7 +333,7 @@ def load_last_prompt_handler(*args):
                 ctrls = metadata_to_ctrls(json_obj, ctrls)
             except Exception as e:
                 printF(name=MasterName.get_master_name(),
-                       info="[ERROR] load_last_prompt_handler e = {} - {}".format(len(ctrls), ctrls)).printf()
+                       info="[ERROR] load_last_prompt_handler e = {} -  {} - {}".format(e, len(ctrls), ctrls)).printf()
             finally:
                 json_file.close()
     return ctrls
@@ -445,12 +448,14 @@ with (gr.Blocks(
                     content[7]), int(content[8]), int(content[9]), int(content[10]), int(content[11]), bool(
                     int(content[12])), float(content[13])
 
+
             def read_ini_animatediff_lightning(module):
                 content = read_ini(module)
                 return str(content[0]), str(content[1]), int(content[2]), str(content[3]), float(
                     content[4]), int(content[5]), int(
                     content[6]), int(content[7]), int(content[8]), int(content[9]), int(content[10]), bool(
                     int(content[11])), float(content[12])
+
 
             ## Functions specific to MusicGen Melody
             def read_ini_musicgen_mel(module):
@@ -510,13 +515,15 @@ with (gr.Blocks(
                         value=10), guidance_scale_animatediff_lcm.update(), negative_prompt_animatediff_lcm.update(
                         interactive=True)
 
+
             def change_model_type_animatediff_lightning(model_animatediff_lightning):
                 if (model_animatediff_lightning == "stabilityai/sdxl-turbo"):
                     return sampler_animatediff_lightning.update(
                         value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
                         value=2), guidance_scale_animatediff_lightning.update(
                         value=0.0), negative_prompt_animatediff_lightning.update(interactive=False)
-                elif ("XL" in model_animatediff_lightning.upper()) or (model_animatediff_lightning == "segmind/SSD-1B") or (
+                elif ("XL" in model_animatediff_lightning.upper()) or (
+                        model_animatediff_lightning == "segmind/SSD-1B") or (
                         model_animatediff_lightning == "dataautogpt3/OpenDalleV1.1"):
                     return sampler_animatediff_lightning.update(
                         value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
@@ -532,6 +539,7 @@ with (gr.Blocks(
                         value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
                         value=10), guidance_scale_animatediff_lightning.update(), negative_prompt_animatediff_lightning.update(
                         interactive=True)
+
 
             def change_output_type_txt2prompt(output_type_txt2prompt):
                 if output_type_txt2prompt == "ChatGPT":
@@ -3401,6 +3409,8 @@ with (gr.Blocks(
                              adm_scaler_negative, adm_scaler_end, refiner_swap_method, adaptive_cfg, base_model,
                              refiner_model, refiner_switch, sampler_name, scheduler_name, seed_random, image_seed,
                              generate_button] + freeu_ctrls + lora_ctrls
+
+
         #
         # load_parameter_button.click(modules.meta_parser.load_parameter_button_click,
         #                             inputs=[prompt, state_is_generating], outputs=load_data_outputs, queue=False,

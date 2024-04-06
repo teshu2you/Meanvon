@@ -289,7 +289,8 @@ class MetadataParser(ABC):
                     lora_path = get_file_from_folder_list(lora_name, modules.config.paths_loras[0])
                     print(f"lora_path: {lora_path} -- {modules.config.paths_loras[0]}")
                     lora_hash = get_sha256(lora_path)
-                    self.loras.append((Path(lora_name).stem, lora_weight, lora_hash))
+                    # self.loras.append((Path(lora_name).stem, lora_weight, lora_hash))
+                    self.loras.append((lora_name, lora_weight, lora_hash))
 
     @staticmethod
     def remove_special_loras(lora_filenames):

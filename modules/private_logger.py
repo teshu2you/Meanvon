@@ -34,6 +34,7 @@ def log(img, metadata, metadata_parser: MetadataParser | None = None, output_for
     os.makedirs(os.path.dirname(local_temp_filename), exist_ok=True)
 
     parsed_parameters = metadata_parser.parse_string(metadata.copy()) if metadata_parser is not None else ''
+    print(f"parsed_parameters: {parsed_parameters}")
     image = Image.fromarray(img)
 
     if metadata is not None:
