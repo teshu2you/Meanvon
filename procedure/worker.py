@@ -1899,7 +1899,7 @@ class taskManager:
                 if modules.inpaint_worker.current_task is not None:
                     self.imgs = [modules.inpaint_worker.current_task.post_process(x) for x in self.imgs]
 
-                self.log_meta_message(task=task)
+                self.log_meta_messages(task=task)
                 self.yield_result(async_task, self.img_paths,
                                   do_not_show_finished_images=len(self.tasks) == 1 or self.disable_intermediate_results)
 
@@ -1953,8 +1953,8 @@ class taskManager:
                                 modules.patch.patch_settings[self.pid].positive_adm_scale,
                                 modules.patch.patch_settings[self.pid].negative_adm_scale,
                                 modules.patch.patch_settings[self.pid].adm_scaler_end))),
-                            ('Base Model', 'base_model', self.base_model_name + ".safetensors"),
-                            ('Refiner Model', 'refiner_model', self.refiner_model_name + ".safetensors"),
+                            ('Base Model', 'base_model', self.base_model_name),
+                            ('Refiner Model', 'refiner_model', self.refiner_model_name),
                             ('CFG & CLIP Skips', "cfg_clip_skips",
                              (self.guidance_scale, self.base_clip_skip, self.refiner_clip_skip)),
                             ('Image-2-Image', "image_2_image",
@@ -2024,8 +2024,8 @@ class taskManager:
 
         return metadata_string
 
-    def log_meta_message(self, task):
-        printF(name=MasterName.get_master_name(), info="[Function] Enter-> log_meta_message").printf()
+    def log_meta_messages(self, task):
+        printF(name=MasterName.get_master_name(), info="[Function] Enter-> log_meta_messages").printf()
         import modules.patch
         self.img_paths = []
 
