@@ -116,5 +116,40 @@ cmake: https://pypi.org/project/cmake/#files
 pip install https://huggingface.co/r4ziel/xformers_pre_built/resolve/main/triton-2.0.0-cp310-cp310-win_amd64.whl
 python -m pip install cmake-3.29.0.1-py3-none-win_amd64.whl
 ```
+- fix4
+description: 
+```bazaar
+X:\python_project\Meanvon\extensions\sadtalker\src\utils\face_enhancer.py
+
+    else:
+        bg_upsampler = None
+        
+#fix     gfpgan_path = os.path.join(os.getcwd(), "models/gfpgan/weights")
+#fix     print(gfpgan_path)
+#fix     model_path = os.path.join(gfpgan_path, model_name + '.pth')
+#fix     print(model_path)
+    
+    if not os.path.isfile(model_path):
+    model_path = os.path.join('models/checkpoints', model_name + '.pth')
+    
+```
+```bazaar
+X:\python_project\Meanvon\venv\Lib\site-packages\gfpgan\utils.py
+
+self.face_helper = FaceRestoreHelper(
+            upscale,
+            face_size=512,
+            crop_ratio=(1, 1),
+            det_model='retinaface_resnet50',
+            save_ext='png',
+            use_parse=True,
+            device=self.device,
+#fix           model_rootpath='models/gfpgan/weights')
+
+        if model_path.startswith('https://'):
+            model_path = load_file_from_url(
+
+```
+
 
 
