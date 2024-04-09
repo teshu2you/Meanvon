@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Apr 2, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/380078/landscape-anime-max-sdxl?modelVersionId=424334",
+	"Version": "v1.0",
+ 	"Tags": "BACKGROUND ANIME ART SCENERY LANDSCAPE BACKGROUNDS LANDSCAPE PHOTOGRAPHY LANDSCAPE ART SDXL ANIME",
+	"Usage_Tips": "",
+	"Author": "Celsia Silver Background Badge",
+	"ReMark": "Welcome to Landscape Anime Max SDXL! This model is the other derivative of the original model ‘Landscape Anime Pro’ combined with several other models, including: animeIllustDiffusion v0.8, and YamersRealistic v5.Please join our discord server by United DeviantArt AIGC Art Alliance: h66ttps://discord.gg/2PfHqzxVAv, to get most recent updates and more!(Or if you want to hear me spam in the admin channel which is not locked but muted hehe ≥w≤).Something different is that Landscape Anime Max SDXL will only be able to produce images starting from resolution of 768x768 to 1536x1536. For users who wants to generate 512x512 or images below that resolution please check out the older version[but still updating] Landscape Anime Pro from my page.DISCLAIMER: The first few versions of this model can be unstable in what they output, so the quality is unsure. If you want more stable models please still go to Landscape Anime Pro."
+}

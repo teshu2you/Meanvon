@@ -313,7 +313,7 @@ def load_prompt_handler(_file, *args):
                            info="[Parameters] metadata = {}".format(metadata)).printf()
                     if metadata.get("loras"):
                         for idx, mmm in enumerate(metadata["loras"]):
-                            metadata["lora_combined_" + str(idx+1)] = mmm[0] + ":" + str(mmm[1])
+                            metadata["lora_combined_" + str(idx + 1)] = mmm[0] + ":" + str(mmm[1])
                     ctrls = metadata_to_ctrls(metadata, ctrls)
                 except Exception as e:
                     printF(name=MasterName.get_master_name(),
@@ -2161,9 +2161,11 @@ with (gr.Blocks(
                     return currentTask
 
 
-                stop_button.click(stop_clicked, inputs=currentTask, outputs=currentTask, queue=False,
+                stop_button.click(stop_clicked, inputs=currentTask, outputs=currentTask, queue=True,
+                                  every=2.0,
                                   show_progress=False, _js='cancelGenerateForever')
-                skip_button.click(skip_clicked, inputs=currentTask, outputs=currentTask, queue=False,
+                skip_button.click(skip_clicked, inputs=currentTask, outputs=currentTask, queue=True,
+                                  every=2.0,
                                   show_progress=False)
 
             with gr.Row(elem_classes='prompt_row'):
