@@ -4,8 +4,9 @@ import gradio as gr
 import os
 import imageio
 from diffusers import AnimateDiffPipeline, MotionAdapter
-from diffusers.utils import export_to_video
+from diffusers.utils import export_to_video, export_to_gif
 import numpy as np
+from compel import Compel, ReturnedEmbeddingsType
 import torch
 import random
 from resources.common import *
@@ -36,6 +37,11 @@ model_list_animatediff_lcm_builtin = [
     "runwayml/stable-diffusion-v1-5",
     "nitrosocke/Ghibli-Diffusion",
 ]
+
+model_list_adapters_animatediff_lcm = {
+    "wangfuyun/AnimateLCM":("AnimateLCM_sd15_t2v_lora.safetensors", 0.8),
+    "ByteDance/AnimateDiff-Lightning":("animatediff_lightning_4step_diffusers.safetensors", 1.0),
+}
 
 adapter_list_animatediff_lcm_builtin = [
     "wangfuyun/AnimateLCM",
@@ -97,12 +103,14 @@ def video_animatediff_lcm(
         guidance_scale_animatediff_lcm,
         seed_animatediff_lcm,
         num_frames_animatediff_lcm,
+        num_fps_animatediff_lcm,
         height_animatediff_lcm,
         width_animatediff_lcm,
         num_videos_per_prompt_animatediff_lcm,
         num_prompt_animatediff_lcm,
         prompt_animatediff_lcm,
         negative_prompt_animatediff_lcm,
+        output_type_animatediff_lcm,
         nsfw_filter,
         use_gfpgan_animatediff_lcm,
         tkme_animatediff_lcm,
@@ -174,12 +182,30 @@ def video_animatediff_lcm(
         for k in range(num_prompt_animatediff_lcm):
             generator.append(torch.Generator(device_animatediff_lcm).manual_seed(final_seed + k))
 
+        prompt_animatediff_lcm = str(prompt_animatediff_lcm)
+        negative_prompt_animatediff_lcm = str(negative_prompt_animatediff_lcm)
+        if prompt_animatediff_lcm == "None":
+            prompt_animatediff_lcm = ""
+        if negative_prompt_animatediff_lcm == "None":
+            negative_prompt_animatediff_lcm = ""
+
+        compel = Compel(tokenizer=pipe_animatediff_lcm.tokenizer, text_encoder=pipe_animatediff_lcm.text_encoder,
+                        truncate_long_prompts=False, device=device_animatediff_lcm)
+        conditioning = compel.build_conditioning_tensor(prompt_animatediff_lcm)
+        neg_conditioning = compel.build_conditioning_tensor(negative_prompt_animatediff_lcm)
+        [conditioning, neg_conditioning] = compel.pad_conditioning_tensors_to_same_length(
+            [conditioning, neg_conditioning])
+
         result = None
+        if output_type_animatediff_lcm == "gif":
+            savename_final = []
         final_seed = []
         for i in range(num_prompt_animatediff_lcm):
             result = pipe_animatediff_lcm(
-                prompt=prompt_animatediff_lcm,
-                negative_prompt=negative_prompt_animatediff_lcm,
+                prompt_embeds=conditioning,
+                negative_prompt_embeds=neg_conditioning,
+                # prompt=prompt_animatediff_lcm,
+                # negative_prompt=negative_prompt_animatediff_lcm,
                 num_frames=num_frames_animatediff_lcm,
                 height=height_animatediff_lcm,
                 width=width_animatediff_lcm,
@@ -195,8 +221,18 @@ def video_animatediff_lcm(
             timestamp = time.time()
             seed_id = random_seed + i * num_videos_per_prompt_animatediff_lcm if (
                     seed_animatediff_lcm == 0) else seed_animatediff_lcm + i * num_videos_per_prompt_animatediff_lcm
-            savename = f"outputs/animatediff_lcm/{seed_id}_{timestamper()}.mp4"
-            export_to_video(result, savename, fps=8)
+            if output_type_animatediff_lcm == "mp4":
+                savename = "outputs/tmp_animatelcm_out.mp4"
+                savename_final = name_seeded_video(seed_id)
+                export_to_video(result, savename, fps=num_fps_animatediff_lcm)
+                os.rename(savename, savename_final)
+            elif output_type_animatediff_lcm == "gif":
+                savename_final = []
+                savename = "outputs/tmp_animatelcm_out.gif"
+                savename_rename = name_seeded_gif(seed_id)
+                export_to_gif(result, savename, fps=num_fps_animatediff_lcm)
+                os.rename(savename, savename_rename)
+                savename_final.append(savename_rename)
             final_seed.append(seed_id)
 
         print(

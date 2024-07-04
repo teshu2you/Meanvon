@@ -1,6 +1,6 @@
 import ssl
 from util.printf import printF, MasterName
-
+from config.webuiConfig import *
 ssl._create_default_https_context = ssl._create_unverified_context
 import warnings
 import shared
@@ -514,6 +514,17 @@ with (gr.Blocks(
                         value="LCM"), width_animatediff_lcm.update(), height_animatediff_lcm.update(), num_inference_step_animatediff_lcm.update(
                         value=10), guidance_scale_animatediff_lcm.update(), negative_prompt_animatediff_lcm.update(
                         interactive=True)
+
+
+            def change_output_type_animatediff_lcm(output_type_animatediff_lcm):
+                if output_type_animatediff_lcm == "mp4":
+                    return out_animatediff_lcm.update(visible=True), gif_out_animatediff_lcm.update(
+                        visible=False), btn_animatediff_lcm.update(visible=True), btn_animatediff_lcm_gif.update(
+                        visible=False)
+                elif output_type_animatediff_lcm == "gif":
+                    return out_animatediff_lcm.update(visible=False), gif_out_animatediff_lcm.update(
+                        visible=True), btn_animatediff_lcm.update(visible=False), btn_animatediff_lcm_gif.update(
+                        visible=True)
 
 
             def change_model_type_animatediff_lightning(model_animatediff_lightning):
@@ -1362,6 +1373,22 @@ with (gr.Blocks(
                                                                         value=model_list_animatediff_lcm[0],
                                                                         label="Model",
                                                                         info="Choose model to use for inference")
+                                with gr.Column():
+                                    model_adapters_animatediff_lcm = gr.Dropdown(
+                                        choices=list(model_list_adapters_animatediff_lcm.keys()),
+                                        value=list(model_list_adapters_animatediff_lcm.keys())[0],
+                                        label="Adapter",
+                                        info="Choose adapter model to use for inference")
+                                with gr.Column():
+                                    num_inference_step_animatediff_lcm = gr.Slider(1, webui_global_steps_max, step=1,
+                                                                                   value=4,
+                                                                                   label="Steps",
+                                                                                   info="steps")
+                                with gr.Column():
+                                    sampler_animatediff_lcm = gr.Dropdown(choices=list(SCHEDULER_MAPPING.keys()),
+                                                                          value="LCM", label="sampler",
+                                                                          info="sampler",
+                                                                          interactive=True)
                             with gr.Row():
                                 with gr.Column():
                                     adapter_animatediff_lcm = gr.Dropdown(choices=adapter_list_animatediff_lcm,
@@ -1397,6 +1424,10 @@ with (gr.Blocks(
                                     num_frames_animatediff_lcm = gr.Slider(1, 1200, step=1, value=16,
                                                                            label="Video Length (frames)",
                                                                            info="Number of frames in the output video (@8fps)")
+                                with gr.Column():
+                                    num_fps_animatediff_lcm = gr.Slider(1, 120, step=1, value=8,
+                                                                        label="fps",
+                                                                        info="fps")
                             with gr.Row():
                                 with gr.Column():
                                     width_animatediff_lcm = gr.Slider(128, 1280, step=64, value=512,
@@ -1494,6 +1525,13 @@ with (gr.Blocks(
                                                                                      label="Negative Prompt",
                                                                                      info="Describe what you DO NOT want in your video",
                                                                                      placeholder="bad quality, worst quality, low resolution")
+                                with gr.Row():
+                                    with gr.Column():
+                                        output_type_animatediff_lcm = gr.Radio(choices=["mp4", "gif"], value="mp4",
+                                                                               label="output type",
+                                                                               info="output type")
+                                    with gr.Column():
+                                        gr.Number(visible=False)
                             model_animatediff_lcm.change(
                                 fn=change_model_type_animatediff_lcm,
                                 inputs=[model_animatediff_lcm],
@@ -1507,42 +1545,93 @@ with (gr.Blocks(
                                 ]
                             )
                             with gr.Column(scale=1):
-                                out_animatediff_lcm = gr.Video(label="Generated video", height=400,
+                                out_animatediff_lcm = gr.Video(label="Generated video", height=400, visible=True,
                                                                interactive=False)
+                                gif_out_animatediff_lcm = gr.Gallery(
+                                    label="Generated gif",
+                                    show_label=True,
+                                    elem_id="gallery",
+                                    columns=3,
+                                    height=400,
+                                    visible=False
+                                )
                         with gr.Row():
-                            btn_animatediff_lcm = gr.Button("Generate 🚀", variant="primary")
-                            btn_animatediff_lcm_cancel = gr.Button("Cancel 🛑", variant="stop")
-                            btn_animatediff_lcm_cancel.click(fn=initiate_stop_animatediff_lcm, inputs=None,
-                                                             outputs=None)
-                            btn_animatediff_lcm_clear_input = gr.ClearButton(
-                                components=[prompt_animatediff_lcm, negative_prompt_animatediff_lcm],
-                                value="Clear inputs 🧹")
-                            btn_animatediff_lcm_clear_output = gr.ClearButton(components=[out_animatediff_lcm],
-                                                                              value="Clear outputs 🧹")
-                            btn_animatediff_lcm.click(
-                                fn=video_animatediff_lcm,
-                                inputs=[
-                                    model_animatediff_lcm,
-                                    adapter_animatediff_lcm,
-                                    lora_animatediff_lcm,
-                                    num_inference_step_animatediff_lcm,
-                                    sampler_animatediff_lcm,
-                                    guidance_scale_animatediff_lcm,
-                                    seed_animatediff_lcm,
-                                    num_frames_animatediff_lcm,
-                                    height_animatediff_lcm,
-                                    width_animatediff_lcm,
-                                    num_videos_per_prompt_animatediff_lcm,
-                                    num_prompt_animatediff_lcm,
-                                    prompt_animatediff_lcm,
-                                    negative_prompt_animatediff_lcm,
-                                    nsfw_filter,
-                                    use_gfpgan_animatediff_lcm,
-                                    tkme_animatediff_lcm,
-                                ],
-                                outputs=out_animatediff_lcm,
-                                show_progress="full",
-                            )
+                            with gr.Column():
+                                btn_animatediff_lcm = gr.Button("Generate 🚀", variant="primary", visible=True)
+                                btn_animatediff_lcm_gif = gr.Button("Generate 🚀", variant="primary", visible=False)
+                            with gr.Column():
+                                btn_animatediff_lcm_cancel = gr.Button("Cancel 🛑", variant="stop")
+                                btn_animatediff_lcm_cancel.click(fn=initiate_stop_animatediff_lcm, inputs=None,
+                                                                 outputs=None)
+                            with gr.Column():
+                                btn_animatediff_lcm_clear_input = gr.ClearButton(
+                                    components=[prompt_animatediff_lcm, negative_prompt_animatediff_lcm],
+                                    value="Clear inputs 🧹")
+                            with gr.Column():
+                                btn_animatediff_lcm_clear_output = gr.ClearButton(
+                                    components=[out_animatediff_lcm, gif_out_animatediff_lcm], value="Clear outputs 🧹")
+                                btn_animatediff_lcm.click(
+                                    fn=video_animatediff_lcm,
+                                    inputs=[
+                                        model_animatediff_lcm,
+                                        model_adapters_animatediff_lcm,
+                                        num_inference_step_animatediff_lcm,
+                                        sampler_animatediff_lcm,
+                                        guidance_scale_animatediff_lcm,
+                                        seed_animatediff_lcm,
+                                        num_frames_animatediff_lcm,
+                                        num_fps_animatediff_lcm,
+                                        height_animatediff_lcm,
+                                        width_animatediff_lcm,
+                                        num_videos_per_prompt_animatediff_lcm,
+                                        num_prompt_animatediff_lcm,
+                                        prompt_animatediff_lcm,
+                                        negative_prompt_animatediff_lcm,
+                                        output_type_animatediff_lcm,
+                                        nsfw_filter,
+                                        use_gfpgan_animatediff_lcm,
+                                        tkme_animatediff_lcm,
+                                    ],
+                                    outputs=out_animatediff_lcm,
+                                    show_progress="full",
+                                )
+                                btn_animatediff_lcm_gif.click(
+                                    fn=video_animatediff_lcm,
+                                    inputs=[
+                                        model_animatediff_lcm,
+                                        model_adapters_animatediff_lcm,
+                                        num_inference_step_animatediff_lcm,
+                                        sampler_animatediff_lcm,
+                                        guidance_scale_animatediff_lcm,
+                                        seed_animatediff_lcm,
+                                        num_frames_animatediff_lcm,
+                                        num_fps_animatediff_lcm,
+                                        height_animatediff_lcm,
+                                        width_animatediff_lcm,
+                                        num_videos_per_prompt_animatediff_lcm,
+                                        num_prompt_animatediff_lcm,
+                                        prompt_animatediff_lcm,
+                                        negative_prompt_animatediff_lcm,
+                                        output_type_animatediff_lcm,
+                                        nsfw_filter,
+                                        use_gfpgan_animatediff_lcm,
+                                        tkme_animatediff_lcm,
+                                    ],
+                                    outputs=gif_out_animatediff_lcm,
+                                    show_progress="full",
+                                )
+                                output_type_animatediff_lcm.change(
+                                    fn=change_output_type_animatediff_lcm,
+                                    inputs=[
+                                        output_type_animatediff_lcm,
+                                    ],
+                                    outputs=[
+                                        out_animatediff_lcm,
+                                        gif_out_animatediff_lcm,
+                                        btn_animatediff_lcm,
+                                        btn_animatediff_lcm_gif,
+                                    ]
+                                )
 
                     if ram_size() >= 16:
                         titletab_tab_animatediff_lightning = "Animate Lightning 📼"
@@ -1790,6 +1879,78 @@ with (gr.Blocks(
                                                      elem_classes='min_check')
             with gr.Row(visible=False) as audio_input_panel:
                 with gr.Tabs():
+                    if ram_size() >= 16:
+                        titletab_chattts_mel = "ChatTTS 🎶"
+                    else:
+                        titletab_chattts_mel = "ChatTTS ⛔"
+                    with gr.TabItem(titletab_chattts_mel, id=132) as tab_chattts_mel:
+                        from resources.chatTTS.webui.wording import get
+                        import resources.chatTTS.webui.batch_option
+                        import resources.chatTTS.webui.text_options
+                        import resources.chatTTS.webui.seed_option
+                        import resources.chatTTS.webui.aduio_option
+                        import resources.chatTTS.webui.enhance_option
+                        import resources.chatTTS.webui.output_option
+                        import resources.chatTTS.webui.config_option
+
+                        with gr.Accordion("About", open=False):
+                            with gr.Box():
+                                gr.HTML(
+                                    """
+                                    <h1 style='text-align: left'; text-decoration: underline;>Informations</h1>
+                                    <b>Module : </b>ChatTTS</br>
+                                    <b>Function : </b>ChatTTS is a text-to-speech model designed specifically for dialogue scenarios such as LLM assistant. <a href='https://github.com/2noise/ChatTTS/tree/main/ChatTTS' target='_blank'>ChatTTS</a></br>
+                                    <b>Input(s) : </b>Input prompt, Input audio</br>
+                                    <b>Output(s) : </b>Generated audio</br>
+                                    <b>HF model page : </b>
+                                    <a href='https://huggingface.co/2Noise/ChatTTS' target='_blank'>2Noise/ChatTTS</a></br>
+                                    """
+                                )
+                            with gr.Box():
+                                gr.HTML(
+                                    """
+                                    <h1 style='text-align: left'; text-decoration: underline;>Help</h1>
+                                    <div style='text-align: justified'>
+                                    <b>Usage :</b></br>
+                                    - Select an audio source type (file or micro recording)</br>
+                                    - Select an audio source by choosing a file or recording something</br>
+                                    - Fill the <b>prompt</b> by describing the audio you want to generate from the text</br>
+                                    - (optional) Modify the settings to change audio duration or inferences parameters</br>
+                                    - Click the <b>Generate<b> button</br>
+                                    - After generation, generated audio is available to listen in the <b>Generated audio<b> field.
+                                    </div>
+                                    """
+                                )
+                        with gr.Accordion("Settings", open=False):
+                            with gr.Row():
+                                with gr.Column():
+                                    with gr.Row():
+                                        gr.Markdown(get('TextOptionsTitle'))
+                                    resources.chatTTS.webui.text_options.render()
+                                    with gr.Row():
+                                        gr.Markdown(get('SeedOptionsTitle'))
+                                    resources.chatTTS.webui.seed_option.render()
+                                    with gr.Row():
+                                        gr.Markdown(get('AudioOptionsTitle'))
+                                    resources.chatTTS.webui.aduio_option.render()
+                                    with gr.Row():
+                                        gr.Markdown(get('AudioEnhancementTitle'))
+                                    resources.chatTTS.webui.enhance_option.render()
+                                    with gr.Row():
+                                        gr.Markdown(get('configmanager'))
+                                    resources.chatTTS.webui.config_option.render()
+                        with gr.Row():
+                            resources.chatTTS.webui.batch_option.render()
+                        with gr.Row():
+                            resources.chatTTS.webui.output_option.render()
+
+                        resources.chatTTS.webui.batch_option.listen()
+                        resources.chatTTS.webui.text_options.listen()
+                        resources.chatTTS.webui.seed_option.listen()
+                        resources.chatTTS.webui.aduio_option.listen()
+                        resources.chatTTS.webui.enhance_option.listen()
+                        resources.chatTTS.webui.output_option.listen()
+
                     if ram_size() >= 16:
                         titletab_musicgen_mel = "MusicGen Melody 🎶"
                     else:
@@ -2340,7 +2501,8 @@ with (gr.Blocks(
                         + '<br> <a href="https://github.com/AUTOMATIC1111/stable-diffusion-webui" target="_blank">\U0001F4DA  stable-diffusion-webui</a> ' \
                         + ' <a href="https://github.com/lllyasviel/stable-diffusion-webui-forge" target="_blank">\U0001F4DA  stable-diffusion-webui-forge</a> ' \
                         + '<br> <a href="https://github.com/comfyanonymous/ComfyUI" target="_blank">\U0001F4DA  ComfyUI</a>' \
-                        + '<br> <a href="https://github.com/Woolverine94/biniou/" target="_blank">\U0001F4DA  biniou</a>'
+                        + '<br> <a href="https://github.com/Woolverine94/biniou/" target="_blank">\U0001F4DA  biniou</a>' \
+                        + '<br> <a href="https://github.com/CCmahua/ChatTTS-Enhanced" target="_blank">\U0001F4DA  ChatTTS-Enhanced</a>'
                         )
 
             with gr.Tab(label='I2I&CN'):

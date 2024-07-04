@@ -151,7 +151,7 @@ def refresh_base_model(name, performance_selection=None):
         free_cuda_mem()
         return
 
-    model_base = core.StableDiffusionModel()
+    # model_base = core.StableDiffusionModel()
     model_base = core.load_model(filename)
     printF(name=MasterName.get_master_name(),
            info="[Warning] Base model loaded: {}".format(model_base.filename)).printf()
@@ -222,8 +222,8 @@ def refresh_refiner_model(name, performance_selection=None):
 @torch.inference_mode()
 def synthesize_refiner_model():
     global model_base, model_refiner
-
-    print('Synthetic Refiner Activated')
+    printF(name=MasterName.get_master_name(),
+           info="Synthetic Refiner Activated").printf()
     model_refiner = core.StableDiffusionModel(
         unet=model_base.unet,
         vae=model_base.vae,
@@ -361,6 +361,16 @@ def clip_encode(texts, pool_top_k=1):
 
     return [[torch.cat(cond_list, dim=1), {"pooled_output": pooled_acc}]]
 
+@torch.no_grad()
+@torch.inference_mode()
+def set_clip_skip(clip_skip: int):
+    global final_clip
+
+    if final_clip is None:
+        return
+
+    final_clip.clip_layer(-abs(clip_skip))
+    return
 
 @torch.no_grad()
 @torch.inference_mode()

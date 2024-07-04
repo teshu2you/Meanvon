@@ -21,15 +21,13 @@ from ldm_patched.contrib.external import VAEDecode, EmptyLatentImage, VAEEncode,
     VAEEncodeForInpaint, \
     ControlNetApplyAdvanced, ConditioningZeroOut, ConditioningAverage, CLIPVisionEncode, unCLIPConditioning, \
     ControlNetApplyAdvanced
-from ldm_patched.modules.sample import prepare_mask
 from ldm_patched.modules.model_base import SDXL, SDXLRefiner
 from modules.lora import match_lora
 from ldm_patched.modules.lora import model_lora_keys_unet, model_lora_keys_clip, load_lora
 from modules.config import path_embeddings
 from modules.util import get_file_from_folder_list
-from ldm_patched.contrib.external_model_advanced import ModelSamplingDiscrete
 from ldm_patched.contrib.external_post_processing import ImageScaleToTotalPixels
-
+from ldm_patched.contrib.external_model_advanced import ModelSamplingDiscrete, ModelSamplingContinuousEDM
 
 opEmptyLatentImage = EmptyLatentImage()
 opVAEDecode = VAEDecode()
@@ -44,9 +42,10 @@ opCLIPVisionEncode = CLIPVisionEncode()
 opImageScaleToTotalPixels = ImageScaleToTotalPixels()
 opCanny = Canny()
 opFreeU = FreeU_V2()
+opModelSamplingContinuousEDM = ModelSamplingContinuousEDM()
 
 class StableDiffusionModel:
-    def __init__(self, unet=None, vae=None, clip=None, clip_vision=None, filename=None):
+    def __init__(self, unet=None, vae=None, clip=None, clip_vision=None, filename=None, vae_filename=None):
         if isinstance(filename, str):
             is_refiner = isinstance(unet.model, SDXLRefiner)
             if unet is not None:
@@ -61,6 +60,7 @@ class StableDiffusionModel:
         self.clip = clip
         self.clip_vision = clip_vision
         self.filename = filename
+        self.vae_filename = vae_filename
         self.unet_with_lora = unet
         self.clip_with_lora = clip
         self.visited_loras = ''
@@ -171,6 +171,10 @@ def load_clip_vision(ckpt_filename):
 def load_controlnet(ckpt_filename):
     return ldm_patched.modules.controlnet.load_controlnet(ckpt_filename)
 
+@torch.no_grad()
+@torch.inference_mode()
+def detect_edge(image, low_threshold, high_threshold):
+    return opCanny.detect_edge(image=image, low_threshold=low_threshold, high_threshold=high_threshold)[0]
 
 # @torch.no_grad()
 # @torch.inference_mode()
@@ -190,14 +194,13 @@ def apply_controlnet(positive, negative, control_net, image, strength, start_per
                                                       image=image, strength=strength, start_percent=start_percent,
                                                       end_percent=end_percent)
 
-
+# Attention!!!!!!!
 @torch.no_grad()
 @torch.inference_mode()
-def load_model(ckpt_filename, model_file_type=constants.TYPE_NORMAL):
-    unet, clip, vae, clip_vision = load_checkpoint_guess_config(ckpt_filename, embedding_directory=path_embeddings,
-                                                                model_file_type=model_file_type)
-    return StableDiffusionModel(unet=unet, clip=clip, vae=vae, clip_vision=clip_vision, filename=ckpt_filename)
-
+def load_model(ckpt_filename, model_file_type=constants.TYPE_NORMAL, vae_filename=None):
+    unet, clip, vae, vae_filename, clip_vision = load_checkpoint_guess_config(ckpt_filename, embedding_directory=path_embeddings,
+                                                                model_file_type=model_file_type, vae_filename_param=vae_filename)
+    return StableDiffusionModel(unet=unet, clip=clip, vae=vae, clip_vision=clip_vision, filename=ckpt_filename, vae_filename=vae_filename)
 
 @torch.no_grad()
 @torch.inference_mode()

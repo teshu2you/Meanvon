@@ -858,37 +858,32 @@ def predict_eps_sigma(model, input, sigma_in, **kwargs):
     return  (input - model(input, sigma_in, **kwargs)) / sigma
 
 
-def sample_unipc(model, noise, image, sigmas, max_denoise, extra_args=None, callback=None, disable=False, noise_mask=None, variant='bh1'):
+def sample_unipc(model, noise, sigmas, extra_args=None, callback=None, disable=False, variant='bh1'):
+    timesteps = sigmas.clone()
+    if sigmas[-1] == 0:
+        timesteps = sigmas[:]
+        timesteps[-1] = 0.001
+    else:
         timesteps = sigmas.clone()
-        if sigmas[-1] == 0:
-            timesteps = sigmas[:]
-            timesteps[-1] = 0.001
-        else:
-            timesteps = sigmas.clone()
-        ns = SigmaConvert()
+    ns = SigmaConvert()
 
-        if image is not None:
-            img = image * ns.marginal_alpha(timesteps[0])
-            if max_denoise:
-                noise_mult = 1.0
-            else:
-                noise_mult = ns.marginal_std(timesteps[0])
-            img += noise * noise_mult
-        else:
-            img = noise
+    noise = noise / torch.sqrt(1.0 + timesteps[0] ** 2.0)
+    model_type = "noise"
 
-        model_type = "noise"
+    model_fn = model_wrapper(
+        lambda input, sigma, **kwargs: predict_eps_sigma(model, input, sigma, **kwargs),
+        ns,
+        model_type=model_type,
+        guidance_type="uncond",
+        model_kwargs=extra_args,
+    )
 
-        model_fn = model_wrapper(
-            lambda input, sigma, **kwargs: predict_eps_sigma(model, input, sigma, **kwargs),
-            ns,
-            model_type=model_type,
-            guidance_type="uncond",
-            model_kwargs=extra_args,
-        )
+    order = min(3, len(timesteps) - 2)
+    uni_pc = UniPC(model_fn, ns, predict_x0=True, thresholding=False, variant=variant)
+    x = uni_pc.sample(noise, timesteps=timesteps, skip_type="time_uniform", method="multistep", order=order,
+                      lower_order_final=True, callback=callback, disable_pbar=disable)
+    x /= ns.marginal_alpha(timesteps[-1])
+    return x
 
-        order = min(3, len(timesteps) - 2)
-        uni_pc = UniPC(model_fn, ns, predict_x0=True, thresholding=False, noise_mask=noise_mask, masked_image=image, noise=noise, variant=variant)
-        x = uni_pc.sample(img, timesteps=timesteps, skip_type="time_uniform", method="multistep", order=order, lower_order_final=True, callback=callback, disable_pbar=disable)
-        x /= ns.marginal_alpha(timesteps[-1])
-        return x
+def sample_unipc_bh2(model, noise, sigmas, extra_args=None, callback=None, disable=False):
+    return sample_unipc(model, noise, sigmas, extra_args, callback, disable, variant='bh2')

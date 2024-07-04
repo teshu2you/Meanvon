@@ -326,6 +326,69 @@ def write_seeded_file(seed, *args):
     return savename
 
 
+def check_image_fmt():
+    if test_cfg_exist("settings"):
+        with open(".ini/settings.cfg", "r", encoding="utf-8") as fichier:
+            exec(fichier.read())
+    if ("biniou_global_img_fmt" in locals() and locals()['biniou_global_img_fmt'] != ""):
+        extension = locals()['biniou_global_img_fmt']
+    else:
+        extension = "png"
+    return extension
+
+
+def check_image_exif():
+    if test_cfg_exist("settings"):
+        with open(".ini/settings.cfg", "r", encoding="utf-8") as fichier:
+            exec(fichier.read())
+    if ("biniou_global_img_exif" in locals() and locals()['biniou_global_img_exif'] != ""):
+        exif = locals()['biniou_global_img_exif']
+    else:
+        exif = True
+    return exif
+
+
+def name_seeded_image(seed):
+    savename = f"outputs/{timestamper()}_{seed}.{check_image_fmt()}"
+    return savename
+
+
+def name_image():
+    savename = f"outputs/{timestamper()}.{check_image_fmt()}"
+    return savename
+
+
+def name_idx_audio(idx):
+    savename = f"outputs/{timestamper()}_{idx}"
+    savename_final = savename + ".wav"
+    return savename, savename_final
+
+
+def name_seeded_audio(seed):
+    savename = f"outputs/{timestamper()}_{seed}.wav"
+    return savename
+
+
+def name_audio():
+    savename = f"outputs/{timestamper()}.wav"
+    return savename
+
+
+def name_seeded_video(seed):
+    savename = f"outputs/{timestamper()}_{seed}.mp4"
+    return savename
+
+
+def name_seeded_gif(seed):
+    savename = f"outputs/{timestamper()}_{seed}.gif"
+    return savename
+
+
+def name_seeded_shape(seed, ext):
+    savename = f"outputs/{timestamper()}_{seed}.{ext}"
+    return savename
+
+
 def set_timestep_vid_ze(numstep, model):
     if "turbo" not in model:
         factor = round(numstep / 10)
@@ -497,13 +560,13 @@ def lora_model_list(model):
             "Pclanglais/Mickey-1928": ("pytorch_lora_weights.safetensors", "Mickey|Minnie|Pete"),
             "Norod78/SDXL-YarnArtStyle-LoRA": ("SDXL_Yarn_Art_Style.safetensors", "Yarn art style"),
             "KappaNeuro/1987-action-figure-playset-packaging": (
-            "1987 Action Figure Playset Packaging.safetensors", "1987 Action Figure Playset Packaging - "),
+                "1987 Action Figure Playset Packaging.safetensors", "1987 Action Figure Playset Packaging - "),
             "KappaNeuro/director-tim-burton-style": (
-            "Director Tim Burton style.safetensors", "Director Tim Burton style - "),
+                "Director Tim Burton style.safetensors", "Director Tim Burton style - "),
             "KappaNeuro/vintage-postage-stamps": ("Vintage Postage Stamps.safetensors", "Vintage Postage Stamps - "),
             "KappaNeuro/diorama": ("Diorama.safetensors", "Diorama - "),
             "artificialguybr/movie-poster-redmond-for-sd-xl-create-movie-poster-images": (
-            "MoviePosterRedmond-MoviePoster-MoviePosterRedAF.safetensors", "Movie Poster, MoviePosterAF"),
+                "MoviePosterRedmond-MoviePoster-MoviePosterRedAF.safetensors", "Movie Poster, MoviePosterAF"),
             "KappaNeuro/movie-poster": ("Movie Poster.safetensors", "Movie Poster - "),
             "DoctorDiffusion/doctor-diffusion-s-xray-xl-lora": ("DD-xray-v1.safetensors", "xray"),
             "openskyml/soviet-diffusion-xl": ("Soviet-poster.safetensors", "soviet poster"),
@@ -521,7 +584,7 @@ def lora_model_list(model):
         model_path_lora = "./models/lora/SD"
         model_list_lora_builtin = {
             "Norod78/SD15-IllusionDiffusionPattern-LoRA": (
-            "SD15-IllusionDiffusionPattern-LoRA.safetensors", "IllusionDiffusionPattern"),
+                "SD15-IllusionDiffusionPattern-LoRA.safetensors", "IllusionDiffusionPattern"),
 
         }
 

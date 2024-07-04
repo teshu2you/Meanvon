@@ -177,6 +177,8 @@ def preprocess(img, ip_adapter_path):
     image_proj_model = entry['image_proj_model']
     ip_unconds = entry['ip_unconds']
 
+    print(f"outputs: {outputs}")
+
     if ip_adapter.plus:
         cond = outputs.hidden_states[-2]
     else:

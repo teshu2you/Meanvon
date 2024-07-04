@@ -476,6 +476,7 @@ def patched_unet_forward(self, x, timesteps=None, context=None, y=None, control=
 
 def patched_load_models_gpu(*args, **kwargs):
     execution_start_time = time.perf_counter()
+    # ATTENTION : load_models_gpu_origin is valid here
     y = ldm_patched.modules.model_management.load_models_gpu_origin(*args, **kwargs)
     moving_time = time.perf_counter() - execution_start_time
     if moving_time > 0.1:

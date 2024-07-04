@@ -1,3 +1,4 @@
+from util.printf import printF, MasterName
 from .utils import load_torch_file, transformers_convert, state_dict_prefix_replace
 import os
 import torch
@@ -99,7 +100,8 @@ def load_clipvision_from_sd(sd, prefix="", convert_keys=False):
     clip = ClipVisionModel(json_config)
     m, u = clip.load_sd(sd)
     if len(m) > 0:
-        print("extra clip vision:", m)
+        printF(name=MasterName.get_master_name(),
+               info="missing clip vision: {}".format(m)).printf()
     u = set(u)
     keys = list(sd.keys())
     for k in keys:
