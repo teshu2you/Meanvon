@@ -54,7 +54,7 @@ class ControlNet(nn.Module):
         transformer_depth_output=None,
         attn_precision=None,
         device=None,
-        operations=comfy.ops.disable_weight_init,
+        operations=ldm_patched.modules.ops.disable_weight_init,
         **kwargs,
     ):
         super().__init__()

@@ -289,6 +289,7 @@ path_clip_vision = get_dir_or_set_default('path_clip_vision', '../models/clip_vi
 path_fooocus_expansion = get_dir_or_set_default('path_fooocus_expansion',
                                                 '../models/prompt_expansion/fooocus_expansion')
 path_wildcards = get_dir_or_set_default('path_wildcards', '../wildcards/')
+path_safety_checker = get_dir_or_set_default('path_safety_checker', '../models/safety_checker/')
 path_outputs = get_path_output()
 
 modelfile_path = get_dir_or_set_default('modelfile_path', '../models/checkpoints/', as_array=True)
@@ -708,7 +709,8 @@ sdxl_lora_filenames = []
 sd15_lora_filenames = []
 sdxl_lcm_lora = 'sdxl_lcm_lora.safetensors'
 sdxl_lightning_lora = 'sdxl_lightning_4step_lora.safetensors'
-loras_metadata_remove = [sdxl_lcm_lora, sdxl_lightning_lora]
+sdxl_hyper_sd_lora = 'Hyper-SDXL-4steps-lora.safetensors'
+loras_metadata_remove = [sdxl_lcm_lora, sdxl_lightning_lora, sdxl_hyper_sd_lora]
 wildcard_filenames = []
 
 
@@ -824,10 +826,17 @@ def downloading_sdxl_lightning_lora():
     load_file_from_url(
         url='https://hf-mirror.com/ByteDance/SDXL-Lightning/resolve/main/sdxl_lightning_4step_lora.safetensors?download=true',
         model_dir=paths_loras[0],
-        file_name='sdxl_lightning_4step_lora.safetensors'
+        file_name=modules.flags.PerformanceLoRA.LIGHTNING.value
     )
-    return 'sdxl_lightning_4step_lora.safetensors'
+    return modules.flags.PerformanceLoRA.LIGHTNING.value
 
+def downloading_sdxl_hyper_sd_lora():
+    load_file_from_url(
+        url='https://huggingface.co/mashb1t/misc/resolve/main/sdxl_hyper_sd_4step_lora.safetensors',
+        model_dir=paths_loras[0],
+        file_name=modules.flags.PerformanceLoRA.HYPER_SD.value
+    )
+    return modules.flags.PerformanceLoRA.HYPER_SD.value
 
 def downloading_controlnet_canny():
     load_file_from_url(
@@ -893,6 +902,14 @@ def downloading_upscale_model():
     )
     return os.path.join(path_upscale_models, 'fooocus_upscaler_s409985e5.bin')
 
+
+def downloading_safety_checker_model():
+    load_file_from_url(
+        url='https://huggingface.co/mashb1t/misc/resolve/main/stable-diffusion-safety-checker.bin',
+        model_dir=path_safety_checker,
+        file_name='stable-diffusion-safety-checker.bin'
+    )
+    return os.path.join(path_safety_checker, 'stable-diffusion-safety-checker.bin')
 
 svd_config = {
     # svd_xt  svd

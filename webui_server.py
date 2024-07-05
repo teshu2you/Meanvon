@@ -2477,7 +2477,14 @@ with (gr.Blocks(
                         return gr.update(visible=True, label="Fixed Steps", value=_v,
                                          interactive=True), gr.update(visible=False), gr.update(
                             visible=False), gr.update(visible=False)
-
+                    elif ps == "Hyper-SD":
+                        if fs is None or fs == "" or int(fs) < 1 or int(fs) > 4:
+                            _v = constants.STEPS_HYPER_SD
+                        else:
+                            _v = fs
+                        return gr.update(visible=True, label="Fixed Steps", value=_v,
+                                         interactive=True), gr.update(visible=False), gr.update(
+                            visible=False), gr.update(visible=False)
 
                 performance_selection.change(fn=performance_changed, inputs=[performance_selection, fixed_steps],
                                              outputs=[fixed_steps, custom_row, custom_steps, custom_switch])
@@ -3205,7 +3212,7 @@ with (gr.Blocks(
             if x.lower() == constants.TYPE_LIGHTNING:
                 cis = ['None'] + [c for c in modules.config.model_filenames if constants.TYPE_LIGHTNING in c.lower()]
                 return gr.update(label=x.title() + " model(for SDXL)", choices=cis, value=cis[0], show_label=True)
-            elif x.lower() in [constants.TYPE_LCM, constants.TYPE_TURBO]:
+            elif x.lower() in [constants.TYPE_LCM, constants.TYPE_TURBO, constants.TYPE_HYPER_SD]:
                 cis = ['None'] + [c for c in modules.config.model_filenames if x.lower() in c.lower()]
                 return gr.update(label=x.title() + " model(for SDXL)", choices=cis, value=cis[0], show_label=True)
             else:
@@ -3367,6 +3374,14 @@ with (gr.Blocks(
                 for rlt in [2.0, 0.0, 1.0, 1.0, 1.0, "None", 1.0]:
                     result += [gr.update(interactive=False, value=rlt)]
                 result += [gr.update(interactive=True, value="euler_ancestral"),
+                           gr.update(interactive=True, value="karras")]
+                result += [gr.update(interactive=False)]
+                result += [gr.update(interactive=True, value=1.0)]
+            elif x1 == 'HYPER_SD':
+                # refiner_swap_method 不改变数值
+                for rlt in [0.0, 0.0, 1.0, 1.0, 1.0, "None", 1.0]:
+                    result += [gr.update(interactive=False, value=rlt)]
+                result += [gr.update(interactive=True, value="dpmpp_sde_gpu"),
                            gr.update(interactive=True, value="karras")]
                 result += [gr.update(interactive=False)]
                 result += [gr.update(interactive=True, value=1.0)]

@@ -171,9 +171,9 @@ class ControlNet(ControlBase):
                 compression_ratio *= self.vae.downscale_rat                                                     
             self.cond_hint = ldm_patched.modules.utils.common_upscale(self.cond_hint_original, x_noisy.shape[3] * self.compression_ratio, x_noisy.shape[2] * self.compression_ratio, self.upscale_algorithm, "center")
             if self.vae is not None:
-                loaded_models = comfy.model_management.loaded_models(only_currently_used=True)
+                loaded_models = ldm_patched.modules.model_management.loaded_models(only_currently_used=True)
                 self.cond_hint = self.vae.encode(self.cond_hint.movedim(1, -1))
-                comfy.model_management.load_models_gpu(loaded_models)
+                ldm_patched.modules.model_management.load_models_gpu(loaded_models)
             if self.latent_format is not None:
                 self.cond_hint = self.latent_format.process_in(self.cond_hint)
             self.cond_hint = self.cond_hint.to(device=self.device, dtype=dtype)                                   
@@ -329,33 +329,33 @@ class ControlLora(ControlNet):
         return ldm_patched.modules.utils.calculate_parameters(self.control_weights) * ldm_patched.modules.model_management.dtype_size(dtype) + ControlBase.inference_memory_requirements(self, dtype)
 
 def load_controlnet_mmdit(sd):
-    new_sd = comfy.model_detection.convert_diffusers_mmdit(sd, "")
-    model_config = comfy.model_detection.model_config_from_unet(new_sd, "", True)
-    num_blocks = comfy.model_detection.count_blocks(new_sd, 'joint_blocks.{}.')
+    new_sd = ldm_patched.modules.model_detection.convert_diffusers_mmdit(sd, "")
+    model_config = ldm_patched.modules.model_detection.model_config_from_unet(new_sd, "", True)
+    num_blocks = ldm_patched.modules.model_detection.count_blocks(new_sd, 'joint_blocks.{}.')
     for k in sd:
         new_sd[k] = sd[k]
 
     supported_inference_dtypes = model_config.supported_inference_dtypes
 
     controlnet_config = model_config.unet_config
-    unet_dtype = comfy.model_management.unet_dtype(supported_dtypes=supported_inference_dtypes)
-    load_device = comfy.model_management.get_torch_device()
-    manual_cast_dtype = comfy.model_management.unet_manual_cast(unet_dtype, load_device)
+    unet_dtype = ldm_patched.modules.model_management.unet_dtype(supported_dtypes=supported_inference_dtypes)
+    load_device = ldm_patched.modules.model_management.get_torch_device()
+    manual_cast_dtype = ldm_patched.modules.model_management.unet_manual_cast(unet_dtype, load_device)
     if manual_cast_dtype is not None:
-        operations = comfy.ops.manual_cast
+        operations = ldm_patched.modules.ops.manual_cast
     else:
-        operations = comfy.ops.disable_weight_init
+        operations = ldm_patched.modules.ops.disable_weight_init
 
-    control_model = comfy.cldm.mmdit.ControlNet(num_blocks=num_blocks, operations=operations, device=load_device, dtype=unet_dtype, **controlnet_config)
+    control_model = ldm_patched.modules.cldm.mmdit.ControlNet(num_blocks=num_blocks, operations=operations, device=load_device, dtype=unet_dtype, **controlnet_config)
     missing, unexpected = control_model.load_state_dict(new_sd, strict=False)
 
     if len(missing) > 0:
-        logging.warning("missing controlnet keys: {}".format(missing))
+        printF(name=MasterName.get_master_name(), info="missing controlnet keys: {}".format(missing)).printf()
 
     if len(unexpected) > 0:
-        logging.debug("unexpected controlnet keys: {}".format(unexpected))
+        printF(name=MasterName.get_master_name(), info="unexpected controlnet keys: {}".format(unexpected)).printf()
 
-    latent_format = comfy.latent_formats.SD3()
+    latent_format = ldm_patched.modules.latent_formats.SD3()
     latent_format.shift_factor = 0 #SD3 controlnet weirdness
     control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, load_device=load_device, manual_cast_dtype=manual_cast_dtype)
     return control                             

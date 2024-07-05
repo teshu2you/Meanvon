@@ -32,7 +32,8 @@ KSAMPLER = {
     "dpmpp_3m_sde": "",
     "dpmpp_3m_sde_gpu": "",
     "ddpm": "",
-    "lcm": "LCM"
+    "lcm": "LCM",
+    "tcd": "TCD"
 }
 
 SAMPLER_EXTRA = {
@@ -50,11 +51,14 @@ KSAMPLER_NAMES = list(KSAMPLER.keys())
 #                   "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm", "lcm", "lightning"]
 # SAMPLER_NAMES = KSAMPLER_NAMES + ["ddim", "uni_pc", "uni_pc_bh2"]
 
-SCHEDULER_NAMES = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "lcm", "turbo"]
+SCHEDULER_NAMES = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "lcm", "turbo", "align_your_steps", "tcd", "edm_playground_v2.5"]
 SAMPLER_NAMES = KSAMPLER_NAMES + list(SAMPLER_EXTRA.keys())
 
 sampler_list = SAMPLER_NAMES
 scheduler_list = SCHEDULER_NAMES
+
+clip_skip_max = 12
+default_vae = 'Default (model)'
 
 refiner_swap_method = 'joint'
 
@@ -97,6 +101,7 @@ metadata_scheme = [
 ]
 
 controlnet_image_count = 4
+preparation_step_count = 13
 
 class OutputFormat(Enum):
     PNG = 'png'
@@ -107,20 +112,35 @@ class OutputFormat(Enum):
     def list(cls) -> list:
         return list(map(lambda c: c.value, cls))
 
+class PerformanceLoRA(Enum):
+    QUALITY = None
+    SPEED = None
+    EXTREME_SPEED = 'sdxl_lcm_lora.safetensors'
+    LIGHTNING = 'sdxl_lightning_4step_lora.safetensors'
+    HYPER_SD = 'Hyper-SDXL-4steps-lora.safetensors'
+
 class Steps(IntEnum):
     QUALITY = 60
     SPEED = 30
     EXTREME_SPEED = 8
     LCM = 8
     TURBO = 8
-    Lightning = 8
+    Lightning = 4
     Custom = 30
+    HYPER_SD = 4
+
+    @classmethod
+    def keys(cls) -> list:
+        return list(map(lambda c: c, Steps.__members__))
 
 
 class StepsUOV(IntEnum):
     QUALITY = 36
     SPEED = 18
     LCM = 8
+    EXTREME_SPEED = 8
+    Lightning = 4
+    HYPER_SD = 4
 
 
 class Performance(Enum):
@@ -130,6 +150,7 @@ class Performance(Enum):
     EXTREME_SPEED = 'LCM'
     TURBO = 'TURBO'
     Lightning = 'Lightning'
+    HYPER_SD = 'Hyper-SD'
     Custom = 'Custom'
 
     @classmethod
@@ -137,15 +158,24 @@ class Performance(Enum):
         return list(map(lambda c: c.value, cls))
 
     @classmethod
+    def values(cls) -> list:
+        return list(map(lambda c: c.value, cls))
+
+    @classmethod
+    def by_steps(cls, steps: int | str):
+        return cls[Steps(int(steps)).name]
+
+    @classmethod
     def has_restricted_features(cls, x) -> bool:
         if isinstance(x, Performance):
             x = x.value
-        return x in [cls.EXTREME_SPEED.value, cls.LIGHTNING.value]
+        return x in [cls.EXTREME_SPEED.value, cls.Lightning.value, cls.HYPER_SD.value]
 
     def steps(self) -> int | None:
-        return Steps[self.name].value if Steps[self.name] else None
+        return Steps[self.name].value if self.name in Steps.__members__ else None
 
     def steps_uov(self) -> int | None:
-        return StepsUOV[self.name].value if Steps[self.name] else None
+        return StepsUOV[self.name].value if self.name in StepsUOV.__members__ else None
 
-
+    def lora_filename(self) -> str | None:
+        return PerformanceLoRA[self.name].value if self.name in PerformanceLoRA.__members__ else None

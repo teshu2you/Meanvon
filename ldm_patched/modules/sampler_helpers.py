@@ -20,7 +20,6 @@ def get_models_from_cond(cond, model_type):
 def convert_cond(cond):
     out = []
     for c in cond:
-        print(f"111-c: {c}")
         temp = c[1].copy()
         model_conds = temp.get("model_conds", {})
         if c[0] is not None:

@@ -368,6 +368,26 @@ def worker():
             adm_scaler_negative = 1.0
             adm_scaler_end = 0.0
 
+        if performance_selection == Performance.HYPER_SD:
+            print('Enter Hyper-SD mode.')
+            progressbar(async_task, 1, 'Downloading Hyper-SD components ...')
+                                                   
+            loras += [[modules.config.downloading_sdxl_hyper_sd_lora(), 0.8]]
+
+            if refiner_model_name != 'None':
+                print(f'Refiner disabled in Hyper-SD mode.')
+
+            refiner_model_name = 'None'
+            sampler_name = 'dpmpp_sde_gpu'
+            scheduler_name = 'karras'
+            sharpness = 0.0
+            guidance_scale = 1.0
+            adaptive_cfg = 1.0
+            refiner_switch = 1.0
+            adm_scaler_positive = 1.0
+            adm_scaler_negative = 1.0
+            adm_scaler_end = 0.0
+            
         print(f'[Parameters] Adaptive CFG = {adaptive_cfg}')
         print(f'[Parameters] Sharpness = {sharpness}')
         print(f'[Parameters] ControlNet Softness = {controlnet_softness}')
@@ -944,17 +964,17 @@ def worker():
         final_sampler_name = sampler_name
         final_scheduler_name = scheduler_name
 
-        if scheduler_name == 'lcm':
+        if scheduler_name in ['lcm', 'tcd']:
             final_scheduler_name = 'sgm_uniform'
             if pipeline.final_unet is not None:
                 pipeline.final_unet = core.opModelSamplingDiscrete.patch(
                     pipeline.final_unet,
-                    sampling='lcm',
+                    sampling=scheduler_name,
                     zsnr=False)[0]
             if pipeline.final_refiner_unet is not None:
                 pipeline.final_refiner_unet = core.opModelSamplingDiscrete.patch(
                     pipeline.final_refiner_unet,
-                    sampling='lcm',
+                    sampling=scheduler_name,
                     zsnr=False)[0]
             print('Using lcm scheduler.')
         elif scheduler_name == 'lightning':
@@ -965,6 +985,20 @@ def worker():
                     sampling='lightning',
                     zsnr=False)[0]
             print('Using lightning scheduler.')
+        elif scheduler_name == 'edm_playground_v2.5':
+            final_scheduler_name = 'karras'
+            def patch_edm(unet):
+                return core.opModelSamplingContinuousEDM.patch(
+                    unet,
+                    sampling=scheduler_name,
+                    sigma_max=120.0,
+                    sigma_min=0.002)[0]
+
+            if pipeline.final_unet is not None:
+                pipeline.final_unet = patch_edm(pipeline.final_unet)
+            if pipeline.final_refiner_unet is not None:
+                pipeline.final_refiner_unet = patch_edm(pipeline.final_refiner_unet)
+            print(f'Using {scheduler_name} scheduler.')
 
         print(f'[final_sampler_name  ] : {final_sampler_name}')
         print(f'[final_scheduler_name] : {final_scheduler_name}')

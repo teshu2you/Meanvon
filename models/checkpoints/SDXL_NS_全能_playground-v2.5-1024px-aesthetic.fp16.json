@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Trained",
+	"NSFW": "True",
+	"Update_Date":"Feb 28, 2024",
+	"Base": "Playground v2",
+	"Links": "https://civitai.work/models/325263?modelVersionId=364967",
+	"Version": "Playground v2.5",
+	"Tags": "base model general",
+	"Usage_Tips": "",
+	"Author": "theally",
+	"ReMark": "This repository contains a model that generates highly aesthetic images of resolution 1024x1024, as well as portrait and landscape aspect ratios."
+}

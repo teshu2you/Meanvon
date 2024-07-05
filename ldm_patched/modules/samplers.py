@@ -248,7 +248,7 @@ def calc_cond_batch(model, conds, x_in, timestep, model_options):
     return out_conds
 
 def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options): #TODO: remove
-    printF(name=MasterName.get_master_name(), info="WARNING: The comfy.samplers.calc_cond_uncond_batch function is deprecated please use the calc_cond_batch one instead.").printf()
+    printF(name=MasterName.get_master_name(), info="WARNING: The ldm_patched.modules.samplers.calc_cond_uncond_batch function is deprecated please use the calc_cond_batch one instead.").printf()
     return tuple(calc_cond_batch(model, [cond, uncond], x_in, timestep, model_options))
 
 def cfg_function(model, cond_pred, uncond_pred, cond_scale, x, timestep, model_options={}, cond=None, uncond=None):
@@ -403,7 +403,7 @@ def resolve_areas_and_cond_masks_multidim(conditions, dims, device):
             modified['mask'] = mask
             conditions[i] = modified
 def resolve_areas_and_cond_masks(conditions, h, w, device):
-    printF(name=MasterName.get_master_name(), info="WARNING: The comfy.samplers.resolve_areas_and_cond_masks function is deprecated please use the resolve_areas_and_cond_masks_multidim one instead.").printf()
+    printF(name=MasterName.get_master_name(), info="WARNING: The ldm_patched.modules.samplers.resolve_areas_and_cond_masks function is deprecated please use the resolve_areas_and_cond_masks_multidim one instead.").printf()
     return resolve_areas_and_cond_masks_multidim(conditions, [h, w], device)
 
 def create_cond_with_same_area_if_none(conds, c): #TODO: handle dim != 2
@@ -541,7 +541,7 @@ class Sampler:
 KSAMPLER_NAMES = ["euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_cfg_pp", "heun", "heunpp2","dpm_2", "dpm_2_ancestral",
                   "lms", "dpm_fast", "dpm_adaptive", "dpmpp_2s_ancestral", "dpmpp_sde", "dpmpp_sde_gpu",
                   "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm", "lcm","lightning",
-                  "ipndm", "ipndm_v", "deis"]
+                  "ipndm", "ipndm_v", "deis", "tcd", "edm_playground_v2.5"]
 
 class KSAMPLER(Sampler):
     def __init__(self, sampler_function, extra_options={}, inpaint_options={}):
@@ -681,12 +681,6 @@ class CFGGuider:
         noise = noise.to(device)
         latent_image = latent_image.to(device)
         sigmas = sigmas.to(device)
-
-        print(f"77777-model_patcher.load_device: {self.model_patcher.load_device}")
-        print(f"77777-device: {device}")
-        print(f"77777-noise: {noise.is_cuda}")
-        print(f"77777-latent_image: {latent_image.is_cuda}")
-        print(f"77777-sigmas: {sigmas.is_cuda}")
 
         output = self.inner_sample(noise, latent_image, device, sampler, sigmas, denoise_mask, callback, disable_pbar, seed)
 

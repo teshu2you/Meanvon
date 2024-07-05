@@ -984,7 +984,7 @@ def unload_all_models():
 
 def resolve_lowvram_weight(weight, model, key):  # TODO: remove
     print(
-        "WARNING: The comfy.model_management.resolve_lowvram_weight function will be removed soon, please stop using it.")
+        "WARNING: The ldm_patched.modules.model_management.resolve_lowvram_weight function will be removed soon, please stop using it.")
     return weight
 
 

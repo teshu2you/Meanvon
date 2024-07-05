@@ -8,10 +8,13 @@ STEPS_LCM = 8
 STEPS_TURBO = 8
 SWITCH_SPEED = 20
 SWITCH_QUALITY = 40
+STEPS_HYPER_SD = 4
 
 TYPE_LIGHTNING = "lightning"
 TYPE_LCM = "lcm"
 TYPE_TURBO = "turbo"
+# TYPE_HYPER_SD must be set "lower"
+TYPE_HYPER_SD = "hyper-sd"
 # extreme_speed disused
 TYPE_EXTREME_SPEED = "extreme_speed"
 TYPE_NORMAL = "normal"

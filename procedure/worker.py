@@ -899,7 +899,7 @@ class taskManager:
                info="[Parameters] use_expansion: {}".format(self.use_expansion)).printf()
 
         assert self.performance_selection in [Performance.SPEED, Performance.QUALITY, Performance.LCM,
-                                              Performance.TURBO, Performance.Lightning, Performance.Custom]
+                                              Performance.TURBO, Performance.Lightning, Performance.HYPER_SD, Performance.Custom]
 
         self.fixed_steps = Performance(self.performance_selection)
 
@@ -988,6 +988,34 @@ class taskManager:
             modules.patch.adm_scaler_end = advanced_parameters.adm_scaler_end = 0.0
             # no need to sync
             # self.steps = self.fixed_steps
+
+        if self.performance_selection == Performance.HYPER_SD:
+            self.fixed_steps = constants.STEPS_HYPER_SD
+            printF(name=MasterName.get_master_name(), info="[Warning] Enter Hyper-SD mode.").printf()
+            self.progressbar(async_task, 1, 'Downloading Hyper-SD components ...')
+            printF(name=MasterName.get_master_name(), info="[Warning] force to replace the 1st lora.").printf()
+            print(f"self.loras: {self.loras}")
+
+            if self.loras == [[]]:
+                self.loras[0] = [True, modules.config.downloading_sdxl_hyper_sd_lora(), 0.8]
+            else:
+                self.loras += [[True, modules.config.downloading_sdxl_hyper_sd_lora(), 0.8]]
+
+            if self.refiner_model_name in ['None', 'Not Exist!->']:
+                printF(name=MasterName.get_master_name(), info="[Warning] Refiner disabled in Hyper-SD mode.").printf()
+                self.refiner_model_name = 'None'
+
+            if not self.switch_sampler:
+                self.sampler_name = advanced_parameters.sampler_name = 'dpmpp_sde_gpu'
+                self.scheduler_name = advanced_parameters.scheduler_name = 'karras'
+
+            modules.patch.sharpness = self.sharpness = 0.0
+            self.guidance_scale = 1.0
+            modules.patch.adaptive_cfg = advanced_parameters.adaptive_cfg = 1.0
+            self.refiner_switch = 1.0
+            modules.patch.positive_adm_scale = advanced_parameters.adm_scaler_positive = 1.0
+            modules.patch.negative_adm_scale = advanced_parameters.adm_scaler_negative = 1.0
+            modules.patch.adm_scaler_end = advanced_parameters.adm_scaler_end = 0.0
 
         if self.performance_selection == Performance.Custom:
             self.steps = self.custom_steps
@@ -1737,19 +1765,34 @@ class taskManager:
         final_sampler_name = self.sampler_name
         final_scheduler_name = self.scheduler_name
 
-        if self.scheduler_name == 'lcm':
+        if self.scheduler_name in ['lcm', 'tcd', 'Lightning']:
             final_scheduler_name = 'sgm_uniform'
             if pipeline.final_unet is not None:
                 pipeline.final_unet = modules.core.opModelSamplingDiscrete.patch(
                     pipeline.final_unet,
-                    sampling='lcm',
+                    sampling=self.scheduler_name,
                     zsnr=False)[0]
             if pipeline.final_refiner_unet is not None:
                 pipeline.final_refiner_unet = modules.core.opModelSamplingDiscrete.patch(
                     pipeline.final_refiner_unet,
-                    sampling='lcm',
+                    sampling=self.scheduler_name,
                     zsnr=False)[0]
-            printF(name=MasterName.get_master_name(), info="[Warning] Using lcm scheduler.").printf()
+        elif self.scheduler_name == 'edm_playground_v2.5':
+            final_scheduler_name = 'karras'
+
+            def patch_edm(unet):
+                return core.opModelSamplingContinuousEDM.patch(
+                    unet,
+                    sampling=self.scheduler_name,
+                    sigma_max=120.0,
+                    sigma_min=0.002)[0]
+
+            if pipeline.final_unet is not None:
+                pipeline.final_unet = patch_edm(pipeline.final_unet)
+            if pipeline.final_refiner_unet is not None:
+                pipeline.final_refiner_unet = patch_edm(pipeline.final_refiner_unet)
+
+        printF(name=MasterName.get_master_name(), info="[Warning] Using {} scheduler.".format(self.scheduler_name)).printf()
 
         printF(name=MasterName.get_master_name(),
                info="Moving model to GPU ...for image No. {} process!".format(self.image_number)).printf()

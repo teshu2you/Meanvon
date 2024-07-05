@@ -40,13 +40,13 @@ def fix_empty_latent_channels(model, latent_image):
 
 def prepare_sampling(model, noise_shape, positive, negative, noise_mask):
     printF(name=MasterName.get_master_name(),
-           info="Warning: comfy.sample.prepare_sampling isn't used anymore and can be removed").printf()
+           info="Warning: ldm_patched.modules.sample.prepare_sampling isn't used anymore and can be removed").printf()
     return model, positive, negative, noise_mask, []
 
 
 def cleanup_additional_models(models):
     printF(name=MasterName.get_master_name(),
-           info="Warning: comfy.sample.cleanup_additional_models isn't used anymore and can be removed").printf()
+           info="Warning: ldm_patched.modules.sample.cleanup_additional_models isn't used anymore and can be removed").printf()
 
 
 def sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative, latent_image, denoise=1.0,
