@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Jun 21, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/521559?modelVersionId=587106",
+	"Version": "",
+	"Tags": "concept angles",
+	"Usage_Tips": "side,scenery,part of landscape",
+	"Author": "cocoat",
+	"ReMark": ""
+}

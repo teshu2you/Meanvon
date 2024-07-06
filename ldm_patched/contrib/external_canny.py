@@ -2,9 +2,12 @@
 
 #From https://github.com/kornia/kornia
 import math
-
+from kornia.filters import canny
 import torch
 import torch.nn.functional as F
+from kornia.filters.kernels import normalize_kernel2d
+from torch import Tensor
+
 import ldm_patched.modules.model_management
 
 def get_canny_nms_kernel(device=None, dtype=None):

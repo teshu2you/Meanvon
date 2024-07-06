@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"May 6, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/277058?modelVersionId=489217",
+	"Version": "v7-Final Destination",
+	"Tags": "BASE MODEL PHOTO WOMAN PHOTOGRAPHY PHOTOREALISM REALISTIC",
+	"Usage_Tips": "",
+	"Author": "epinikion Supporter Badge November 2023",
+	"ReMark": "since i'm low on time, i skipped training for SDXL and found the awesome Model LEOSAM's HelloWorld XL from @LEOSAM which is pretty perfect. So i decided to merge it with V1 + a WIP finetuned model around. I wouldn't say it is better in comparsion to LEOSAMs Model, so i would recommend you to use his model instead of mine. If SDXL can get better, look out for this guy 😊 Regards for all your love and support "
+}

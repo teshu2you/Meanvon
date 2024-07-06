@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"May 23, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/470073/popyays-epic-fantasy-style-or-pony-and-sdxl?modelVersionId=522995",
+	"Version": "Popyay's Epic Fantasy Style",
+ 	"Tags": "style anime art epic woman fantasy man nsfw sfw ponyxl",
+	"Usage_Tips": "Works on: 0.6-1 weights",
+	"Author": "popyay",
+	"ReMark": "I made an SDXL version for the Epic Style, make sure to use/download the one you need"
+}

@@ -93,7 +93,7 @@ if __name__ == '__main__':
             "prompt": "1girl",
             "negative_prompt": "(low quality:2),ng_deepnegative_v1_75t,badhandv4,(holding:2.2),(worst quality:2),(low quality:2),(normal quality:2),lowres,bad anatomy,bad hands,normal quality,((monochrome)),((grayscale)),",
             "style_selections": ['Fooocus V2'] + [main_body],
-            "base_model_name": "juggernautXL_v9Rundiffusionphoto2.safetensors",
+            "base_model_name": "JuggernautXL_X_X_RunDiffusion.safetensors",
             "refiner_model_name": "None",
             "loras": [['sd_xl_offset_example-lora_1.0.safetensors', 0.1], ['None', 0.45], ['None', 0.35],
                       ['None', 0.47], ['None', 1.0]]

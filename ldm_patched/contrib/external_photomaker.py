@@ -140,10 +140,11 @@ class PhotoMakerLoader:
 class PhotoMakerEncode:
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": { "photomaker": ("PHOTOMAKER",),
-                              "image": ("IMAGE",),
-                              "clip": ("CLIP", ),
-                              "text": ("STRING", {"multiline": True, "default": "photograph of photomaker"}),
+        return {"required": {"photomaker": ("PHOTOMAKER",),
+                             "image": ("IMAGE",),
+                             "clip": ("CLIP",),
+                             "text": ("STRING", {"multiline": True, "dynamicPrompts": True,
+                                                 "default": "photograph of photomaker"}),
                              }}
 
     RETURN_TYPES = ("CONDITIONING",)

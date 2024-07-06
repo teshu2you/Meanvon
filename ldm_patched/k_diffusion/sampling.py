@@ -785,6 +785,20 @@ def sample_lcm(model, x, sigmas, extra_args=None, callback=None, disable=None, n
             x = model.inner_model.inner_model.model_sampling.noise_scaling(sigmas[i + 1], noise_sampler(sigmas[i], sigmas[i + 1]), x)
     return x
 
+@torch.no_grad()
+def sample_lightning(model, x, sigmas, extra_args=None, callback=None, disable=None, noise_sampler=None):
+    extra_args = {} if extra_args is None else extra_args
+    noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
+    s_in = x.new_ones([x.shape[0]])
+    for i in trange(len(sigmas) - 1, disable=disable):
+        denoised = model(x, sigmas[i] * s_in, **extra_args)
+        if callback is not None:
+            callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
+
+        x = denoised
+        if sigmas[i + 1] > 0:
+            x = model.inner_model.inner_model.model_sampling.noise_scaling(sigmas[i + 1], noise_sampler(sigmas[i], sigmas[i + 1]), x)
+    return x
 
 @torch.no_grad()
 def sample_heunpp2(model, x, sigmas, extra_args=None, callback=None, disable=None, s_churn=0., s_tmin=0., s_tmax=float('inf'), s_noise=1.):

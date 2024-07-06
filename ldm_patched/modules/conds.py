@@ -44,7 +44,7 @@ class CONDCrossAttn(CONDRegular):
             if s1[0] != s2[0] or s1[2] != s2[2]: #these 2 cases should not happen
                 return False
 
-            mult_min = math.lcm(s1[1], s2[1])
+            mult_min = lcm(s1[1], s2[1])
             diff = mult_min // min(s1[1], s2[1])
             if diff > 4: #arbitrary limit on the padding because it's probably going to impact performance negatively if it's too much
                 return False

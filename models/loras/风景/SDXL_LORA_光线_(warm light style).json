@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Jun 23, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/290860/cinematic-warm-light-lighting-style-xl?modelVersionId=592197",
+	"Version": "Warm Light V2",
+	"Tags": "style movie film photorealistic warm lighting orange sun cinematic photography",
+	"Usage_Tips": "warm light style",
+	"Author": "EauDeNoire",
+	"ReMark": "Trained with sdxl base model.Works well with realistic stock photo model. (Or any other model)You can combine this lora with cinematic color grading model.Feedback and ratings are much appreciated.Feel free to check other similar models:Butterfly Lighting style XL Backlight (Hair light) lighting style XL Cinematic Volumetric (God Rays) Lighting Style XL Cinematic Cool Light Lighting Style XL"
+}

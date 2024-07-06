@@ -149,7 +149,7 @@ def try_load_deprecated_user_path_config():
         replace_config('fooocus_expansion_path', 'path_fooocus_expansion')
         replace_config('temp_outputs_path', 'path_outputs')
 
-        if deprecated_config_dict.get("default_model", None) == 'juggernautXL_v9Rundiffusionphoto2.safetensors':
+        if deprecated_config_dict.get("default_model", None) == 'JuggernautXL_X_X_RunDiffusion.safetensors':
             os.replace('user_path_config.txt', 'user_path_config-deprecated.txt')
             print('Config updated successfully in silence. '
                   'A backup of previous config is written to "user_path_config-deprecated.txt".')
@@ -407,7 +407,7 @@ default_model_preset_name = "default"
 
 default_base_model_name = default_model = get_config_item_or_set_default(
     key='default_model',
-    default_value='juggernautXL_v9Rundiffusionphoto2.safetensors',
+    default_value='JuggernautXL_X_X_RunDiffusion.safetensors',
     validator=lambda x: isinstance(x, str)
 )
 

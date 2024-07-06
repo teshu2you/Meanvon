@@ -583,7 +583,7 @@ def ksampler(sampler_name, extra_options={}, inpaint_options={}):
             return k_diffusion_sampling.sample_dpm_fast(model, noise, sigma_min, sigmas[0], total_steps, extra_args=extra_args, callback=callback, disable=disable)
         sampler_function = dpm_fast_function
     elif sampler_name == "dpm_adaptive":
-        def dpm_adaptive_function(model, noise, sigmas, extra_args, callback, disable):
+        def dpm_adaptive_function(model, noise, sigmas, extra_args, callback, disable, **extra_options):
             if len(sigmas) <= 1:
                 return noise
 
@@ -670,7 +670,7 @@ class CFGGuider:
 
         self.conds = {}
         for k in self.original_conds:
-                self.conds[k] = list(map(lambda a: a.copy(), self.original_conds[k]))
+            self.conds[k] = list(map(lambda a: a.copy(), self.original_conds[k]))
 
         self.inner_model, self.conds, self.loaded_models = ldm_patched.modules.sampler_helpers.prepare_sampling(self.model_patcher, noise.shape, self.conds)
         device = self.model_patcher.load_device

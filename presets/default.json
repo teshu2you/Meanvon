@@ -1,5 +1,5 @@
 {
-    "default_model": "juggernautXL_v9Rundiffusionphoto2.safetensors",
+    "default_model": "JuggernautXL_X_X_RunDiffusion.safetensors",
     "default_refiner": "None",
     "default_refiner_switch": 0.5,
     "default_loras": [
@@ -43,7 +43,7 @@
     ],
     "default_aspect_ratio": "1152*896",
     "checkpoint_downloads": {
-        "juggernautXL_v9Rundiffusionphoto2.safetensors": "https://huggingface.co/lllyasviel/fav_models/resolve/main/fav/juggernautXL_v9Rundiffusionphoto2.safetensors"
+        "JuggernautXL_X_X_RunDiffusion.safetensors": "https://huggingface.co/lllyasviel/fav_models/resolve/main/fav/JuggernautXL_X_X_RunDiffusion.safetensors"
     },
     "embeddings_downloads": {},
     "lora_downloads": {

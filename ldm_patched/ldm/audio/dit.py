@@ -352,8 +352,8 @@ class Attention(nn.Module):
 
         # Other masks will be added here later
 
-        # if len(masks) > 0:
-        #     final_attn_mask = ~or_reduce(masks)
+        if len(masks) > 0:
+            final_attn_mask = ~or_reduce(masks)
 
         n, device = q.shape[-2], q.device
 

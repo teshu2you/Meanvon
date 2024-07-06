@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Jun 22, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/521559?modelVersionId=589035",
+	"Version": "",
+	"Tags": "concept angles",
+	"Usage_Tips": "diagonally face, front and little side face,detailed eyes",
+	"Author": "cocoat",
+	"ReMark": ""
+}

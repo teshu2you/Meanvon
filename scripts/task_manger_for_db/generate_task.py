@@ -125,7 +125,7 @@ if __name__ == '__main__':
             "prompt": main_body + ",raw photo, realistic, 1girl, 18 years old girl, (extreme detailed face, detailed skin), whole body, shirt,",
             "negative_prompt": "ng_deepnegative_v1_75t, badhandv4, (worst quality:2), (low quality:2), (normal quality:2), lowres, bad anatomy, bad hands, normal quality, ((monochrome)), ((grayscale)), (deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime), text, cropped, out of frame, (worst quality, low quality:2), jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, BadDream,",
             "style_selections": ['Fooocus V2', 'Fooocus Enhance', 'Fooocus Photograph'],
-            "base_model_name": "juggernautXL_v9Rundiffusionphoto2.safetensors",
+            "base_model_name": "JuggernautXL_X_X_RunDiffusion.safetensors",
             "refiner_model_name": "",
             "loras": [['sd_xl_offset_example-lora_1.0.safetensors', 0.2], ['SDXL_LORA_艺术_more_art-full_v1.safetensors', 0.7], ['SDXL_LORA_控制_add-detail-xl增加细节.safetensors', 0.8],
                       ['None', 0.47], ['None', 1.0]]

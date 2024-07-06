@@ -2,10 +2,22 @@
 
 import os
 from ldm_patched.pfn import model_loading
+from spandrel import ModelLoader, ImageModelDescriptor                                                      
 from ldm_patched.modules import model_management
 import torch
 import ldm_patched.modules.utils
 import ldm_patched.utils.path_utils
+import ldm_patched.folder_paths
+from util.printf import printF, MasterName
+
+try:
+    from spandrel_extra_arches import EXTRA_REGISTRY
+    from spandrel import MAIN_REGISTRY
+    MAIN_REGISTRY.add(*EXTRA_REGISTRY)
+    printF(name=MasterName.get_master_name(),
+           info="Successfully imported spandrel_extra_arches: support for non commercial upscale models.").printf()
+except:
+    pass
 
 class UpscaleModelLoader:
     @classmethod
@@ -23,6 +35,9 @@ class UpscaleModelLoader:
         if "module.layers.0.residual_group.blocks.0.norm1.weight" in sd:
             sd = ldm_patched.modules.utils.state_dict_prefix_replace(sd, {"module.":""})
         out = model_loading.load_state_dict(sd).eval()
+        
+        if not isinstance(out, ImageModelDescriptor):
+            raise Exception("Upscale model must be a single-image model.")                                                                  
         return (out, )
 
 
@@ -39,9 +54,14 @@ class ImageUpscaleWithModel:
 
     def upscale(self, upscale_model, image):
         device = model_management.get_torch_device()
+        
+        
+        memory_required = model_management.module_size(upscale_model.model)
+        memory_required += (512 * 512 * 3) * image.element_size() * max(upscale_model.scale, 1.0) * 384.0 #The 384.0 is an estimate of how much some of these models take, TODO: make it more accurate
+        memory_required += image.nelement() * image.element_size()
+        model_management.free_memory(memory_required, device)
         upscale_model.to(device)
         in_img = image.movedim(-1,-3).to(device)
-        free_memory = model_management.get_free_memory(device)
 
         tile = 512
         overlap = 32

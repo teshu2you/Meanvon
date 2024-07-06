@@ -50,8 +50,9 @@ class SDXLClipModel(torch.nn.Module):
         self.clip_g.set_clip_options(options)
 
     def reset_clip_options(self):
+        self.clip_g.reset_clip_options()                                        
         self.clip_l.reset_clip_options()
-        self.clip_g.reset_clip_options()
+
 
     def encode_token_weights(self, token_weight_pairs):
         token_weight_pairs_g = token_weight_pairs["g"]

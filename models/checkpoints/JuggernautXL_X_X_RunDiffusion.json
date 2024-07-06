@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"2024/04/25",
+	"Base": "SDXL 1.0",
+	"Links": "https://www.liblib.art/modelinfo/a0045443a4314dd0a99c6802e59195a0?from=search",
+	"Version": "JuggernautXL_X",
+	"Tags": "ASE MODEL PHOTOREALISTIC PHOTO CINEMATIC CHARACTERS NSFW",
+	"Usage_Tips": "推荐设置（VAE已内置）：分辨率：832*1216（用于纵向，但任何 SDXL 分辨率都可以正常工作）采样器：DPM++ 2M Karras 步数：30-40 CFG：3-7 HiRes：4xNMKD-Siax_200k，15 步和 0.3 降噪 + 1.5 高档",
+	"Author": "KandooAI",
+	"ReMark": "在版本 X 中，Juggernaut 的框架已完全重建并使用 GPT4 Vision 进行字幕。此外，基础集采用了全新的结构，这应该可以让您更轻松地提示某些区域（例如全身、中景、人像）。我就不多说关于提示的冗长演讲了。提示指南在这些方面应该比描述中的几句话更能帮助您;)有些领域需要多次尝试才能获得良好的结果。特别值得注意的是“文本”、“男性生殖器”和“手部姿势”区域。该模型可以实现所有目标，但仍处于“开发阶段”。对于那些过去关注我旅程的人，您可能还记得我在 SDXL 发布后暂停了 SD 1.5，以完全专注于 SDXL。同时，我当时觉得SD 1.5已经达到了它的平台期。但是，这次我想采取不同的方法;我还想暂时继续为 SDXL 提供更新，因为我仍然想利用改进机会。因此，在接下来的几周和几个月里，将有一些更重要的更新:)闪电版本有望在下周末推出。"
+}

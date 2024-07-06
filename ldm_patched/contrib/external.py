@@ -9,46 +9,34 @@ import math
 import time
 import random
 
-
 from PIL import Image, ImageOps, ImageSequence, ImageFile
 from PIL.PngImagePlugin import PngInfo
 
 import numpy as np
 import safetensors.torch
-
-from ldm_patched import node_helpers, folder_paths, latent_preview
-from ldm_patched.modules import args_parser
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "ldm_patched"))
 
 from util.printf import printF, MasterName
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy"))
-
 import ldm_patched.modules.diffusers_load
 import ldm_patched.modules.samplers
 import ldm_patched.modules.sample
 import ldm_patched.modules.sd
 import ldm_patched.modules.utils
 import ldm_patched.modules.controlnet
-
 import ldm_patched.modules.clip_vision
-
 import ldm_patched.modules.model_management
-
 import importlib
-
-
-
+from ldm_patched import node_helpers, folder_paths, latent_preview
+from ldm_patched.modules import args_parser
 
 def before_node_execution():
     ldm_patched.modules.model_management.throw_exception_if_processing_interrupted()
-
 
 def interrupt_processing(value=True):
     ldm_patched.modules.model_management.interrupt_current_processing(value)
 
 
 MAX_RESOLUTION = 16384
-
 
 class CLIPTextEncode:
     @classmethod
@@ -445,7 +433,7 @@ class SaveLatent:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"samples": ("LATENT",),
-                             "filename_prefix": ("STRING", {"default": "latents/ComfyUI"})},
+                             "filename_prefix": ("STRING", {"default": "latents/ldm_patched"})},
                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
                 }
 
@@ -456,7 +444,7 @@ class SaveLatent:
 
     CATEGORY = "_for_testing"
 
-    def save(self, samples, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+    def save(self, samples, filename_prefix="ldm_patched", prompt=None, extra_pnginfo=None):
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
             filename_prefix, self.output_dir)
 
@@ -1328,16 +1316,7 @@ class LatentComposite:
                 if x + samples_from.shape[3] < samples_to.shape[3]:
                     mask[:, :, :, mask.shape[3] - 1 - t: mask.shape[3] - t] *= ((1.0 / feather) * (t + 1))
             rev_mask = torch.ones_like(mask) - mask
-            s[:, :, y:y + samples_from.shape[2], x:x + samples_from.shape[3]] = samples_from[:, :,
-                                                                                :samples_to.shape[2] - y,
-                                                                                :samples_to.shape[3] - x] * mask + s[:,
-                                                                                                                   :,
-                                                                                                                   y:y +
-                                                                                                                     samples_from.shape[
-                                                                                                                         2],
-                                                                                                                   x:x +
-                                                                                                                     samples_from.shape[
-                                                                                                                         3]] * rev_mask
+            s[:, :, y:y + samples_from.shape[2], x:x + samples_from.shape[3]] = samples_from[:, :,:samples_to.shape[2] - y,:samples_to.shape[3] - x] * mask + s[:,:,y:y +samples_from.shape[2],x:x +samples_from.shape[3]] * rev_mask
         samples_out["samples"] = s
         return (samples_out,)
 
@@ -1541,7 +1520,7 @@ class SaveImage:
     def INPUT_TYPES(s):
         return {"required":
                     {"images": ("IMAGE",),
-                     "filename_prefix": ("STRING", {"default": "ComfyUI"})},
+                     "filename_prefix": ("STRING", {"default": "ldm_patched"})},
                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
                 }
 
@@ -1552,7 +1531,7 @@ class SaveImage:
 
     CATEGORY = "image"
 
-    def save_images(self, images, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+    def save_images(self, images, filename_prefix="ldm_patched", prompt=None, extra_pnginfo=None):
         filename_prefix += self.prefix_append
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
             filename_prefix, self.output_dir, images[0].shape[1], images[0].shape[0])
@@ -2071,7 +2050,16 @@ def load_custom_node(module_path, ignore=set()):
         return False
 
 
-def load_custom_nodes():
+def init_external_custom_nodes():
+    """
+    Initializes the external custom nodes.
+
+    This function loads custom nodes from the specified folder paths and imports them into the application.
+    It measures the import times for each custom node and logs the results.
+
+    Returns:
+        None
+    """      
     base_node_names = set(NODE_CLASS_MAPPINGS.keys())
     node_paths = folder_paths.get_folder_paths("custom_nodes")
     node_import_times = []
@@ -2099,8 +2087,17 @@ def load_custom_nodes():
         printF(name=MasterName.get_master_name(), info="").printf()
 
 
-def init_custom_nodes():
-    extras_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy_extras")
+def init_builtin_extra_nodes():
+    """
+    Initializes the built-in extra nodes in ComfyUI.
+
+    This function loads the extra node files located in the "comfy_extras" directory and imports them into ComfyUI.
+    If any of the extra node files fail to import, a warning message is logged.
+
+    Returns:
+        None
+    """
+    extras_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "ldm_patched_extras")
     extras_files = [
         "nodes_latent.py",
         "nodes_hypernetwork.py",
@@ -2145,8 +2142,6 @@ def init_custom_nodes():
     for node_file in extras_files:
         if not load_custom_node(os.path.join(extras_dir, node_file)):
             import_failed.append(node_file)
-
-    load_custom_nodes()
 
     if len(import_failed) > 0:
         printF(name=MasterName.get_master_name(), info="WARNING: some comfy_extras/ nodes did not import correctly. This may be because they are missing some dependencies.\n").printf()

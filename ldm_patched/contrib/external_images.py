@@ -50,6 +50,24 @@ class RepeatImageBatch:
         s = image.repeat((amount, 1,1,1))
         return (s,)
 
+class ImageFromBatch:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": { "image": ("IMAGE",),
+                              "batch_index": ("INT", {"default": 0, "min": 0, "max": 4095}),
+                              "length": ("INT", {"default": 1, "min": 1, "max": 4096}),
+                              }}
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "frombatch"
+
+    CATEGORY = "image/batch"
+
+    def frombatch(self, image, batch_index, length):
+        s_in = image
+        batch_index = min(s_in.shape[0] - 1, batch_index)
+        length = min(s_in.shape[0] - batch_index, length)
+        s = s_in[batch_index:batch_index + length].clone()
+        return (s,)
 class SaveAnimatedWEBP:
     def __init__(self):
         self.output_dir = ldm_patched.utils.path_utils.get_output_directory()
@@ -90,7 +108,7 @@ class SaveAnimatedWEBP:
             pil_images.append(img)
 
         metadata = pil_images[0].getexif()
-        if not args.disable_server_info:
+        if not args.disable_metadata:
             if prompt is not None:
                 metadata[0x0110] = "prompt:{}".format(json.dumps(prompt))
             if extra_pnginfo is not None:
@@ -172,6 +190,7 @@ class SaveAnimatedPNG:
 NODE_CLASS_MAPPINGS = {
     "ImageCrop": ImageCrop,
     "RepeatImageBatch": RepeatImageBatch,
+    "ImageFromBatch": ImageFromBatch,                                     
     "SaveAnimatedWEBP": SaveAnimatedWEBP,
     "SaveAnimatedPNG": SaveAnimatedPNG,
 }

@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"May 28, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/372465?modelVersionId=534642",
+	"Version": "v2.1 Main + VAE",
+	"Tags": "base model photorealistic porn realism woman girls photography realistic nsfw sfw ponyxl",
+	"Usage_Tips": "Recommended Parameters for Local Generation Samplers: Recommended:DPM++ SDE DPM++ 2S a Karras DPM++ SDE Karras DPM++ 2M SDE Karras DPM++ 2M SDE Exponential DPM2 a DPM++ 2S a DPM++ 3M * Not Recommended (Weak Detail): Euler a Euler Settings: Steps: 20-30 CFG: 6-7 Clip Skip: 2 Resolution: 1280x768 | 768x1280 Terminology: Recommended the use of 'female/male' instead of 'woman/man' Additional Information: No trigger words are needed. Use Danbooru tags. Don't exceed a weight of 1.5 in prompts Prompt Style: Positive: score_9, score_8_up, score_7_up, BREAK Negative: score_4, score_5, score_6",
+	"Author": "DucHaiten SDXL Training Contest Participant",
+	"ReMark": "Main Version: Offers the highest detail but has limited compatibility with some Samplers.Alternative Version: Compatible with most Samplers, though with reduced detail.Inpaint Version: Refer to the 'About this version' section of the version for more information.4 Step Lightning Version: Refer to the 'About this version' section of the version for more information.8 Step Lightning Version: Refer to the 'About this version' section of the version for more information"
+}

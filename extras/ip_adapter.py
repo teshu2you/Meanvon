@@ -252,7 +252,6 @@ def patch_model(model, tasks):
             v = torch.cat(v, dim=1)
             out = sdp(q, k, v, extra_options)
 
-
             return out.to(dtype=org_dtype)
         return patcher
 

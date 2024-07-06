@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Jun 10, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/498118/makoto-shinkai-style-your-name-suzume-garden-of-words?modelVersionId=553724",
+	"Version": "Shinkaistyle",
+	"Tags": "style anime semirealistic",
+	"Usage_Tips": "Shinkaistyle",
+	"Author": "Corruptedcupid",
+	"ReMark": "Trained on stills from 3 movies: Your Name, Suzume, Garden of words Didn't want the buzz for this to go to waste, its not the greatest. Get some decent results specially in scenery close ups.Tag: Shinkaistyle extra tags that help: High detail, realistic anime"
+}

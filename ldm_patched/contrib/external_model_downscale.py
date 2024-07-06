@@ -22,6 +22,7 @@ class PatchModelAddDownscale:
     CATEGORY = "_for_testing"
 
     def patch(self, model, block_number, downscale_factor, start_percent, end_percent, downscale_after_skip, downscale_method, upscale_method):
+        model_sampling = model.get_model_object("model_sampling")                                                              
         sigma_start = model.model.model_sampling.percent_to_sigma(start_percent)
         sigma_end = model.model.model_sampling.percent_to_sigma(end_percent)
 

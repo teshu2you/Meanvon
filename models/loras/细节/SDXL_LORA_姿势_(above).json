@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Jun 18, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/521559?modelVersionId=579480",
+	"Version": "",
+	"Tags": "concept angles",
+	"Usage_Tips": "above from above",
+	"Author": "cocoat",
+	"ReMark": ""
+}

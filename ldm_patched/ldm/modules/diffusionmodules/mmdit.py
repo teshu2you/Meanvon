@@ -745,6 +745,8 @@ class MMDiT(nn.Module):
         qkv_bias: bool = True,
         context_processor_layers = None,
         context_size = 4096,
+        num_blocks = None,
+        final_layer = True,                          
         dtype = None, #TODO
         device = None,
         operations = None,
@@ -766,7 +768,10 @@ class MMDiT(nn.Module):
         # apply magic --> this defines a head_size of 64
         self.hidden_size = 64 * depth
         num_heads = depth
+        if num_blocks is None:
+            num_blocks = depth
 
+        self.depth = depth                                                     
         self.num_heads = num_heads
 
         self.x_embedder = PatchEmbed(
@@ -821,7 +826,7 @@ class MMDiT(nn.Module):
                     mlp_ratio=mlp_ratio,
                     qkv_bias=qkv_bias,
                     attn_mode=attn_mode,
-                    pre_only=i == depth - 1,
+                    pre_only=(i == num_blocks - 1) and final_layer,
                     rmsnorm=rmsnorm,
                     scale_mod_only=scale_mod_only,
                     swiglu=swiglu,
@@ -830,7 +835,7 @@ class MMDiT(nn.Module):
                     device=device,
                     operations=operations
                 )
-                for i in range(depth)
+                for i in range(num_blocks)
             ]
         )
 
@@ -958,5 +963,5 @@ class OpenAISignatureMMDITWrapper(MMDiT):
         y: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> torch.Tensor:
-        return super().forward(x, timesteps, context=context, y=y)
+        return super().forward(x, timesteps, context=context, y=y, control=control)
 

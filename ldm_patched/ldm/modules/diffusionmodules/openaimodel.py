@@ -711,7 +711,6 @@ class UNetModel(nn.Module):
                 operations=operations
             )]
 
-
         self.middle_block = None
         if transformer_depth_middle >= -1:
             if transformer_depth_middle >= 0:

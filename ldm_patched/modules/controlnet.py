@@ -8,8 +8,9 @@ import ldm_patched.modules.model_patcher
 import ldm_patched.modules.ops
 
 import ldm_patched.controlnet.cldm
-import ldm_patched.t2ia.adapter
+import ldm_patched.t2i_adapter.adapter
 import ldm_patched.ldm.cascade.controlnet
+import ldm_patched.cldm.mmdit
 from util.printf import printF, MasterName
 
 
@@ -168,8 +169,8 @@ class ControlNet(ControlBase):
             self.cond_hint = None
             compression_ratio = self.compression_ratio
             if self.vae is not None:
-                compression_ratio *= self.vae.downscale_rat                                                     
-            self.cond_hint = ldm_patched.modules.utils.common_upscale(self.cond_hint_original, x_noisy.shape[3] * self.compression_ratio, x_noisy.shape[2] * self.compression_ratio, self.upscale_algorithm, "center")
+                compression_ratio *= self.vae.downscale_ratio                                                    
+            self.cond_hint = ldm_patched.modules.utils.common_upscale(self.cond_hint_original, x_noisy.shape[3] * compression_ratio, x_noisy.shape[2] * compression_ratio, self.upscale_algorithm, "center")
             if self.vae is not None:
                 loaded_models = ldm_patched.modules.model_management.loaded_models(only_currently_used=True)
                 self.cond_hint = self.vae.encode(self.cond_hint.movedim(1, -1))
@@ -562,7 +563,7 @@ def load_t2i_adapter(t2i_data):
 
     if "body.0.in_conv.weight" in keys:
         cin = t2i_data['body.0.in_conv.weight'].shape[1]
-        model_ad = ldm_patched.modules.t2i_adapter.adapter.Adapter_light(cin=cin, channels=[320, 640, 1280, 1280], nums_rb=4)
+        model_ad = ldm_patched.t2i_adapter.adapter.Adapter_light(cin=cin, channels=[320, 640, 1280, 1280], nums_rb=4)
     elif 'conv_in.weight' in keys:
         cin = t2i_data['conv_in.weight'].shape[1]
         channel = t2i_data['conv_in.weight'].shape[0]

@@ -9,7 +9,7 @@ import folder_paths
 import json
 import os
 
-from ldm_patched.modules.cli_args import args
+from ldm_patched.modules.args_parser import args
 
 class ModelMergeSimple:
     @classmethod
@@ -230,7 +230,7 @@ class CheckpointSave:
         return {"required": { "model": ("MODEL",),
                               "clip": ("CLIP",),
                               "vae": ("VAE",),
-                              "filename_prefix": ("STRING", {"default": "checkpoints/ComfyUI"}),},
+                              "filename_prefix": ("STRING", {"default": "checkpoints/ldm_patched"}),},
                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},}
     RETURN_TYPES = ()
     FUNCTION = "save"
@@ -249,7 +249,7 @@ class CLIPSave:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": { "clip": ("CLIP",),
-                              "filename_prefix": ("STRING", {"default": "clip/ComfyUI"}),},
+                              "filename_prefix": ("STRING", {"default": "clip/ldm_patched"}),},
                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},}
     RETURN_TYPES = ()
     FUNCTION = "save"
@@ -305,7 +305,7 @@ class VAESave:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": { "vae": ("VAE",),
-                              "filename_prefix": ("STRING", {"default": "vae/ComfyUI_vae"}),},
+                              "filename_prefix": ("STRING", {"default": "vae/ldm_patched_vae"}),},
                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},}
     RETURN_TYPES = ()
     FUNCTION = "save"

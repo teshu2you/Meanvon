@@ -5,7 +5,7 @@
     "default_loras": [
         [
             true,
-            "Hyper-SDXL-4steps-lora.safetensors",
+            "None",
             1.0
         ],
         [

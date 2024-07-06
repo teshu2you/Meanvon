@@ -276,6 +276,25 @@ class SamplerDPMPP_SDE:
         sampler = ldm_patched.modules.samplers.ksampler(sampler_name, {"eta": eta, "s_noise": s_noise, "r": r})
         return (sampler, )
 
+
+class SamplerTCD:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "eta": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 1.0, "step": 0.01}),
+            }
+        }
+    RETURN_TYPES = ("SAMPLER",)
+    CATEGORY = "sampling/custom_sampling/samplers"
+
+    FUNCTION = "get_sampler"
+
+    def get_sampler(self, eta=0.3):
+        sampler = ldm_patched.modules.samplers.ksampler("tcd", {"eta": eta})
+        return (sampler, )
+
+
 class SamplerEulerAncestral:
     @classmethod
     def INPUT_TYPES(s):
@@ -650,7 +669,7 @@ NODE_CLASS_MAPPINGS = {
     "SplitSigmas": SplitSigmas,
     "SplitSigmasDenoise": SplitSigmasDenoise,
     "FlipSigmas": FlipSigmas,
-
+    "SamplerTCD": SamplerTCD,
     "CFGGuider": CFGGuider,
     "DualCFGGuider": DualCFGGuider,
     "BasicGuider": BasicGuider,

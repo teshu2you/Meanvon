@@ -21,7 +21,7 @@ from . import sdxl_clip
 
 import ldm_patched.modules.model_patcher
 import ldm_patched.modules.lora
-import ldm_patched.t2ia.adapter
+import ldm_patched.t2i_adapter.adapter
 import ldm_patched.modules.supported_models_base
 import ldm_patched.taesd.taesd
 
@@ -306,13 +306,15 @@ class VAE:
             / 3.0)
         return output
 
+    def decode_tiled_1d(self, samples, tile_x=128, overlap=32):
+        decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
+        return comfy.utils.tiled_scale_multidim(samples, decode_fn, tile=(tile_x,), overlap=overlap, upscale_amount=self.upscale_ratio, out_channels=self.output_channels, output_device=self.output_device)                                                               
     def encode_tiled_(self, pixel_samples, tile_x=512, tile_y=512, overlap = 64):
         steps = pixel_samples.shape[0] * ldm_patched.modules.utils.get_tiled_scale_steps(pixel_samples.shape[3], pixel_samples.shape[2], tile_x, tile_y, overlap)
         steps += pixel_samples.shape[0] * ldm_patched.modules.utils.get_tiled_scale_steps(pixel_samples.shape[3], pixel_samples.shape[2], tile_x // 2, tile_y * 2, overlap)
         steps += pixel_samples.shape[0] * ldm_patched.modules.utils.get_tiled_scale_steps(pixel_samples.shape[3], pixel_samples.shape[2], tile_x * 2, tile_y // 2, overlap)
         pbar = ldm_patched.modules.utils.ProgressBar(steps)
-
-        encode_fn = lambda a: self.first_stage_model.encode((2. * a - 1.).to(self.vae_dtype).to(self.device)).float()
+        encode_fn = lambda a: self.first_stage_model.encode((self.process_input(a)).to(self.vae_dtype).to(self.device)).float()
         samples = ldm_patched.modules.utils.tiled_scale(pixel_samples, encode_fn, tile_x, tile_y, overlap, upscale_amount = (1/self.downscale_ratio), out_channels=self.latent_channels, output_device=self.output_device, pbar=pbar)
         samples += ldm_patched.modules.utils.tiled_scale(pixel_samples, encode_fn, tile_x * 2, tile_y // 2, overlap, upscale_amount = (1/self.downscale_ratio), out_channels=self.latent_channels, output_device=self.output_device, pbar=pbar)
         samples += ldm_patched.modules.utils.tiled_scale(pixel_samples, encode_fn, tile_x // 2, tile_y * 2, overlap, upscale_amount = (1/self.downscale_ratio), out_channels=self.latent_channels, output_device=self.output_device, pbar=pbar)
@@ -396,7 +398,7 @@ def load_style_model(ckpt_path):
     model_data = ldm_patched.modules.utils.load_torch_file(ckpt_path, safe_load=True)
     keys = model_data.keys()
     if "style_embedding" in keys:
-        model = ldm_patched.t2ia.adapter.StyleAdapter(width=1024, context_dim=768, num_head=8, n_layes=3, num_token=8)
+        model = ldm_patched.t2i_adapter.adapter.StyleAdapter(width=1024, context_dim=768, num_head=8, n_layes=3, num_token=8)
     else:
         raise Exception("invalid style model {}".format(ckpt_path))
     model.load_state_dict(model_data)
@@ -656,4 +658,8 @@ def save_checkpoint(output_path, model, clip=None, vae=None, clip_vision=None, m
     for k in extra_keys:
         sd[k] = extra_keys[k]
 
+    for k in sd:
+        t = sd[k]
+        if not t.is_contiguous():
+            sd[k] = t.contiguous()
     ldm_patched.modules.utils.save_torch_file(sd, output_path, metadata=metadata)

@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Jun 25, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/261336/animapencil-xl?modelVersionId=597138",
+	"Version": "v5.0",
+	"Tags": "BASE MODEL ANIME",
+	"Usage_Tips": "STEPS: 132,590 EPOCHS: 10",
+	"Author": "CagliostroLab Gold SDXL Badge",
+	"ReMark": "Easy, Simple, High Quality (with a slight trade-off in variety)blue_pencil-XL meets ANIMAGINE XL 3.0 / ANIMAGINE XL 3.1"
+}
