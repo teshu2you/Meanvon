@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"May 14, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/176449?modelVersionId=505268",
+	"Version": "v55MixBakedvae",
+	"Tags": "PHOTOREALISTIC WOMAN GIRLS REALISTIC",
+	"Usage_Tips": "The DPM++ 2M/3M Karras sampler is recommended.",
+	"Author": "hinablue",
+	"ReMark": "推薦使用 DPM++ 2M/3M Karras 採樣器。Recommend Negative Prompt (worst quality, low quality, normal quality), disabled body, (ugly), sketches, (manicure:1.2), lowres, watermark,"
+}

@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"2024.4.30",
+	"Base": "Pony",
+	"Links": "https://www.qpipi.com/52733/",
+	"Version": "v1.0",
+	"Tags": "v23.50plusPONY",
+	"Usage_Tips": "The best settings on automatic1111 are:- Sampling method: DPM++ SDE (slow but makes the image more realistic, with fewer errors, and closer to the prompt)- Schedule type: SGM Uniform (produces images closer to the prompt)- CFG Scale: 9 (fewer errors)- Sampling steps: from 30-40 (starting from step 36 onwards, the image will have more accurate details and fewer small errors. The higher the steps, the better these small details will look. However, the higher the number of steps, the more likely color errors and contrasting color patches will appear.)",
+	"Author": "mskiller51",
+	"ReMark": "今天早上我醒来，决定检查新模型，我并没有很长时间，（大约 2 或 3 周，是的，它在 AI 世界中进展很快）。我决定尝试将我的 nsfw 模型推向更多的Pony小马理解，但保持其现实主义，同时保持现实主义的理解，这不是一件容易的事，但在许多模型的帮助下，它似乎已经奏效了。它具有 pony 和 sdxl 功能，以及涡轮增压！因此，您可以通过 10 个步骤在 CFG 2 上快速完成漂亮的草稿或者使用 7 到 8 之间的 CFG 进行 35 步的精细生成您可以尝试进一步的步骤/ CFG，尚未推送它。关于采样/调度程序，它似乎几乎可以很好地处理所有东西，看看我将分享的网格。我个人使用 Supreme 作为采样器，使用 DDIM-Uniform 作为调度器，您的系统上可能没有它，因此 DPMPP-2S-Ancestral Karras 工作正常。我希望你们都能像我一样发现它很疯狂！如果你想让男人出现，最好在开始时使用 1boy、1girl您也可以使用 pony 提示，因为它同时具有这两种功能，因此在提示的开头添加 Score_9, score_8_up, score_7_up也可能有所帮助。"
+}

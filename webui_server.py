@@ -33,6 +33,7 @@ from resources.musicgen_mel import modellist_musicgen_mel, initiate_stop_musicge
 import socket
 from procedure.worker_ui_patch import task_manager
 from adapter.task_queue import QueueTask, TaskQueue
+from config import *
 
 worker_queue: TaskQueue = None
 queue_task: QueueTask = None
@@ -71,7 +72,6 @@ log_dir = "./.logs"
 os.makedirs(log_dir, exist_ok=True)
 logfile_bug = f"{log_dir}/output.log"
 sys.stdout = Logger(logfile_bug)
-
 
 def get_task(*args):
     args = list(args)
@@ -372,6 +372,35 @@ if isinstance(adapter.args_manager.args.preset, str):
     title += ' ' + adapter.args_manager.args.preset
 
 
+def change_model_type_llamacpp(model_llamacpp):
+    try:
+        test_model = model_list_llamacpp[model_llamacpp]
+    except KeyError as ke:
+        test_model = None
+    if (test_model != None):
+        return prompt_template_llamacpp.update(value=model_list_llamacpp[model_llamacpp][1]), system_template_llamacpp.update(value=model_list_llamacpp[model_llamacpp][2]), quantization_llamacpp.update(value="")
+    else:
+        return prompt_template_llamacpp.update(value="{prompt}"), system_template_llamacpp.update(value=""), quantization_llamacpp.update(value="")
+
+def change_prompt_template_llamacpp(prompt_template):
+    return prompt_template_llamacpp.update(value=prompt_template_list_llamacpp[prompt_template][0]), system_template_llamacpp.update(value=prompt_template_list_llamacpp[prompt_template][1])
+
+## Functions specific to llamacpp
+def show_download_llamacpp():
+    return btn_download_file_llamacpp.update(visible=False), download_file_llamacpp.update(visible=True)
+
+def hide_download_llamacpp():
+    return btn_download_file_llamacpp.update(visible=True), download_file_llamacpp.update(visible=False)
+
+def change_model_type_llamacpp(model_llamacpp):
+    try:
+        test_model = model_list_llamacpp[model_llamacpp]
+    except KeyError as ke:
+        test_model = None
+    if (test_model != None):
+        return prompt_template_llamacpp.update(value=model_list_llamacpp[model_llamacpp][1]), system_template_llamacpp.update(value=model_list_llamacpp[model_llamacpp][2]), quantization_llamacpp.update(value="")
+    else:
+        return prompt_template_llamacpp.update(value="{prompt}"), system_template_llamacpp.update(value=""), quantization_llamacpp.update(value="")
 def read_ini_nllb(module):
     content = read_ini(module)
     return str(content[0]), int(content[1])
@@ -563,6 +592,297 @@ with (gr.Blocks(
 
             with gr.Row(visible=False) as text_input_panel:
                 with gr.Tabs():
+                    with gr.TabItem(f"Chatbot Llama-cpp (gguf) 📝", id=11) as tab_llamacpp:
+                        with gr.Accordion(f"About", open=False):
+                            with gr.Box():
+                                gr.HTML(
+                                    f"""
+                                                    <h1 style='text-align: left;'>{about_infos}</h1>
+                                                    <b>{about_module}</b>{tab_llamacpp}</br>
+                                                    <b>{about_function}</b>{tab_llamacpp_about_desc} <a href='https://github.com/abetlen/llama-cpp-python' target='_blank'>llama-cpp-python</a></br>
+                                                    <b>{about_inputs}</b>{about_input_text}</br>
+                                                    <b>{about_outputs}</b>{about_output_text}</br>
+                                                    <b>{about_modelpage}</b>
+                                                    <a href='https://hf-mirror.com/zhouzr/Llama3-8B-Chinese-Chat-GGUF' target='_blank'>zhouzr/Llama3-8B-Chinese-Chat-GGUF</a>, 
+                                                    <a href='https://huggingface.co/NousResearch/Meta-Llama-3-8B-Instruct-GGUF' target='_blank'>NousResearch/Meta-Llama-3-8B-Instruct-GGUF</a>, 
+                                                    <a href='https://huggingface.co/Orenguteng/Llama-3-8B-Lexi-Uncensored-GGUF' target='_blank'>Orenguteng/Llama-3-8B-Lexi-Uncensored-GGUF</a>, 
+                                                    <a href='https://huggingface.co/bartowski/gemma-2-9b-it-GGUF' target='_blank'>bartowski/gemma-2-9b-it-GGUF</a>, 
+                                                    <a href='https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF' target='_blank'>bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF</a>, 
+                                                    <a href='https://huggingface.co/NousResearch/Hermes-2-Theta-Llama-3-8B-GGUF' target='_blank'>NousResearch/Hermes-2-Theta-Llama-3-8B-GGUF</a>, 
+                                                    <a href='https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf' target='_blank'>microsoft/Phi-3-mini-4k-instruct-gguf</a>, 
+                                                    <a href='https://huggingface.co/bartowski/openchat-3.6-8b-20240522-GGUF' target='_blank'>bartowski/openchat-3.6-8b-20240522-GGUF</a>, 
+                                                    <a href='https://huggingface.co/LoneStriker/Starling-LM-7B-beta-GGUF' target='_blank'>LoneStriker/Starling-LM-7B-beta-GGUF</a>, 
+                                                    <a href='https://huggingface.co/NousResearch/Hermes-2-Pro-Mistral-7B-GGUF' target='_blank'>NousResearch/Hermes-2-Pro-Mistral-7B-GGUF</a>, 
+                                                    <a href='https://huggingface.co/Lewdiculous/Kunoichi-DPO-v2-7B-GGUF-Imatrix' target='_blank'>Lewdiculous/Kunoichi-DPO-v2-7B-GGUF-Imatrix</a>, 
+                                                    <a href='https://huggingface.co/dranger003/MambaHermes-3B-GGUF' target='_blank'>dranger003/MambaHermes-3B-GGUF</a>, 
+                                                    <a href='https://huggingface.co/bartowski/gemma-1.1-7b-it-GGUF' target='_blank'>bartowski/gemma-1.1-7b-it-GGUF</a>, 
+                                                    <a href='https://huggingface.co/bartowski/gemma-1.1-2b-it-GGUF' target='_blank'>bartowski/gemma-1.1-2b-it-GGUF</a>, 
+                                                    <a href='https://huggingface.co/mlabonne/AlphaMonarch-7B-GGUF' target='_blank'>mlabonne/AlphaMonarch-7B-GGUF</a>, 
+                                                    <a href='https://huggingface.co/mlabonne/NeuralBeagle14-7B-GGUF' target='_blank'>mlabonne/NeuralBeagle14-7B-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/SOLAR-10.7B-Instruct-v1.0-GGUF' target='_blank'>TheBloke/SOLAR-10.7B-Instruct-v1.0-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF' target='_blank'>TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/phi-2-GGUF' target='_blank'>TheBloke/phi-2-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/Mixtral_7Bx2_MoE-GGUF' target='_blank'>TheBloke/Mixtral_7Bx2_MoE-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/mixtralnt-4x7b-test-GGUF' target='_blank'>TheBloke/mixtralnt-4x7b-test-GGUF</a>, 
+                                                    <a href='https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF' target='_blank'>bartowski/Mistral-7B-Instruct-v0.3-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/MetaMath-Cybertron-Starling-GGUF' target='_blank'>TheBloke/MetaMath-Cybertron-Starling-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/una-cybertron-7B-v2-GGUF' target='_blank'>TheBloke/una-cybertron-7B-v2-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/Starling-LM-7B-alpha-GGUF' target='_blank'>TheBloke/Starling-LM-7B-alpha-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/neural-chat-7B-v3-2-GGUF' target='_blank'>TheBloke/neural-chat-7B-v3-2-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/CollectiveCognition-v1.1-Mistral-7B-GGUF' target='_blank'>TheBloke/CollectiveCognition-v1.1-Mistral-7B-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/zephyr-7B-beta-GGUF' target='_blank'>TheBloke/zephyr-7B-beta-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/Yarn-Mistral-7B-128k-GGUF' target='_blank'>TheBloke/Yarn-Mistral-7B-128k-GGUF</a>, 
+                                                    <a href='https://huggingface.co/TheBloke/CodeLlama-13B-Instruct-GGUF' target='_blank'>TheBloke/CodeLlama-13B-Instruct-GGUF</a></br>
+                                                    """
+                                    #                                <a href='https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF' target='_blank'>TheBloke/Mistral-7B-Instruct-v0.2-GGUF</a>,
+                                )
+                            with gr.Box():
+                                gr.HTML(
+                                    f"""
+                                                    <h1 style='text-align: left;'>{about_help}</h1>
+                                                    <div style='text-align: justified'>
+                                                    <b>{about_usage}</b></br>
+                                                    {tab_llamacpp_about_instruct}
+                                                    </br>
+                                                    <b>{about_models}</b></br>
+                                                    - {tab_llamacpp_about_models_inst1}</br>
+                                                    - {tab_llamacpp_about_models_inst2}
+                                                    </div>
+                                                    """
+                                )
+                        with gr.Accordion(factory_settings, open=False):
+                            with gr.Row():
+                                with gr.Column():
+                                    model_llamacpp = gr.Dropdown(choices=list(model_list_llamacpp.keys()),
+                                                                 value=list(model_list_llamacpp.keys())[0],
+                                                                 label=model_label, allow_custom_value=True,
+                                                                 info=tab_llamacpp_model_info)
+                                with gr.Column():
+                                    quantization_llamacpp = gr.Textbox(value="",
+                                                                       label=tab_llamacpp_quantization_label,
+                                                                       info=tab_llamacpp_quantization_info)
+                                with gr.Column():
+                                    max_tokens_llamacpp = gr.Slider(0, 524288, step=16, value=1024,
+                                                                    label=maxtoken_label,
+                                                                    info=maxtoken_info)
+                                with gr.Column():
+                                    seed_llamacpp = gr.Slider(0, 10000000000, step=1, value=1337,
+                                                              label=seed_label, info=seed_info)
+                            with gr.Row():
+                                with gr.Column():
+                                    stream_llamacpp = gr.Checkbox(value=False, label=stream_label,
+                                                                  info=stream_info, interactive=False)
+                                with gr.Column():
+                                    n_ctx_llamacpp = gr.Slider(0, 131072, step=128, value=8192,
+                                                               label=ctx_label, info=ctx_info)
+                                with gr.Column():
+                                    repeat_penalty_llamacpp = gr.Slider(0.0, 10.0, step=0.1, value=1.1,
+                                                                        label=penalty_label,
+                                                                        info=penalty_info)
+                            with gr.Row():
+                                with gr.Column():
+                                    temperature_llamacpp = gr.Slider(0.0, 10.0, step=0.1, value=0.8,
+                                                                     label=temperature_label,
+                                                                     info=temperature_info)
+                                with gr.Column():
+                                    top_p_llamacpp = gr.Slider(0.0, 10.0, step=0.05, value=0.95,
+                                                               label=top_p_label,
+                                                               info=top_p_info)
+                                with gr.Column():
+                                    top_k_llamacpp = gr.Slider(0, 500, step=1, value=40, label=top_k_label,
+                                                               info=top_k_info)
+                            with gr.Row():
+                                with gr.Column():
+                                    force_prompt_template_llamacpp = gr.Dropdown(
+                                        choices=list(prompt_template_list_llamacpp.keys()),
+                                        value=list(prompt_template_list_llamacpp.keys())[0],
+                                        label=tab_llamacpp_force_prompt_label,
+                                        info=tab_llamacpp_force_prompt_info)
+                                with gr.Column():
+                                    gr.Number(visible=False)
+                                with gr.Column():
+                                    gr.Number(visible=False)
+                            with gr.Row():
+                                with gr.Column():
+                                    prompt_template_llamacpp = gr.Textbox(label=prompt_template_label,
+                                                                          value=
+                                                                          model_list_llamacpp[model_llamacpp.value][1],
+                                                                          lines=4, max_lines=4, show_copy_button=True,
+                                                                          info=prompt_template_info)
+                            with gr.Row():
+                                with gr.Column():
+                                    system_template_llamacpp = gr.Textbox(label=system_template_label,
+                                                                          value=
+                                                                          model_list_llamacpp[model_llamacpp.value][2],
+                                                                          lines=4, max_lines=4, show_copy_button=True,
+                                                                          info=system_template_info)
+                                    model_llamacpp.change(fn=change_model_type_llamacpp, inputs=model_llamacpp,
+                                                          outputs=[prompt_template_llamacpp, system_template_llamacpp,
+                                                                   quantization_llamacpp])
+                                    force_prompt_template_llamacpp.change(fn=change_prompt_template_llamacpp,
+                                                                          inputs=force_prompt_template_llamacpp,
+                                                                          outputs=[prompt_template_llamacpp,
+                                                                                   system_template_llamacpp])
+                            with gr.Row():
+                                with gr.Column():
+                                    save_ini_btn_llamacpp = gr.Button(f"{save_settings} 💾")
+                                with gr.Column():
+                                    module_name_llamacpp = gr.Textbox(value="llamacpp", visible=False,
+                                                                      interactive=False)
+                                    del_ini_btn_llamacpp = gr.Button(f"{delete_settings} 🗑️",
+                                                                     interactive=True if test_ini_exist(
+                                                                         module_name_llamacpp.value) else False)
+                                    save_ini_btn_llamacpp.click(
+                                        fn=write_ini_llamacpp,
+                                        inputs=[
+                                            module_name_llamacpp,
+                                            model_llamacpp,
+                                            quantization_llamacpp,
+                                            max_tokens_llamacpp,
+                                            seed_llamacpp,
+                                            stream_llamacpp,
+                                            n_ctx_llamacpp,
+                                            repeat_penalty_llamacpp,
+                                            temperature_llamacpp,
+                                            top_p_llamacpp,
+                                            top_k_llamacpp,
+                                            force_prompt_template_llamacpp,
+                                            prompt_template_llamacpp,
+                                            system_template_llamacpp,
+                                        ]
+                                    )
+                                    save_ini_btn_llamacpp.click(fn=lambda: gr.Info(save_settings_msg))
+                                    save_ini_btn_llamacpp.click(
+                                        fn=lambda: del_ini_btn_llamacpp.update(interactive=True),
+                                        outputs=del_ini_btn_llamacpp)
+                                    del_ini_btn_llamacpp.click(fn=lambda: del_ini(module_name_llamacpp.value))
+                                    del_ini_btn_llamacpp.click(fn=lambda: gr.Info(delete_settings_msg))
+                                    del_ini_btn_llamacpp.click(
+                                        fn=lambda: del_ini_btn_llamacpp.update(interactive=False),
+                                        outputs=del_ini_btn_llamacpp)
+                            if test_ini_exist(module_name_llamacpp.value):
+                                with open(f".ini/{module_name_llamacpp.value}.ini", "r", encoding="utf-8") as fichier:
+                                    exec(fichier.read())
+                        with gr.Row():
+                            history_llamacpp = gr.Chatbot(
+                                label=chatbot_history,
+                                height=400,
+                                autoscroll=True,
+                                show_copy_button=True,
+                                interactive=True,
+                                bubble_full_width=False,
+                                avatar_images=("./background/robot.jpg", "./background/me.jpg"),
+                            )
+                            last_reply_llamacpp = gr.Textbox(value="", visible=False)
+                        with gr.Row():
+                            prompt_llamacpp = gr.Textbox(label=chatbot_prompt_label, lines=1, max_lines=3,
+                                                         show_copy_button=True,
+                                                         placeholder=chatbot_prompt_placeholder,
+                                                         autofocus=True)
+                            hidden_prompt_llamacpp = gr.Textbox(value="", visible=False)
+                            last_reply_llamacpp.change(fn=lambda x: x, inputs=hidden_prompt_llamacpp,
+                                                       outputs=prompt_llamacpp)
+                        with gr.Row():
+                            with gr.Column():
+                                btn_llamacpp = gr.Button(f"{generate} 🚀", variant="primary")
+                            with gr.Column():
+                                btn_llamacpp_continue = gr.Button(f"{factory_continue} ➕")
+                            with gr.Column():
+                                btn_llamacpp_clear_output = gr.ClearButton(components=[history_llamacpp],
+                                                                           value=f"{clear_outputs} 🧹")
+                            with gr.Column():
+                                btn_download_file_llamacpp = gr.ClearButton(value=f"{download_chat} 💾",
+                                                                            visible=True)
+                                download_file_llamacpp = gr.File(label=f"{download_chat}",
+                                                                 value=blankfile_common, height=30, interactive=False,
+                                                                 visible=False)
+                                download_file_llamacpp_hidden = gr.Textbox(value=blankfile_common, interactive=False,
+                                                                           visible=False)
+                                btn_download_file_llamacpp.click(fn=show_download_llamacpp,
+                                                                 outputs=[btn_download_file_llamacpp,
+                                                                          download_file_llamacpp])
+                                download_file_llamacpp_hidden.change(fn=lambda x: x,
+                                                                     inputs=download_file_llamacpp_hidden,
+                                                                     outputs=download_file_llamacpp)
+                            btn_llamacpp.click(
+                                fn=text_llamacpp,
+                                inputs=[
+                                    model_llamacpp,
+                                    quantization_llamacpp,
+                                    max_tokens_llamacpp,
+                                    seed_llamacpp,
+                                    stream_llamacpp,
+                                    n_ctx_llamacpp,
+                                    repeat_penalty_llamacpp,
+                                    temperature_llamacpp,
+                                    top_p_llamacpp,
+                                    top_k_llamacpp,
+                                    prompt_llamacpp,
+                                    history_llamacpp,
+                                    prompt_template_llamacpp,
+                                    system_template_llamacpp,
+                                ],
+                                outputs=[
+                                    history_llamacpp,
+                                    last_reply_llamacpp,
+                                    download_file_llamacpp_hidden,
+                                ],
+                                show_progress="full",
+                            )
+                            btn_llamacpp.click(fn=hide_download_llamacpp,
+                                               outputs=[btn_download_file_llamacpp, download_file_llamacpp])
+                            prompt_llamacpp.submit(
+                                fn=text_llamacpp,
+                                inputs=[
+                                    model_llamacpp,
+                                    quantization_llamacpp,
+                                    max_tokens_llamacpp,
+                                    seed_llamacpp,
+                                    stream_llamacpp,
+                                    n_ctx_llamacpp,
+                                    repeat_penalty_llamacpp,
+                                    temperature_llamacpp,
+                                    top_p_llamacpp,
+                                    top_k_llamacpp,
+                                    prompt_llamacpp,
+                                    history_llamacpp,
+                                    prompt_template_llamacpp,
+                                    system_template_llamacpp,
+                                ],
+                                outputs=[
+                                    history_llamacpp,
+                                    last_reply_llamacpp,
+                                    download_file_llamacpp_hidden,
+                                ],
+                                show_progress="full",
+                            )
+                            prompt_llamacpp.submit(fn=hide_download_llamacpp,
+                                                   outputs=[btn_download_file_llamacpp, download_file_llamacpp])
+                            btn_llamacpp_continue.click(
+                                fn=text_llamacpp_continue,
+                                inputs=[
+                                    model_llamacpp,
+                                    quantization_llamacpp,
+                                    max_tokens_llamacpp,
+                                    seed_llamacpp,
+                                    stream_llamacpp,
+                                    n_ctx_llamacpp,
+                                    repeat_penalty_llamacpp,
+                                    temperature_llamacpp,
+                                    top_p_llamacpp,
+                                    top_k_llamacpp,
+                                    history_llamacpp,
+                                ],
+                                outputs=[
+                                    history_llamacpp,
+                                    last_reply_llamacpp,
+                                    download_file_llamacpp_hidden,
+                                ],
+                                show_progress="full",
+                            )
+                            btn_llamacpp_continue.click(fn=hide_download_llamacpp,
+                                                        outputs=[btn_download_file_llamacpp, download_file_llamacpp])
+                                            
                     with gr.TabItem("Llava 1.5 (gguf) 👁️", id=12) as tab_llava:
                         with gr.Accordion("About", open=False):
                             with gr.Box():
