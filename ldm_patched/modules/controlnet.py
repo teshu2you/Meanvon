@@ -99,11 +99,10 @@ class ControlBase:
     def control_merge(self, control, control_prev, output_dtype):
         out = {'input':[], 'middle':[], 'output': []}
 
-        for key in control:
-            control_output = control[key]
+        for key in out:
             applied_to = set()
-            for i in range(len(control_output)):            
-                x = control_output[i]
+            for i in range(len(control)):
+                x = control[i]
                 if x is not None:
                     if self.global_average_pooling:
                         x = torch.mean(x, dim=(2, 3), keepdim=True).repeat(1, 1, x.shape[2], x.shape[3])

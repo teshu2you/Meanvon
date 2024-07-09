@@ -248,7 +248,7 @@ def calc_cond_batch(model, conds, x_in, timestep, model_options):
     return out_conds
 
 def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options): #TODO: remove
-    printF(name=MasterName.get_master_name(), info="WARNING: The ldm_patched.modules.samplers.calc_cond_uncond_batch function is deprecated please use the calc_cond_batch one instead.").printf()
+    # printF(name=MasterName.get_master_name(), info="WARNING: The ldm_patched.modules.samplers.calc_cond_uncond_batch function is deprecated please use the calc_cond_batch one instead.").printf()
     return tuple(calc_cond_batch(model, [cond, uncond], x_in, timestep, model_options))
 
 def cfg_function(model, cond_pred, uncond_pred, cond_scale, x, timestep, model_options={}, cond=None, uncond=None):
@@ -644,7 +644,7 @@ class CFGGuider:
 
     def inner_set_conds(self, conds):
         for k in conds:
-            print(f"k: {k} | conds: {conds}")
+            # print(f"k: {k} | conds: {conds}")
             self.original_conds[k] = ldm_patched.modules.sampler_helpers.convert_cond(conds[k])
 
     def __call__(self, *args, **kwargs):
