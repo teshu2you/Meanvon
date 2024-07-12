@@ -321,9 +321,12 @@ def normalize_zh(text):
 
 
 def normalize_en(text):
-    from tn.english.normalizer import Normalizer
-    normalizer = Normalizer()
-    return remove_english_punctuation(normalizer.normalize(text))
+    try:
+        from tn.english.normalizer import Normalizer
+        normalizer = Normalizer()
+        return remove_english_punctuation(normalizer.normalize(text))
+    except:
+        return normalize_zh(text)
 
 
 def process_ddd(text):

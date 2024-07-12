@@ -20,12 +20,12 @@ CHAT=None
 def render():
     global TEXT_OUTPUT, ORIGINAL_AUDIO_OUTPUT, ENHANCED_AUDIO_OUTPUT, GENERATE_BUTTON, OPEN_BUTTON
     with gr.Row():
-        TEXT_OUTPUT = gr.Textbox(label="输出信息", interactive=False)
+        TEXT_OUTPUT = gr.Textbox(label="Output", interactive=False)
     with gr.Row():
-        ORIGINAL_AUDIO_OUTPUT = gr.Audio(label="原输出音频",interactive=False)
-        ENHANCED_AUDIO_OUTPUT = gr.Audio(label="增强后的音频", visible=False)
+        ORIGINAL_AUDIO_OUTPUT = gr.Audio(label="Original Audio",interactive=False)
+        ENHANCED_AUDIO_OUTPUT = gr.Audio(label="Enhanced Audio", visible=False)
     with gr.Row():
-        GENERATE_BUTTON = gr.Button("生成", variant="primary")
+        GENERATE_BUTTON = gr.Button("Generate", variant="primary")
         OPEN_BUTTON = gr.Button(get('OutputFolderButton'))
         OPEN_BUTTON.click(open_OutPutfolder)
 

@@ -617,7 +617,7 @@ class MeanVonMetadataParser(MetadataParser):
 
 def get_metadata_parser(metadata_scheme: MetadataScheme) -> MetadataParser:
     match metadata_scheme:
-        case MetadataScheme.FOOOCUS:
+        case MetadataScheme.MEANVON:
             return MeanVonMetadataParser()
         case MetadataScheme.FOOOCUS:
             return FooocusMetadataParser()

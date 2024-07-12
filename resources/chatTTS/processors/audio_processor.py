@@ -91,11 +91,11 @@ def audio_pre_processor(params: AudioPreProcessParams, enparams: EnhanceProcessP
     original_audio_output = None
     enhanced_audio_output = None
     if len(audio_files) > 1:
-        text = '批量合并处理完成'
+        text = 'The batch merge process is complete'
         original_audio_output = concatenated_or
         if enhance_audio:
             enhanced_audio_output = concatenated_en
-            text = '批量合并增强处理完成'
+            text = 'Batch merge enhancement processing is complete'
         else:
             enhanced_audio_output = None
         if len(text_segments) > 1:
@@ -103,9 +103,9 @@ def audio_pre_processor(params: AudioPreProcessParams, enparams: EnhanceProcessP
             enhanced_audio_output = None
     else:
         original_audio_output = (sample_rate, audio_data)
-        text = '音频处理完成'
+        text = 'Audio processing is complete'
         if enhance_audio:
-            text = '音频增强处理完成'
+            text = 'Audio enhancement processing is complete'
             enhanced_audio_output = (enhanced_sample_rate, enhanced_audio_data)
         else:
             enhanced_audio_output = None
@@ -140,6 +140,6 @@ def audio_processor(chat, file_name, segment, refine_text_flag, nums2text_switch
     if not os.path.exists(output_path):
         os.makedirs(output_path, exist_ok=True)
     torchaudio.save(segment_audio_path, torch.tensor(audio_data).unsqueeze(0), sample_rate)
-    print(f"切片音频保存至: {segment_audio_path}")
-    print('------ChatTTS生成完成------')
+    print(f"The slice audio is saved to: {segment_audio_path}")
+    print('------ChatTTS generation is complete------')
     return segment_audio_path, sample_rate, audio_data

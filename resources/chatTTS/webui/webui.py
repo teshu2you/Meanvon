@@ -42,7 +42,7 @@ def main():
                     with gr.Row():
                         gr.Markdown(" ")
                 with gr.Row():
-                    gr.Markdown('🔧项目地址:https://github.com/CCmahua/ChatTTS-Enhanced')
+                    gr.Markdown('🔧github:https://github.com/CCmahua/ChatTTS-Enhanced')
 
         batch_option.listen()
         text_options.listen()

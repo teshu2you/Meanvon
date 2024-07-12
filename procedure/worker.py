@@ -1580,18 +1580,18 @@ class taskManager:
                 H, W, C = self.inpaint_image.shape
                 if 'left' in self.outpaint_selections:
                     self.inpaint_image = np.pad(self.inpaint_image,
-                                                [[0, 0], [int(H * self.outpaint_expansion_ratio), 0], [0, 0]],
+                                                [[0, 0], [int(W * self.outpaint_expansion_ratio), 0], [0, 0]],
                                                 mode='edge')
                     self.inpaint_mask = np.pad(self.inpaint_mask,
-                                               [[0, 0], [int(H * self.outpaint_expansion_ratio), 0]],
+                                               [[0, 0], [int(W * self.outpaint_expansion_ratio), 0]],
                                                mode='constant',
                                                constant_values=255)
                 if 'right' in self.outpaint_selections:
                     self.inpaint_image = np.pad(self.inpaint_image,
-                                                [[0, 0], [0, int(H * self.outpaint_expansion_ratio)], [0, 0]],
+                                                [[0, 0], [0, int(W * self.outpaint_expansion_ratio)], [0, 0]],
                                                 mode='edge')
                     self.inpaint_mask = np.pad(self.inpaint_mask,
-                                               [[0, 0], [0, int(H * self.outpaint_expansion_ratio)]],
+                                               [[0, 0], [0, int(W * self.outpaint_expansion_ratio)]],
                                                mode='constant',
                                                constant_values=255)
 

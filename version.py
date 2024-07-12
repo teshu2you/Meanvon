@@ -1,2 +1,2 @@
-main_version = "0.0.9"
-api_version = "0.0.9"
+main_version = "0.1.0"
+api_version = "0.1.0"

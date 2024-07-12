@@ -1,20 +1,54 @@
 # Meanvon
-meavon is a self-hosted integrated AI tool that can generate all kinds of pictures and videos. You can run it on your own computer, not to need to rely on high-perform GPU cloud servers. just start with 4GB GPU RAM. 
-
-
-# Based on the following Github:
-1. 📚 Fooocus 
-2. 📚 Fooocus-MRE 
-3. 📚 Fooocus-API 
-4. 📚 RuinedFooocus
-5. 📚 stable-diffusion-webui 
-6. 📚 stable-diffusion-webui-forge
-7. 📚 ComfyUI
-8. 📚 biniou
+Meanvon is a lightweight AI toolbox that supports basic AI applications such as text, images, video, and audio. All you need is a regular laptop or desktop computer to run the functional components freely.
+(Reconstruction based on  <📚 stable-diffusion-webui > & 📚 Fooocus)
+![mean-von](background/pics/meanvon.png)
 
 # Updates
-- 2024.03.27
-- -  init version
+* 🆕 **2024-07-09** : 
+* * 🔥 ***fix controlnet not be called in some case *** 🔥 > Face swap/CPDS.
+* 🆕 **2024-07-04** : 
+* * 🔥 ***Support chat-TTS*** 🔥 > (2noise/ChatTTS) supports both Chinese and English, and through the use of approximately 100,000 hours of Chinese and English data for training, ChatTTS demonstrates high quality and naturalness in speech synthesis.
+* * 🔥 ***Support the latest func of comfy*** 🔥 > SD3\Hyper-SD.
+* * 🔥 ***Support LLaMA-3 ChatRobot*** 🔥 > Meta-Llama-3-8B-Instruct-GGUF/Llama3-8B-Chinese-Chat.q6_k.
+* 🆕 **2024-04-01** : *
+* * 🔥 ***Support API Server func*** 🔥 >  API calls are supported, covering the basic operations of T2I func and I2I func
+* 🆕 **2024-03-07** : *
+* * 🆕 init version
+
+
+# Features
+Core features:
+
+- Text generation
+- - ![mean-von](background/pics/Text-Factory.png)
+- Image generation and modification
+- - ![mean-von](background/pics/Image-Factory.png)
+- Audio generation
+- - ![mean-von](background/pics/Audio-Factory.png)
+- Video generation and modification
+- - ![mean-von](background/pics/Video-Factory.png)
+
+other features:
+- Cross platforms : GNU/Linux, Windows 10/11
+- Support for Stable Diffusion SD-1.5, SDXL, SDXL-Turbo, LCM, Lightning, Hyper-SD, playground_v25, through built-in model list or standalone .safetensors files
+![mean-von](background/pics/preset.png)
+
+- Support for different Checkpoints and LoRA models
+- - SDXL & LORAS
+![mean-von](background/pics/model.png)
+
+- Customizable styles through a user-friendly configuration edition.
+- - Settings
+![mean-von](background/pics/settings.png)
+- - Advanced
+![mean-von](background/pics/advanced.png)
+
+- Ability to switch styles between Models, allowing users to add extra GPTv2 prompts.
+![mean-von](background/pics/style.png)
+
+- swap specific face to original face
+![mean-von](background/pics/faceswap.png)
+
 
 # Prerequisites
 - Minimal hardware :
@@ -51,20 +85,6 @@ pip install torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 xformers --index-
 pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 xformers --index-url https://download.pytorch.org/whl/cu118
 pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 xformers --index-url https://download.pytorch.org/whl/cu118
 ```
-# Features
-Primary features:
-
-- Text generation
-- Image generation and modification
-- Audio generation
-- Video generation and modification
-
-other features:
-- Cross platform : GNU/Linux, Windows 10/11
-- Support for Stable Diffusion SD-1.5, SDXL, SDXL-Turbo, LCM, through built-in model list or standalone .safetensors files
-- Support for LoRA models
-- Customizable styles through a user-friendly configuration edition.
-- Ability to switch between slider and number input modes, allowing users to enter values manually without drag the slider.
 
 # How to use
 - API
@@ -91,6 +111,16 @@ This application uses the following softwares and technologies :
 * MusicLDM : MusicLDM
 * Bark : text2speech
 * AnimateLCM : txt2vid
+
+# Thanks
+1. 📚 Fooocus 
+2. 📚 Fooocus-MRE 
+3. 📚 Fooocus-API 
+4. 📚 RuinedFooocus
+5. 📚 stable-diffusion-webui 
+6. 📚 stable-diffusion-webui-forge
+7. 📚 ComfyUI
+8. 📚 biniou
 
 # BUG Fix
 - fix1:

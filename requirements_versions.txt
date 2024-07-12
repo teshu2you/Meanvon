@@ -71,3 +71,5 @@ psutil==5.9.8
 pytest==8.2.2
 deepspeed~=0.13.1+fed2284
 spandrel~=0.3.4
+exiv2~=0.16.3.post1
+spandrel_extra_arches~=0.1.1
