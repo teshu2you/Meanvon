@@ -1,3 +1,4 @@
+import tempfile
 from ..processors.params.process_params import TextProcessParams
 from ..utils.text_utils import replace_tokens,split_text,restore_tokens
 from ..utils.srt_utils import process_file
@@ -15,8 +16,12 @@ def batch_or_split_text(params: TextProcessParams):
                 batchData[file] = process_text(process_file(file),segment_length)
         else:
             file = txt_file if isinstance(txt_file, str) else txt_file[0]
-            print(process_file(file))
-            batchData[file] = process_text(process_file(file),segment_length)
+            if isinstance(file, tempfile._TemporaryFileWrapper):
+                new_file = file.orig_name
+            else:
+                new_file = file
+            # print(process_file(new_file))
+            batchData[file] = process_text(process_file(new_file),segment_length)
 
     if batch_processing:
         text_segments = batchData

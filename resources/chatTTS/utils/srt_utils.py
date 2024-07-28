@@ -70,7 +70,7 @@ def process_srt_file(file_path):
 
 # Function to process TXT files
 def process_txt_file(file_path):
-    with open(file_path, 'r', encoding='utf-8') as file:
+    with open(file_path, 'r', encoding='utf-8',  errors='ignore') as file:
         content = file.read()
     return content
 

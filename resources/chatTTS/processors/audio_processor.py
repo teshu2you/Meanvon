@@ -1,3 +1,5 @@
+import tempfile
+
 from ..processors.params.process_params import AudioPreProcessParams, AudioProcessParams, EnhanceProcessParams
 from ..processors.enhance_processors import enhance_processor
 from ..processors.concatente_processor import concatenate_audiofile
@@ -57,8 +59,14 @@ def audio_pre_processor(params: AudioPreProcessParams, enparams: EnhanceProcessP
     for file, content in text_segments.items():
         audio_files = []
         enhanced_audio_files = []
-        if file:
-            file_name = os.path.splitext(os.path.basename(file))[0]
+
+        if isinstance(file, tempfile._TemporaryFileWrapper):
+            new_file = file.orig_name
+        else:
+            new_file = file
+
+        if new_file:
+            file_name = os.path.splitext(os.path.basename(new_file))[0]
         else:
             file_name = 'segment'
 

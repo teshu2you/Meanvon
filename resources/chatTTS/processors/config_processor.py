@@ -27,7 +27,8 @@ def apply_config(name):
     filename = os.path.join(get_path('CONFIG_DIR'), f"{name}.pt")
     loaded_conf_params = torch.load(filename)
     return (
-        f"{name}.pt",
+        # f"{name}.pt",
+        loaded_conf_params.audio_seed,
         loaded_conf_params.text_seed,
         loaded_conf_params.temperature,
         loaded_conf_params.top_P,

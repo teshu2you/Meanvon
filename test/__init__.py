@@ -2,6 +2,7 @@ import os
 # from modules.sdxl_styles import style_keys
 import json
 
+
 class Test:
 
     # def get_done_styles(self):
@@ -37,10 +38,20 @@ class Test:
             print(_new_out)
         return _new_out
 
+    def csv2txt(self):
+        import pandas as pd
+        csv_file = "wclfqyqzdyl.csv"
+        txt_file = ".txt"
+        df = pd.read_csv(csv_file, on_bad_lines="skip")
+        for line in df.values:
+            with open(str(line[2]) + txt_file, "a+") as f:
+                content = str(line[4]).replace("nan", "\n")
+                f.writelines(content)
+
+
 if __name__ == "__main__":
     t = Test()
-    # t.get_undo_style(all_styles=t.get_all_styles(), done_styles=t.get_done_styles())
-    a = [{'model_conds': {'c_crossattn': 3456346, 'y': 43534543534}, 'pooled_output': 77777777777777777777777777}]
-    b = t.match_item(a)
-
-
+    # # t.get_undo_style(all_styles=t.get_all_styles(), done_styles=t.get_done_styles())
+    # a = [{'model_conds': {'c_crossattn': 3456346, 'y': 43534543534}, 'pooled_output': 77777777777777777777777777}]
+    # b = t.match_item(a)
+    t.csv2txt()
