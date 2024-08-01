@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Jul 22, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/120765/sdxlnijiseven?modelVersionId=662395",
+	"Version": "v7",
+	"Tags": "BASE MODEL NIJI",
+	"Usage_Tips": "-Clip skip -2 or -3 is recommended (-3 better overall)-A minimum of 26 steps -cfg scale: between 3.5 and 6 -Sampling method: DPMPP_SDE Karras (recommended, best quality), Euler_Ancestral simple (2nd best), DPMPP_2M_SDE Karras or ddim simple (average quality for both)",
+	"Author": "Stan_Katayama",
+	"ReMark": "-This version is very different because it is based on NijiV6 To be more precise, around 1000 images from NijiV5 and 1600 from v6 (compared to a total of 1300 images in v6).-I chose not to use the expressive style of NijiV5 this time. But maybe I will add it in a 7.5 version in the future.-There is no longer a trigger word-Version 6 is very different so I still recommend it.Some tips for use:-Don't hesitate to play with things like: realistic, hyper realistic, anime studio, digital artwork, illustration...."
+}

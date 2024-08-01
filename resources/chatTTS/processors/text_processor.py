@@ -13,7 +13,11 @@ def batch_or_split_text(params: TextProcessParams):
     if batch_processing and txt_file is not None:
         if isinstance(txt_file, list) and len(txt_file) > 1:
             for file in txt_file:
-                batchData[file] = process_text(process_file(file),segment_length)
+                if isinstance(file, tempfile._TemporaryFileWrapper):
+                    new_file = file.orig_name
+                else:
+                    new_file = file
+                batchData[file] = process_text(process_file(new_file),segment_length)
         else:
             file = txt_file if isinstance(txt_file, str) else txt_file[0]
             if isinstance(file, tempfile._TemporaryFileWrapper):
