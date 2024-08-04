@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Apr 25, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/391157/ponyv6-xl-reika-shimohira-or-gantz?modelVersionId=436397",
+	"Version": "v1.0",
+	"Tags": "character anime gantz reika shimohira",
+	"Usage_Tips": "shimohira reika，revealing clothes, black bodysuit, underboob, black gloves",
+	"Author": "justTNP",
+	"ReMark": "Weight: 1.0 Trigger: shimohira reika Default Outfit: revealing clothes, black bodysuit, underboob, black gloves Add black hair and brown eyes if necessary.The results of your generations are dependent on the additional LoRAs, weights, and models you use, so it may not work or come out as consistent as my sample images."
+}

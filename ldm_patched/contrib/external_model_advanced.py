@@ -137,7 +137,7 @@ class ModelSamplingStableCascade:
 
     CATEGORY = "advanced/model"
 
-    def patch(self, model, shift):
+    def patch(self, model, shift, multiplier=1000):
         m = model.clone()
 
         sampling_base = ldm_patched.modules.model_sampling.StableCascadeSampling
@@ -147,7 +147,7 @@ class ModelSamplingStableCascade:
             pass
 
         model_sampling = ModelSamplingAdvanced(model.model.model_config)
-        model_sampling.set_parameters(shift)
+        model_sampling.set_parameters(shift=shift, multiplier=multiplier)
         m.add_object_patch("model_sampling", model_sampling)
         return (m, )
 
@@ -176,6 +176,55 @@ class ModelSamplingSD3:
         model_sampling.set_parameters(shift=shift)
         m.add_object_patch("model_sampling", model_sampling)
         return (m, )
+
+class ModelSamplingAuraFlow(ModelSamplingSD3):
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": { "model": ("MODEL",),
+                              "shift": ("FLOAT", {"default": 1.73, "min": 0.0, "max": 100.0, "step":0.01}),
+                              }}
+
+    FUNCTION = "patch_aura"
+
+    def patch_aura(self, model, shift):
+        return self.patch(model, shift, multiplier=1.0)
+
+
+class ModelSamplingFlux:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": { "model": ("MODEL",),
+                              "max_shift": ("FLOAT", {"default": 1.15, "min": 0.0, "max": 100.0, "step":0.01}),
+                              "base_shift": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 100.0, "step":0.01}),
+                              "width": ("INT", {"default": 1024, "min": 16, "max": ldm_patched.contrib.external.MAX_RESOLUTION, "step": 8}),
+                              "height": ("INT", {"default": 1024, "min": 16, "max": ldm_patched.contrib.external.MAX_RESOLUTION, "step": 8}),
+                              }}
+
+    RETURN_TYPES = ("MODEL",)
+    FUNCTION = "patch"
+
+    CATEGORY = "advanced/model"
+
+    def patch(self, model, max_shift, base_shift, width, height):
+        m = model.clone()
+
+        x1 = 256
+        x2 = 4096
+        mm = (max_shift - base_shift) / (x2 - x1)
+        b = base_shift - mm * x1
+        shift = (width * height / (8 * 8 * 2 * 2)) * mm + b
+
+        sampling_base = ldm_patched.modules.model_sampling.ModelSamplingFlux
+        sampling_type = ldm_patched.modules.model_sampling.CONST
+
+        class ModelSamplingAdvanced(sampling_base, sampling_type):
+            pass
+
+        model_sampling = ModelSamplingAdvanced(model.model.model_config)
+        model_sampling.set_parameters(shift=shift)
+        m.add_object_patch("model_sampling", model_sampling)
+        return (m, )
+
 
 class ModelSamplingContinuousEDM:
     @classmethod
@@ -292,5 +341,7 @@ NODE_CLASS_MAPPINGS = {
     "ModelSamplingContinuousV": ModelSamplingContinuousV,
     "ModelSamplingStableCascade": ModelSamplingStableCascade,
     "ModelSamplingSD3": ModelSamplingSD3,
+    "ModelSamplingAuraFlow": ModelSamplingAuraFlow,
+    "ModelSamplingFlux": ModelSamplingFlux,
     "RescaleCFG": RescaleCFG,
 }

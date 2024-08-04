@@ -1,4 +1,6 @@
 from PIL import ImageFile, UnidentifiedImageError
+import hashlib
+from ldm_patched.modules.args_parser import args
 
 def conditioning_set_values(conditioning, values={}):
     c = []
@@ -22,3 +24,12 @@ def pillow(fn, arg):
         if prev_value is not None:
             ImageFile.LOAD_TRUNCATED_IMAGES = prev_value
         return x
+
+def hasher():
+    hashfuncs = {
+        "md5": hashlib.md5,
+        "sha1": hashlib.sha1,
+        "sha256": hashlib.sha256,
+        "sha512": hashlib.sha512
+    }
+    return hashfuncs[args.default_hashing_function]

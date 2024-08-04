@@ -9,6 +9,7 @@ __pycache__
 *.backup
 *.mat
 *.dat
+*.sft
 *.incomplete
 *.tar
 *.dll

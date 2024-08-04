@@ -1,10 +1,10 @@
-import comfy_extras.nodes_model_merging
+import ldm_patched.contrib.external_model_merging
 
-class ModelMergeSD1(comfy_extras.nodes_model_merging.ModelMergeBlocks):
+class ModelMergeSD1(ldm_patched.contrib.external_model_merging.ModelMergeBlocks):
     CATEGORY = "advanced/model_merging/model_specific"
     @classmethod
     def INPUT_TYPES(s):
-        arg_dict = { "model1": ("MODEL",),
+        arg_dict = {"model1": ("MODEL",),
                               "model2": ("MODEL",)}
 
         argument = ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01})
@@ -26,13 +26,39 @@ class ModelMergeSD1(comfy_extras.nodes_model_merging.ModelMergeBlocks):
         return {"required": arg_dict}
 
 
-class ModelMergeSDXL(comfy_extras.nodes_model_merging.ModelMergeBlocks):
+class ModelMergeFlux1(ldm_patched.contrib.nodes_model_merging.ModelMergeBlocks):
     CATEGORY = "advanced/model_merging/model_specific"
 
     @classmethod
     def INPUT_TYPES(s):
-        arg_dict = { "model1": ("MODEL",),
+        arg_dict = {"model1": ("MODEL",),
                               "model2": ("MODEL",)}
+
+        argument = ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01})
+
+        arg_dict["img_in."] = argument
+        arg_dict["time_in."] = argument
+        arg_dict["guidance_in"] = argument
+        arg_dict["vector_in."] = argument
+        arg_dict["txt_in."] = argument
+
+        for i in range(19):
+            arg_dict["double_blocks.{}.".format(i)] = argument
+
+        for i in range(38):
+            arg_dict["single_blocks.{}.".format(i)] = argument
+
+        arg_dict["final_layer."] = argument
+
+        return {"required": arg_dict}
+
+
+class ModelMergeSDXL(ldm_patched.contrib.nodes_model_merging.ModelMergeBlocks):
+    CATEGORY = "advanced/model_merging/model_specific"
+
+    @classmethod
+    def INPUT_TYPES(s):
+        arg_dict = {"model1": ("MODEL",),"model2": ("MODEL",)}
 
         argument = ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01})
 
@@ -52,12 +78,12 @@ class ModelMergeSDXL(comfy_extras.nodes_model_merging.ModelMergeBlocks):
 
         return {"required": arg_dict}
 
-class ModelMergeSD3_2B(comfy_extras.nodes_model_merging.ModelMergeBlocks):
+class ModelMergeSD3_2B(ldm_patched.contrib.nodes_model_merging.ModelMergeBlocks):
     CATEGORY = "advanced/model_merging/model_specific"
 
     @classmethod
     def INPUT_TYPES(s):
-        arg_dict = { "model1": ("MODEL",),
+        arg_dict = {"model1": ("MODEL",),
                               "model2": ("MODEL",)}
 
         argument = ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01})
@@ -80,4 +106,5 @@ NODE_CLASS_MAPPINGS = {
     "ModelMergeSD2": ModelMergeSD1, #SD1 and SD2 have the same blocks
     "ModelMergeSDXL": ModelMergeSDXL,
     "ModelMergeSD3_2B": ModelMergeSD3_2B,
+    "ModelMergeFlux1": ModelMergeFlux1,
 }

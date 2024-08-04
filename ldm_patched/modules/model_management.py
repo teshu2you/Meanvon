@@ -347,7 +347,7 @@ class LoadedModel:
 
 
 def minimum_inference_memory():
-    return (1024 * 1024 * 1024)
+    return (1024 * 1024 * 1024) * 1.2
 
 
 def unload_model_clones(model, unload_weights_only=True, force_unload=True):
@@ -412,11 +412,16 @@ def free_memory(memory_required, device, keep_loaded=[]):
                 soft_empty_cache()
 
 
-def load_models_gpu(models, memory_required=0, force_patch_weights=False):
+def load_models_gpu(models, memory_required=0, force_patch_weights=False, minimum_memory_required=None):
     global vram_state
 
     inference_memory = minimum_inference_memory()
     extra_mem = max(inference_memory, memory_required)
+
+    if minimum_memory_required is None:
+        minimum_memory_required = extra_mem
+    else:
+        minimum_memory_required = max(inference_memory, minimum_memory_required)
 
     models = set(models)
 
@@ -481,8 +486,8 @@ def load_models_gpu(models, memory_required=0, force_patch_weights=False):
         if lowvram_available and (vram_set_state == VRAMState.LOW_VRAM or vram_set_state == VRAMState.NORMAL_VRAM):
             model_size = loaded_model.model_memory_required(torch_dev)
             current_free_mem = get_free_memory(torch_dev)
-            lowvram_model_memory = int(max(64 * (1024 * 1024), (current_free_mem - 1024 * (1024 * 1024)) / 1.3 ))
-            if model_size <= (current_free_mem - inference_memory): #only switch to lowvram if really necessary
+            lowvram_model_memory = int(max(64 * (1024 * 1024), (current_free_mem - minimum_memory_required)))
+            if model_size <= lowvram_model_memory: #only switch to lowvram if really necessary
                 lowvram_model_memory = 0
 
         if vram_set_state == VRAMState.NO_VRAM:
@@ -704,12 +709,24 @@ def supports_cast(device, dtype): #TODO
         return False
     if dtype == torch.bfloat16:
         return True
+    if is_device_mps(device):
+        return False
     if dtype == torch.float8_e4m3fn:
         return True
     if dtype == torch.float8_e5m2:
         return True
     return False
 
+def pick_weight_dtype(dtype, fallback_dtype, device=None):
+    if dtype is None:
+        dtype = fallback_dtype
+    elif dtype_size(dtype) > dtype_size(fallback_dtype):
+        dtype = fallback_dtype
+
+    if not supports_cast(device, dtype):
+        dtype = fallback_dtype
+
+    return dtype
 def device_supports_non_blocking(device):
     if is_device_mps(device):
         return False #pytorch bug? mps doesn't support non blocking
@@ -863,7 +880,6 @@ def is_device_mps(device):
 def is_device_cuda(device):
     return is_device_type(device, 'cuda')
 
-
 def should_use_fp16(device=None, model_params=0, prioritize_performance=True, manual_cast=False):
     global directml_enabled
 
@@ -933,9 +949,9 @@ def should_use_bf16(device=None, model_params=0, prioritize_performance=True, ma
         if is_device_cpu(device): #TODO ? bf16 works on CPU but is extremely slow
             return False
 
-    if device is not None: #TODO not sure about mps bf16 support
+    if device is not None:
         if is_device_mps(device):
-            return False
+            return True
 
     if FORCE_FP32:
         return False
@@ -943,7 +959,10 @@ def should_use_bf16(device=None, model_params=0, prioritize_performance=True, ma
     if directml_enabled:
         return False
 
-    if cpu_mode() or mps_mode():
+    if mps_mode():
+        return True
+
+    if cpu_mode():
         return False
 
     if is_intel_xpu():

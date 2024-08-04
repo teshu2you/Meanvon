@@ -6,7 +6,7 @@ import ldm_patched.modules.model_management
 import ldm_patched.modules.model_detection
 import ldm_patched.modules.model_patcher
 import ldm_patched.modules.ops
-
+import ldm_patched.modules.latent_formats
 import ldm_patched.controlnet.cldm
 import ldm_patched.t2i_adapter.adapter
 import ldm_patched.ldm.cascade.controlnet
@@ -44,6 +44,7 @@ class ControlBase:
         self.timestep_range = None
         self.compression_ratio = 8
         self.upscale_algorithm = 'nearest-exact'
+        self.extra_args = {}
 
         if device is None:
             device = ldm_patched.modules.model_management.get_torch_device()
@@ -89,7 +90,8 @@ class ControlBase:
         c.compression_ratio = self.compression_ratio
         c.upscale_algorithm = self.upscale_algorithm
         c.latent_format = self.latent_format
-        c.vae = self.vae                       
+        c.extra_args = self.extra_args.copy()
+        c.vae = self.vae
 
     def inference_memory_requirements(self, dtype):
         if self.previous_controlnet is not None:
@@ -99,7 +101,8 @@ class ControlBase:
     def control_merge(self, control, control_prev, output_dtype):
         out = {'input':[], 'middle':[], 'output': []}
 
-        for key in out:
+        for key in control:
+            control_output = control[key]
             applied_to = set()
             for i in range(len(control)):
                 x = control[i]
@@ -110,10 +113,12 @@ class ControlBase:
                     if x not in applied_to: #memory saving strategy, allow shared tensors and only apply strength to shared tensors once
                         applied_to.add(x)
                         x *= self.strength
+
                     if x.dtype != output_dtype:
                         x = x.to(output_dtype)
 
                 out[key].append(x)
+
         if control_prev is not None:
             for x in ['input', 'middle', 'output']:
                 o = out[x]
@@ -128,8 +133,12 @@ class ControlBase:
                             if o[i].shape[0] < prev_val.shape[0]:
                                 o[i] = prev_val + o[i]
                             else:
-                                o[i] = prev_val + o[i]
+                                o[i] = prev_val + o[i]  # TODO: change back to inplace add if shared tensors stop being an issue
+
         return out
+
+    def set_extra_arg(self, argument, value=None):
+        self.extra_args[argument] = value
 
 class ControlNet(ControlBase):
     def __init__(self, control_model=None, global_average_pooling=False, compression_ratio=8, latent_format=None, device=None, load_device=None, manual_cast_dtype=None):
@@ -187,7 +196,7 @@ class ControlNet(ControlBase):
         timestep = self.model_sampling_current.timestep(t)
         x_noisy = self.model_sampling_current.calculate_input(t, x_noisy)
 
-        control = self.control_model(x=x_noisy.to(dtype), hint=self.cond_hint, timesteps=timestep.float(), context=context.to(dtype), y=y)
+        control = self.control_model(x=x_noisy.to(dtype), hint=self.cond_hint, timesteps=timestep.float(), context=context.to(dtype), y=y, **self.extra_args)
         return self.control_merge(control, control_prev, output_dtype)
 
     def copy(self):
@@ -406,6 +415,12 @@ def load_controlnet(ckpt_path, model=None):
         for k in diffusers_keys:
             if k in controlnet_data:
                 new_sd[diffusers_keys[k]] = controlnet_data.pop(k)
+
+        if "control_add_embedding.linear_1.bias" in controlnet_data: #Union Controlnet
+            controlnet_config["union_controlnet_num_control_type"] = controlnet_data["task_embedding"].shape[0]
+            for k in list(controlnet_data.keys()):
+                new_k = k.replace('.attn.in_proj_', '.attn.in_proj.')
+                new_sd[new_k] = controlnet_data.pop(k)
 
         leftover_keys = controlnet_data.keys()
         if len(leftover_keys) > 0:

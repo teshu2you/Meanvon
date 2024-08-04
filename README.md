@@ -4,6 +4,8 @@ Meanvon is a lightweight AI toolbox that supports basic AI applications such as 
 ![mean-von](background/pics/meanvon.png)
 
 # Updates
+* 🆕 **2024-08-04** : 
+* * 🔥 ***Support Flux *** 🔥 > new Model introduced by Black Forest Lab.
 * 🆕 **2024-07-09** : 
 * * 🔥 ***fix controlnet not be called in some case *** 🔥 > Face swap/CPDS.
 * 🆕 **2024-07-04** : 

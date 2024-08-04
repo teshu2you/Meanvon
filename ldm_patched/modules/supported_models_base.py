@@ -26,7 +26,7 @@ class BASE:
     vae_key_prefix = ["first_stage_model."]
     text_encoder_key_prefix = ["cond_stage_model."]
     supported_inference_dtypes = [torch.float16, torch.bfloat16, torch.float32]
-
+    memory_usage_factor = 2.0
     manual_cast_dtype = None
 
     @classmethod
