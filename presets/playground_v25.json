@@ -1,4 +1,5 @@
 {
+    "default_model_type":"SDXL",
     "default_model": "SDXL_NS_全能_playground-v2.5-1024px-aesthetic.fp16.safetensors",
     "default_refiner": "None",
     "default_refiner_switch": 0.5,

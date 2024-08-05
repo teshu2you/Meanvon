@@ -3178,6 +3178,10 @@ with (gr.Blocks(
                                              value=modules.config.default_model_preset_name,
                                              info='Scope of influence:[Prompt、Aspect Ratios、Style Keys、Advanced]')
                 with gr.Row():
+                    model_type_selector = gr.Dropdown(label='Model Type Selector',
+                                             choices=modules.config.model_types,
+                                             value=modules.config.default_model_type, show_label=True)
+                with gr.Row():
                     base_model = gr.Dropdown(label='Base Model (SDXL only)',
                                              choices=modules.config.sdxl_model_filenames,
                                              value=modules.config.default_base_model_name, show_label=True)
@@ -3230,6 +3234,26 @@ with (gr.Blocks(
                                 return [gr.update(open=True), gr.update(value=file), gr.update(value=info)]
                     return [gr.update(open=False), gr.update(value=None), gr.update(value="")]
 
+                def get_model_type_selector(x):
+                    new_models_type_selectors_list = []
+                    for msl in modules.config.model_types:
+                        if x in msl:
+                            new_models_type_selectors_list.append(msl)
+
+                    new_model_type_filenames = ["None"]
+                    for nmsl in new_models_type_selectors_list:
+                        new_model_type_filenames += modules.config.get_model_filenames(modules.config.modelfile_path, name_filter=nmsl)
+
+                    new_model_type_filenames = sorted(set(new_model_type_filenames), key=new_model_type_filenames.index)
+
+                    if "SDXL" in x:
+                        return [gr.update(label=x, choices=new_model_type_filenames, value=new_model_type_filenames[0]), gr.update(visible=True)]
+                    else:
+                        return [gr.update(label=x, choices=new_model_type_filenames, value=new_model_type_filenames[0]), gr.update(visible=False, value="None")]
+
+                model_type_selector.change(fn=get_model_type_selector, inputs=model_type_selector,
+                                  outputs=[base_model, refiner_model],
+                                  show_progress=False, queue=False)
 
                 base_model.change(fn=get_thumbnail_info, inputs=base_model,
                                   outputs=[bm_acc, img_bm_thumbnail, img_bm_info],
@@ -3554,6 +3578,7 @@ with (gr.Blocks(
             results += [modules.config.get_config_from_model_preset(x).get("default_prompt")]
             results += [modules.config.get_config_from_model_preset(x).get("default_prompt_negative")]
 
+            results += [modules.config.get_config_from_model_preset(x).get("default_model_type")]
             m = modules.config.get_config_from_model_preset(x).get("default_model")
             if m in modules.config.model_filenames:
                 results += [m]
@@ -3590,7 +3615,7 @@ with (gr.Blocks(
 
         model_presets.change(fn=reset_model_preset, inputs=model_presets,
                              outputs=[performance_selection, model_presets, aspect_ratios_selection, prompt,
-                                      negative_prompt,
+                                      negative_prompt, model_type_selector,
                                       base_model] + lora_ctrls + [sharpness, guidance_scale, sampler_name,
                                                                   scheduler_name, refiner_switch, style_selections,
                                                                   model_lora_remark, refiner_model]) \

@@ -1,4 +1,5 @@
 {
+  "default_model_type":"SDXL",
   "default_model": "SDXL_PONY_真实_duchaitenPonyReal_ponyRealV10.safetensors",
   "default_refiner": "None",
   "default_refiner_switch": 0.5,

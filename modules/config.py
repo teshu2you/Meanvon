@@ -405,6 +405,36 @@ controlnet_lora_depth_filenames = []
 
 default_model_preset_name = "default"
 
+model_types = [
+    "Stable_Zero123",
+    "SD15_instructpix2pix",
+    "SD15",
+    "SD20",
+    "SD21UnclipL",
+    "SD21UnclipH",
+    "SDXL_instructpix2pix",
+    "SDXLRefiner",
+    "SDXL",
+    "SSD1B",
+    "KOALA_700M",
+    "KOALA_1B",
+    "Segmind_Vega",
+    "SD_X4Upscaler",
+    "Stable_Cascade_C",
+    "Stable_Cascade_B",
+    "SV3D_u",
+    "SV3D_p",
+    "SD3",
+    "StableAudio",
+    "AuraFlow",
+    "HunyuanDiT",
+    "HunyuanDiT1",
+    "Flux",
+    "FluxSchnell"
+]
+
+default_model_type = "SDXL"
+
 default_base_model_name = default_model = get_config_item_or_set_default(
     key='default_model',
     default_value='JuggernautXL_X_X_RunDiffusion.safetensors',

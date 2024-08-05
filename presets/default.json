@@ -1,4 +1,5 @@
 {
+    "default_model_type":"SDXL",
     "default_model": "JuggernautXL_X_X_RunDiffusion.safetensors",
     "default_refiner": "None",
     "default_refiner_switch": 0.5,

@@ -1,4 +1,5 @@
 {
+    "default_model_type":"SDXL",
     "default_model": "SDXL_写实_照片_realisticStockPhoto_v20.safetensors",
     "default_refiner": "None",
     "default_refiner_switch": 0.5,

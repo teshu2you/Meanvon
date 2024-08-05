@@ -1,4 +1,5 @@
 {
+    "default_model_type":"SDXL",
     "default_model": "SDXL_Lightning_全能_juggernautXL_v9Rdphoto2Lightning.safetensors",
     "default_refiner": "None",
     "default_refiner_switch": 0.5,
