@@ -269,8 +269,10 @@ def metadata_to_ctrls(metadata, ctrls):
     #  'lora_combined_1': 'Primary\\SDXL_LORA_(Movie Still)_JuggerCineXL2.safetensors : 0.42', 'lora_combined_2': 'Primary\\SDXL_LORA_控制_add-detail-xl增加细节.safetensors : 0.69', 'lora_combined_3': 'Primary\\SDXL_LORA_艺术_more_art-full_v1.safetensors : 0.76',
 
     # seed_random 无需设置 , not all parameters should be set here, just use above.
+    if 'model_type_selector' in metadata:
+        ctrls[122] = metadata.get('model_type_selector')
     if 'seed_random' in metadata:
-        ctrls[37] = not metadata.get('seed_random')
+        ctrls[123] = not metadata.get('seed_random')
 
     printF(name=MasterName.get_master_name(),
            info="[Parameters] AFTER--> ctrls: {} - {}".format(len(ctrls), ctrls)).printf()
@@ -3234,7 +3236,7 @@ with (gr.Blocks(
                                 return [gr.update(open=True), gr.update(value=file), gr.update(value=info)]
                     return [gr.update(open=False), gr.update(value=None), gr.update(value="")]
 
-                def get_model_type_selector(x):
+                def get_model_type_selector(x, y):
                     new_models_type_selectors_list = []
                     for msl in modules.config.model_types:
                         if x in msl:
@@ -3246,12 +3248,17 @@ with (gr.Blocks(
 
                     new_model_type_filenames = sorted(set(new_model_type_filenames), key=new_model_type_filenames.index)
 
-                    if "SDXL" in x:
-                        return [gr.update(label=x, choices=new_model_type_filenames, value=new_model_type_filenames[0]), gr.update(visible=True)]
+                    if y in new_model_type_filenames:
+                        _value = y
                     else:
-                        return [gr.update(label=x, choices=new_model_type_filenames, value=new_model_type_filenames[0]), gr.update(visible=False, value="None")]
+                        _value = new_model_type_filenames[0]
 
-                model_type_selector.change(fn=get_model_type_selector, inputs=model_type_selector,
+                    if "SDXL" in x:
+                        return [gr.update(label=x, choices=new_model_type_filenames, value=_value), gr.update(visible=True)]
+                    else:
+                        return [gr.update(label=x, choices=new_model_type_filenames, value=_value), gr.update(visible=False, value="None")]
+
+                model_type_selector.change(fn=get_model_type_selector, inputs=[model_type_selector, base_model],
                                   outputs=[base_model, refiner_model],
                                   show_progress=False, queue=False)
 
@@ -3855,6 +3862,7 @@ with (gr.Blocks(
         ctrls += [save_metadata_json] + img2img_ctrls + [same_seed_for_all, output_format]
         ctrls += canny_ctrls + depth_ctrls
         ctrls += ip_ctrls
+        ctrls += [model_type_selector]
 
         load_prompt_button.upload(fn=load_prompt_handler, inputs=[load_prompt_button] + ctrls + [seed_random],
                                   outputs=ctrls + [seed_random])

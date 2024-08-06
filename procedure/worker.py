@@ -247,6 +247,7 @@ class taskManager:
         self.input_gallery = []
         self.revision_gallery = []
         self.keep_input_names = False
+        self.default_model_type = "SDXL"
 
     def init_param(self, obj):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> init_param").printf()
@@ -288,6 +289,7 @@ class taskManager:
                 self.inpaint_additional_prompt = ''
 
             self.image_seed = self.refresh_seed(self.image_seed is None, self.image_seed)
+            self.default_model_type = params.default_model_type
 
             for img_prompt in params.image_prompts:
                 cn_img, cn_stop, cn_weight, cn_type = img_prompt
@@ -337,11 +339,10 @@ class taskManager:
             # ctrls += [refiner_swap_method, controlnet_softness]
             # ctrls += freeu_ctrls
             # ctrls += inpaint_ctrls
-            #
-            # ctrls += ip_ctrls
             # ctrls += [save_metadata_json, save_metadata_image] + img2img_ctrls + [same_seed_for_all, output_format]
             # ctrls += canny_ctrls + depth_ctrls
-            #
+            # ctrls += ip_ctrls
+            # ctrls += [model_type_selector]
             # if not adapter.args_manager.args.disable_metadata:
             #     ctrls += [save_metadata_to_images, metadata_scheme]
 
@@ -482,6 +483,7 @@ class taskManager:
             # self.metadata_scheme = flags.MetadataScheme(
             #     args.pop()) if not args_manager.args.disable_metadata else flags.MetadataScheme.FOOOCUS
 
+            self.default_model_type = args.pop()
             self.save_metadata_to_images = args.pop()
             self.metadata_scheme = flags.MetadataScheme(args.pop())
 
@@ -1996,6 +1998,7 @@ class taskManager:
                                 modules.patch.patch_settings[self.pid].positive_adm_scale,
                                 modules.patch.patch_settings[self.pid].negative_adm_scale,
                                 modules.patch.patch_settings[self.pid].adm_scaler_end))),
+                            ('Model Type', 'model_type_selector', self.default_model_type),
                             ('Base Model', 'base_model', self.base_model_name),
                             ('Refiner Model', 'refiner_model', self.refiner_model_name),
                             ('CFG & CLIP Skips', "cfg_clip_skips",
