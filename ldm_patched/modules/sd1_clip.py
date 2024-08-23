@@ -59,7 +59,7 @@ class ClipTokenWeightEncoder:
                             z[i][j] = (z[i][j] - z_empty[j]) * weight + z_empty[j]
             output.append(z)
 
-        if (len(output) == 0):
+        if len(output) == 0:
             r = (out[-1:].to(model_management.intermediate_device()), first_pooled)
         else:
             r = (torch.cat(output, dim=-2).to(model_management.intermediate_device()), first_pooled)
@@ -226,6 +226,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         return z, pooled_output
 
     def encode(self, tokens):
+        # print(f"tokens: {tokens}")
         return self(tokens)
 
     def load_sd(self, sd):

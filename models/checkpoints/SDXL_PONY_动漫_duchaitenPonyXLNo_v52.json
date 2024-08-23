@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Trained",
+	"NSFW": "True",
+	"Update_Date":"Aug 8, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/376450/duchaiten-pony-xl-no-score?modelVersionId=706363",
+	"Version": "v5.2",
+	"Tags": "base model anime 3d 2d 2.5d",
+	"Usage_Tips": "- Sampling method: Euler a - Schedule type: SGM Uniform - Sampling steps: 30-36 - CFG Scale: 8-9",
+	"Author": "DucHaiten",
+	"ReMark": "I created my discord server. I'm still quite new to discord server management, free to give opinions.htt66ps://discord.gg/FPhQvFsqe2 Added the pony-no_score version, which is basically the pony model but can maintain 70-90% image quality without tag_score, but of course if it still has tag_score it would be better special note: Pony v6 base seems to be having errors with certain keywords or characters, individually or in combination, which can cause all sorts of serious errors when generating images. This is an error originating from pony base. I hope pony base v7 can improve this problem, otherwise it will be very difficult to develop and expand further, even though I have tried a lot to improve it. Because the image generator of civitai and automatic1111 are different, on civitai you need to set the number of steps about 10-15 steps higher than when using automatic1111.Update on August 8, 2024: v5.1+v5.0+v4.0=v5.2 Damn I forgot to turn on early access Version v5.2 works quite well both with and without scores Update on August 4, 2024: Version 5.1, a complete overhaul of the text encoder and adjustments to the U-net. Efforts have been made to minimize minor bugs from versions 5 and 4. Once again, the default importance level of the 3D style has been downgraded. I do not want 3D to be added to images if it is not explicitly mentioned in the prompt. Of course, if reducing the 3D style too much makes many people feel dissatisfied, I will adjust it again. So please let me know your thoughts on this adjusted version."
+}

@@ -21,7 +21,7 @@ from ldm_patched.contrib.external import VAEDecode, EmptyLatentImage, VAEEncode,
     VAEEncodeForInpaint, \
     ControlNetApplyAdvanced, ConditioningZeroOut, ConditioningAverage, CLIPVisionEncode, unCLIPConditioning, \
     ControlNetApplyAdvanced
-from ldm_patched.modules.model_base import SDXL, SDXLRefiner
+from ldm_patched.modules.model_base import SDXL, SDXLRefiner, HunyuanDiT, Flux, AuraFlow
 from modules.lora import match_lora
 from ldm_patched.modules.lora import model_lora_keys_unet, model_lora_keys_clip, load_lora
 from modules.config import path_embeddings

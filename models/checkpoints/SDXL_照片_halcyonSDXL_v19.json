@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Trained",
+	"NSFW": "True",
+	"Update_Date":"Aug 10, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/299933/halcyon-sdxl-photorealism?modelVersionId=709468",
+	"Version": "v1.9",
+	"Tags": "base model anime photorealistic female woman realistic video game",
+	"Usage_Tips": "DPM++ 3M SDE KARRAS at around 30 steps with a CFG of 5-8,",
+	"Author": "joebowersphotography",
+	"ReMark": "This is the SDXL version of my SD1.5 model Halcyon. I'm a professional photographer and I've incorporated some training from my own images in this model. Most of the preview images are shown with no LORAs to give you an honest idea of the model's capabilities, obviously you may have better results using LORAs.This is a very robust model primarily focused on photorealism but capable of generating all types of images. I typically use DPM++ 3M SDE KARRAS at around 30 steps with a CFG of 5-8, however feel free to use whatever sampler and steps you find gives you the best results.This is not a porn model, so don't expect it to do well with explicitly sexual prompts, however it does very well with nudity and NSFW genital details-- better than most other photorealism models in my opinion."
+}

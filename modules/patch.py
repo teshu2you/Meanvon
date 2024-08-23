@@ -481,7 +481,7 @@ def patched_load_models_gpu(*args, **kwargs):
     moving_time = time.perf_counter() - execution_start_time
     if moving_time > 0.1:
         printF(name=MasterName.get_master_name(),
-               info="[Fooocus Model Management] Moving model(s) has taken {:.2f} seconds".format(moving_time)).printf()
+               info="[MeanVon Model Management] Moving model(s) has taken {:.2f} seconds".format(moving_time)).printf()
     return y
 
 

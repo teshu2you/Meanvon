@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Aug 13, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/641919/nova-asian?modelVersionId=717986",
+	"Version": "v1.0",
+	"Tags": "base model photorealistic porn realism asian model photo fantasy hentai photorealism realistic landscape xl sdxl ponyxl",
+	"Usage_Tips": "Recommend Settings Sampler: Euler a Steps: 20~40 CFG Scales: 5~7 Clip Skip: 1-2 Denoising Strength: 0.65 - 0.8",
+	"Author": "Crody",
+	"ReMark": "Nova Asian Nova Asian is an asian photo-realistic pony model with the looks of generic sd15 asian face It is also ponified version of PhotoAsian on SD15 All images on example were created with diffusers with custom png tags PixAI Rules You cannot use the generated images for commercial use if it's not edited (or just turning it to black and white) You can share images without any restriction if you don't monetize it Advertising this model to outside is always welcome Recommend Settings Sampler: Euler a Steps: 20~40 CFG Scales: 5~7 Clip Skip: 1-2 Denoising Strength: 0.65 - 0.8 Prompt: score_9, score_8_up, score_7_up, realistic, photo, detailed face and eyes, detailed skin, (cute:1.1), BREAK Negative Prompts: score_6, score_5, score_4, score_6_up, score_5_up, score_4_up, source_anime, source_furry, source_pony, source_cartoon, blurry, jpeg artifacts, normal quality, worst quality, low quality, missing fingers, extra digits, fewer digits, bad eye Add ‘nsfw, nude’ to Negative Prompt if you want SFW image"
+}

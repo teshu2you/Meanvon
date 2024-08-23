@@ -1336,7 +1336,7 @@ class taskManager:
 
             is_sdxl = pipeline.is_base_sdxl()
             if not is_sdxl:
-                print('WARNING: using non-SDXL base model (supported in limited scope).')
+                printF(name=MasterName.get_master_name(), info="WARNING: using non-SDXL base model (supported in limited scope).").printf()
                 self.control_lora_canny = False
                 self.control_lora_depth = False
                 self.revision_mode = False

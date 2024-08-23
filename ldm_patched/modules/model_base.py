@@ -691,6 +691,7 @@ class HunyuanDiT(BaseModel):
             out['c_crossattn'] = ldm_patched.modules.conds.CONDRegular(cross_attn)
 
         attention_mask = kwargs.get("attention_mask", None)
+
         if attention_mask is not None:
             out['text_embedding_mask'] = ldm_patched.modules.conds.CONDRegular(attention_mask)
 

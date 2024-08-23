@@ -1,6 +1,7 @@
 import ssl
 from util.printf import printF, MasterName
 from config.webuiConfig import *
+
 ssl._create_default_https_context = ssl._create_unverified_context
 import warnings
 import shared
@@ -72,6 +73,7 @@ log_dir = "./.logs"
 os.makedirs(log_dir, exist_ok=True)
 logfile_bug = f"{log_dir}/output.log"
 sys.stdout = Logger(logfile_bug)
+
 
 def get_task(*args):
     args = list(args)
@@ -380,19 +382,28 @@ def change_model_type_llamacpp(model_llamacpp):
     except KeyError as ke:
         test_model = None
     if (test_model != None):
-        return prompt_template_llamacpp.update(value=model_list_llamacpp[model_llamacpp][1]), system_template_llamacpp.update(value=model_list_llamacpp[model_llamacpp][2]), quantization_llamacpp.update(value="")
+        return prompt_template_llamacpp.update(
+            value=model_list_llamacpp[model_llamacpp][1]), system_template_llamacpp.update(
+            value=model_list_llamacpp[model_llamacpp][2]), quantization_llamacpp.update(value="")
     else:
-        return prompt_template_llamacpp.update(value="{prompt}"), system_template_llamacpp.update(value=""), quantization_llamacpp.update(value="")
+        return prompt_template_llamacpp.update(value="{prompt}"), system_template_llamacpp.update(
+            value=""), quantization_llamacpp.update(value="")
+
 
 def change_prompt_template_llamacpp(prompt_template):
-    return prompt_template_llamacpp.update(value=prompt_template_list_llamacpp[prompt_template][0]), system_template_llamacpp.update(value=prompt_template_list_llamacpp[prompt_template][1])
+    return prompt_template_llamacpp.update(
+        value=prompt_template_list_llamacpp[prompt_template][0]), system_template_llamacpp.update(
+        value=prompt_template_list_llamacpp[prompt_template][1])
+
 
 ## Functions specific to llamacpp
 def show_download_llamacpp():
     return btn_download_file_llamacpp.update(visible=False), download_file_llamacpp.update(visible=True)
 
+
 def hide_download_llamacpp():
     return btn_download_file_llamacpp.update(visible=True), download_file_llamacpp.update(visible=False)
+
 
 def change_model_type_llamacpp(model_llamacpp):
     try:
@@ -400,9 +411,14 @@ def change_model_type_llamacpp(model_llamacpp):
     except KeyError as ke:
         test_model = None
     if (test_model != None):
-        return prompt_template_llamacpp.update(value=model_list_llamacpp[model_llamacpp][1]), system_template_llamacpp.update(value=model_list_llamacpp[model_llamacpp][2]), quantization_llamacpp.update(value="")
+        return prompt_template_llamacpp.update(
+            value=model_list_llamacpp[model_llamacpp][1]), system_template_llamacpp.update(
+            value=model_list_llamacpp[model_llamacpp][2]), quantization_llamacpp.update(value="")
     else:
-        return prompt_template_llamacpp.update(value="{prompt}"), system_template_llamacpp.update(value=""), quantization_llamacpp.update(value="")
+        return prompt_template_llamacpp.update(value="{prompt}"), system_template_llamacpp.update(
+            value=""), quantization_llamacpp.update(value="")
+
+
 def read_ini_nllb(module):
     content = read_ini(module)
     return str(content[0]), int(content[1])
@@ -884,7 +900,7 @@ with (gr.Blocks(
                             )
                             btn_llamacpp_continue.click(fn=hide_download_llamacpp,
                                                         outputs=[btn_download_file_llamacpp, download_file_llamacpp])
-                                            
+
                     with gr.TabItem("Llava 1.5 (gguf) 👁️", id=12) as tab_llava:
                         with gr.Accordion("About", open=False):
                             with gr.Box():
@@ -2645,10 +2661,10 @@ with (gr.Blocks(
 
 
                 stop_button.click(stop_clicked, inputs=currentTask, outputs=currentTask, queue=True,
-                                  every=2.0,
+                                  every=1.0,
                                   show_progress=False, _js='cancelGenerateForever')
                 skip_button.click(skip_clicked, inputs=currentTask, outputs=currentTask, queue=True,
-                                  every=2.0,
+                                  every=1.0,
                                   show_progress=False)
 
             with gr.Row(elem_classes='prompt_row'):
@@ -2693,12 +2709,14 @@ with (gr.Blocks(
                                          value=modules.config.default_image_number)
 
                 with gr.Row():
-                    seed_random = gr.Checkbox(label='Random', value=settings['seed_random'])
+                    seed_random = gr.Checkbox(label='Random seed', value=settings['seed_random'])
                     same_seed_for_all = gr.Checkbox(label='Same seed for all images',
                                                     value=settings['same_seed_for_all'])
+                    play_notification_sound = gr.Checkbox(label='Notificate me when all tasks done',
+                                                          value=settings['play_notification_sound'], interactive=True)
+
                 image_seed = gr.Textbox(label='Seed', value=settings['seed'], max_lines=1,
                                         visible=not settings['seed_random'])
-
 
                 def get_scope_of_influence():
                     return '<b>Valid Saved Parameters (as below):</b>' \
@@ -2761,6 +2779,31 @@ with (gr.Blocks(
                 history_link = gr.HTML()
                 shared.gradio_root.load(update_history_link, outputs=[history_link], queue=False, show_progress="full")
 
+                notification_file = 'notification.mp3'
+                if os.path.exists(notification_file):
+                    notification = gr.State(value=notification_file)
+                    notification_input = gr.Audio(label='Notification', interactive=True,
+                                                  elem_id='audio_notification', visible=False,
+                                                  show_edit_button=False)
+
+
+                    def play_notification_checked(r, notification):
+                        return gr.update(visible=r, value=notification if r else None)
+
+
+                    def notification_input_changed(notification_input, notification):
+                        if notification_input:
+                            notification = notification_input
+                        return notification
+
+
+                    play_notification_sound.change(fn=play_notification_checked,
+                                                   inputs=[play_notification_sound, notification],
+                                                   outputs=[notification_input], queue=False)
+                    notification_input.change(fn=notification_input_changed,
+                                              inputs=[notification_input, notification], outputs=[notification],
+                                              queue=False)
+
 
                 def performance_changed(ps, fs):
                     if ps == "Custom":
@@ -2807,6 +2850,7 @@ with (gr.Blocks(
                         return gr.update(visible=True, label="Fixed Steps", value=_v,
                                          interactive=True), gr.update(visible=False), gr.update(
                             visible=False), gr.update(visible=False)
+
 
                 performance_selection.change(fn=performance_changed, inputs=[performance_selection, fixed_steps],
                                              outputs=[fixed_steps, custom_row, custom_steps, custom_switch])
@@ -3181,8 +3225,8 @@ with (gr.Blocks(
                                              info='Scope of influence:[Prompt、Aspect Ratios、Style Keys、Advanced]')
                 with gr.Row():
                     model_type_selector = gr.Dropdown(label='Model Type Selector',
-                                             choices=modules.config.model_types,
-                                             value=modules.config.default_model_type, show_label=True)
+                                                      choices=modules.config.model_types,
+                                                      value=modules.config.default_model_type, show_label=True)
                 with gr.Row():
                     base_model = gr.Dropdown(label='Base Model (SDXL only)',
                                              choices=modules.config.sdxl_model_filenames,
@@ -3236,6 +3280,7 @@ with (gr.Blocks(
                                 return [gr.update(open=True), gr.update(value=file), gr.update(value=info)]
                     return [gr.update(open=False), gr.update(value=None), gr.update(value="")]
 
+
                 def get_model_type_selector(x, y):
                     new_models_type_selectors_list = []
                     for msl in modules.config.model_types:
@@ -3244,7 +3289,8 @@ with (gr.Blocks(
 
                     new_model_type_filenames = ["None"]
                     for nmsl in new_models_type_selectors_list:
-                        new_model_type_filenames += modules.config.get_model_filenames(modules.config.modelfile_path, name_filter=nmsl)
+                        new_model_type_filenames += modules.config.get_model_filenames(modules.config.modelfile_path,
+                                                                                       name_filter=nmsl)
 
                     new_model_type_filenames = sorted(set(new_model_type_filenames), key=new_model_type_filenames.index)
 
@@ -3254,13 +3300,16 @@ with (gr.Blocks(
                         _value = new_model_type_filenames[0]
 
                     if "SDXL" in x:
-                        return [gr.update(label=x, choices=new_model_type_filenames, value=_value), gr.update(visible=True)]
+                        return [gr.update(label=x, choices=new_model_type_filenames, value=_value),
+                                gr.update(visible=True)]
                     else:
-                        return [gr.update(label=x, choices=new_model_type_filenames, value=_value), gr.update(visible=False, value="None")]
+                        return [gr.update(label=x, choices=new_model_type_filenames, value=_value),
+                                gr.update(visible=False, value="None")]
+
 
                 model_type_selector.change(fn=get_model_type_selector, inputs=[model_type_selector, base_model],
-                                  outputs=[base_model, refiner_model],
-                                  show_progress=False, queue=False)
+                                           outputs=[base_model, refiner_model],
+                                           show_progress=False, queue=False)
 
                 base_model.change(fn=get_thumbnail_info, inputs=base_model,
                                   outputs=[bm_acc, img_bm_thumbnail, img_bm_info],
@@ -3641,17 +3690,23 @@ with (gr.Blocks(
             else:
                 results += [gr.update(choices=modules.config.preset_filenames)]
 
-            if x[1] not in modules.config.sdxl_model_filenames:
-                results += [gr.update(choices=['None'] + modules.config.sdxl_model_filenames, value="Not Exist!->")]
-            else:
-                results += [gr.update(choices=['None'] + modules.config.sdxl_model_filenames)]
+            selected_model_filenames = modules.config.get_model_filenames(modules.config.modelfile_path,
+                                                                          name_filter=x[1])
+            selected_model_filenames = sorted(set(selected_model_filenames), key=selected_model_filenames.index)
 
-            if x[2] not in [modules.config.model_filenames, "None"]:
+            results += [gr.update(value=x[1])]
+
+            if x[2] not in modules.config.model_filenames:
+                results += [gr.update(choices=['None'] + modules.config.model_filenames, value="Not Exist!->")]
+            else:
+                results += [gr.update(choices=['None'] + selected_model_filenames)]
+
+            if x[3] not in [modules.config.model_filenames, "None"]:
                 results += [gr.update(choices=['None'] + modules.config.model_filenames, value="Not Exist!->")]
             else:
                 results += [gr.update(choices=['None'] + modules.config.model_filenames)]
 
-            y = list(x[3:-2])
+            y = list(x[4:-2])
             z = [y[nn:nn + 3] for nn in range(0, len(y), 3)]
             print(z)
             for lf in z:
@@ -3685,8 +3740,10 @@ with (gr.Blocks(
 
 
         model_refresh.click(model_refresh_clicked,
-                            [model_presets, base_model, refiner_model] + lora_ctrls + [canny_model, depth_model],
-                            [model_presets, base_model, refiner_model] + lora_ctrls + [canny_model, depth_model],
+                            [model_presets, model_type_selector, base_model, refiner_model] + lora_ctrls + [canny_model,
+                                                                                                            depth_model],
+                            [model_presets, model_type_selector, base_model, refiner_model] + lora_ctrls + [canny_model,
+                                                                                                            depth_model],
                             queue=False, show_progress=False)
 
 
@@ -4016,10 +4073,10 @@ with (gr.Blocks(
             .then(fn=update_history_link, outputs=history_link) \
             .then(fn=lambda: None, _js='playNotification').then(fn=lambda: None, _js='refresh_grid_delayed')
 
-        for notification_file in ['notification.ogg', 'notification.mp3']:
-            if os.path.exists(notification_file):
-                gr.Audio(interactive=False, value=notification_file, elem_id='audio_notification', visible=False)
-                break
+        # for notification_file in ['notification.ogg', 'notification.mp3']:
+        #     if os.path.exists(notification_file):
+        #         gr.Audio(interactive=False, value=notification_file, elem_id='audio_notification', visible=False)
+        #         break
 
 # dump_default_english_config()
 app = gr.mount_gradio_app(app, shared.gradio_root.queue(concurrency_count=2, max_size=2), '/')

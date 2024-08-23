@@ -36,7 +36,9 @@ def patched_encode_token_weights(self, token_weight_pairs):
     if has_weights or sections == 0:
         to_encode.append(ldm_patched.modules.sd1_clip.gen_empty_tokens(self.special_tokens, max_token_len))
 
-    out, pooled = self.encode(to_encode)
+    o = self.encode(to_encode)
+    out, pooled = o[:2]
+
     if pooled is not None:
         first_pooled = pooled[0:1].to(ldm_patched.modules.model_management.intermediate_device())
     else:
@@ -55,14 +57,26 @@ def patched_encode_token_weights(self, token_weight_pairs):
         output.append(z)
 
     if len(output) == 0:
-        return out[-1:].to(ldm_patched.modules.model_management.intermediate_device()), first_pooled
-    return torch.cat(output, dim=-2).to(ldm_patched.modules.model_management.intermediate_device()), first_pooled
+           r = (out[-1:].to(ldm_patched.modules.model_management.intermediate_device()), first_pooled)
+    else:
+        r = (torch.cat(output, dim=-2).to(ldm_patched.modules.model_management.intermediate_device()), first_pooled)
+
+    if len(o) > 2:
+        extra = {}
+        for k in o[2]:
+            v = o[2][k]
+            if k == "attention_mask":
+                v = v[:sections].flatten().unsqueeze(dim=0).to(ldm_patched.modules.model_management.intermediate_device())
+            extra[k] = v
+
+        r = r + (extra,)
+    return r
 
 
 def patched_SDClipModel__init__(self, version="openai/clip-vit-large-patch14", device="cpu", max_length=77,
                  freeze=True, layer="last", layer_idx=None, textmodel_json_config=None, dtype=None, model_class=ldm_patched.modules.clip_model.CLIPTextModel,
                  special_tokens={"start": 49406, "end": 49407, "pad": 49407}, layer_norm_hidden_state=True, enable_attention_masks=False, zero_out_masked=False,
-                 return_projected_pooled=True):
+                 return_projected_pooled=True, return_attention_masks=False):
     torch.nn.Module.__init__(self)
     assert layer in self.LAYERS
 
@@ -73,6 +87,7 @@ def patched_SDClipModel__init__(self, version="openai/clip-vit-large-patch14", d
     #     config = json.load(f)
 
     config = CLIPTextConfig.from_json_file(textmodel_json_config)
+
     # self.transformer = model_class(config, dtype, device, ldm_patched.modules.ops.manual_cast)
     self.num_layers = config.num_hidden_layers
 
@@ -100,6 +115,7 @@ def patched_SDClipModel__init__(self, version="openai/clip-vit-large-patch14", d
 
     self.layer_norm_hidden_state = layer_norm_hidden_state
     self.return_projected_pooled = return_projected_pooled
+    self.return_attention_masks = return_attention_masks
 
     if layer == "hidden":
         assert layer_idx is not None
@@ -124,26 +140,14 @@ def patched_SDClipModel_forward(self, tokens):
                 if tokens[x, y] == end_token:
                     break
 
-    outputs = self.transformer(input_ids=tokens, attention_mask=attention_mask,
-                               output_hidden_states=self.layer == "hidden")
-    # outputs = self.transformer(tokens, attention_mask, intermediate_output=self.layer_idx, final_layer_norm_intermediate=self.layer_norm_hidden_state)
+    attention_mask_model = None
+    if self.enable_attention_masks:
+        attention_mask_model = attention_mask
 
+    outputs = self.transformer(tokens, attention_mask_model, output_hidden_states=self.layer == "hidden")
     self.transformer.set_input_embeddings(backup_embeds)
 
-    # if self.layer == "last":
-    #     z = outputs[0].float()
-    # else:
-    #     z = outputs[1].float()
-    #
-    # if self.zero_out_masked and attention_mask is not None:
-    #     z *= attention_mask.unsqueeze(-1).float()
-    #
-    # pooled_output = None
-    # if len(outputs) >= 3:
-    #     if not self.return_projected_pooled and len(outputs) >= 4 and outputs[3] is not None:
-    #         pooled_output = outputs[3].float()
-    #     elif outputs[2] is not None:
-    #         pooled_output = outputs[2].float()
+    # print(f"outputs: {outputs}")
 
     if self.layer == "last":
         z = outputs.last_hidden_state
@@ -162,7 +166,15 @@ def patched_SDClipModel_forward(self, tokens):
     if self.text_projection is not None and pooled_output is not None:
         pooled_output = pooled_output.float().to(self.text_projection.device) @ self.text_projection.float()
 
+    extra = {}
+    if self.return_attention_masks:
+        extra["attention_mask"] = attention_mask
+
+    if len(extra) > 0:
+        return z, pooled_output, extra
+
     return z, pooled_output
+
 
 class Output:
     def __getitem__(self, key):

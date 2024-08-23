@@ -91,8 +91,8 @@ def assert_model_integrity():
     if model_base.unet_with_lora is None:
         return
 
-    if not isinstance(model_base.unet_with_lora.model, SDXL):
-        error_message = 'You have selected base model other than SDXL. This is not supported yet.'
+    # if not isinstance(model_base.unet_with_lora.model, SDXL):
+    #     error_message = 'You have selected base model other than SDXL. This is not supported yet.'
 
     if error_message is not None:
         raise NotImplementedError(error_message)
@@ -312,6 +312,7 @@ def clip_encode_single(clip, text, verbose=False):
         return cached
     tokens = clip.tokenize(text)
     result = clip.encode_from_tokens(tokens, return_pooled=True)
+
     clip.fcs_cond_cache[text] = result
     if verbose:
         printF(name=MasterName.get_master_name(), info="[CLIP Encoded] = {}".format(text)).printf()
@@ -352,14 +353,32 @@ def clip_encode(texts, pool_top_k=1):
 
     cond_list = []
     pooled_acc = 0
+    flag = True
 
     for i, text in enumerate(texts):
-        cond, pooled = clip_encode_single(final_clip, text, verbose=False)
+        result_ces = clip_encode_single(final_clip, text, verbose=False)
+        if isinstance(result_ces, dict):
+            cond = result_ces.get("cond")
+            pooled = result_ces.get("pooled_output")
+            att_mask = result_ces.get("attention_mask")
+            cdt_mt5xl = result_ces.get("conditioning_mt5xl")
+            att_mask_mt5xl = result_ces.get("attention_mask_mt5xl")
+            flag = False
+        else:
+            cond, pooled = result_ces
+            flag = True
+
         cond_list.append(cond)
         if i < pool_top_k:
             pooled_acc += pooled
 
-    return [[torch.cat(cond_list, dim=1), {"pooled_output": pooled_acc}]]
+    if flag:
+        return [[torch.cat(cond_list, dim=1),
+                 {"pooled_output": pooled_acc}]]
+    else:
+        return [[torch.cat(cond_list, dim=1),
+                 {"pooled_output": pooled_acc, "attention_mask": att_mask, "attention_mask_mt5xl": att_mask_mt5xl,
+                  "conditioning_mt5xl": cdt_mt5xl}]]
 
 @torch.no_grad()
 @torch.inference_mode()

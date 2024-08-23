@@ -1,6 +1,7 @@
 import threading
 import re
 from modules.patch import PatchSettings, patch_settings, patch_all
+from util.printf import printF, MasterName
 
 patch_all()
 
@@ -577,7 +578,7 @@ def worker():
 
             is_sdxl = pipeline.is_base_sdxl()
             if not is_sdxl:
-                print('WARNING: using non-SDXL base model (supported in limited scope).')
+                printF(name=MasterName.get_master_name(), info="WARNING: using non-SDXL base model (supported in limited scope).").printf()
                 control_lora_canny = False
                 control_lora_depth = False
                 revision_mode = False

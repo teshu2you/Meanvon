@@ -135,6 +135,7 @@ class CLIP:
     def tokenize(self, text, return_word_ids=False):
         return self.tokenizer.tokenize_with_weights(text, return_word_ids)
 
+# attention
     def encode_from_tokens(self, tokens, return_pooled=False, return_dict=False):
         self.cond_stage_model.reset_clip_options()
 
@@ -145,13 +146,17 @@ class CLIP:
             self.cond_stage_model.set_clip_options({"projected_pooled": False})
 
         self.load_model()
+        # print(f"tokens: {tokens}")
         o = self.cond_stage_model.encode_token_weights(tokens)
         cond, pooled = o[:2]
+        if isinstance(self.cond_stage_model, ldm_patched.text_encoders.hydit.HyditModel):
+            return_dict = True
         if return_dict:
             out = {"cond": cond, "pooled_output": pooled}
             if len(o) > 2:
                 for k in o[2]:
                     out[k] = o[2][k]
+            print(f"-----out---: {out}")
             return out
         if return_pooled:
             return cond, pooled
@@ -456,8 +461,8 @@ def load_clip(ckpt_paths, embedding_directory=None, clip_type=CLIPType.STABLE_DI
                 clip_target.clip = sdxl_clip.SDXLRefinerClipModel
                 clip_target.tokenizer = sdxl_clip.SDXLTokenizer
         elif "text_model.encoder.layers.22.mlp.fc1.weight" in clip_data[0]:
-                clip_target.clip = ldm_patched.text_encoders.sd2_clip.SD2ClipModel
-                clip_target.tokenizer = ldm_patched.text_encoders.sd2_clip.SD2Tokenizer
+            clip_target.clip = ldm_patched.text_encoders.sd2_clip.SD2ClipModel
+            clip_target.tokenizer = ldm_patched.text_encoders.sd2_clip.SD2Tokenizer
         elif "encoder.block.23.layer.1.DenseReluDense.wi_1.weight" in clip_data[0]:
             weight = clip_data[0]["encoder.block.23.layer.1.DenseReluDense.wi_1.weight"]
             dtype_t5 = weight.dtype
@@ -557,6 +562,7 @@ def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, o
 
     diffusion_model_prefix = model_detection.unet_prefix_from_state_dict(sd)
     parameters = ldm_patched.modules.utils.calculate_parameters(sd, diffusion_model_prefix)
+    weight_dtype = ldm_patched.modules.utils.weight_dtype(sd, diffusion_model_prefix)
     load_device = model_management.get_torch_device()
     printF(name=MasterName.get_master_name(), info="[load_device] = {}".format(load_device)).printf()
 
@@ -565,7 +571,11 @@ def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, o
     if model_config is None:
         raise RuntimeError("ERROR: Could not detect model type of: {}".format(ckpt_path))
 
-    unet_dtype = model_management.unet_dtype(model_params=parameters, supported_dtypes=model_config.supported_inference_dtypes)
+    unet_weight_dtype = list(model_config.supported_inference_dtypes)
+    if weight_dtype is not None:
+        unet_weight_dtype.append(weight_dtype)
+
+    unet_dtype = model_management.unet_dtype(model_params=parameters, supported_dtypes=unet_weight_dtype)
     printF(name=MasterName.get_master_name(), info="[unet_dtype] = {}".format(unet_dtype)).printf()
 
     manual_cast_dtype = model_management.unet_manual_cast(unet_dtype, load_device, model_config.supported_inference_dtypes)
@@ -585,12 +595,16 @@ def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, o
 
 # attention
     if output_vae:
-        if vae_filename_param is None:
-            vae_sd = ldm_patched.modules.utils.state_dict_prefix_replace(sd, {k: "" for k in model_config.vae_key_prefix}, filter_keys=True)
-            vae_sd = model_config.process_vae_state_dict(vae_sd)
-        else:
-            vae_sd = ldm_patched.modules.utils.load_torch_file(vae_filename_param)
-            vae_filename = vae_filename_param
+        # if vae_filename_param is None:
+        #     vae_sd = ldm_patched.modules.utils.state_dict_prefix_replace(sd, {k: "" for k in model_config.vae_key_prefix}, filter_keys=True)
+        #     vae_sd = model_config.process_vae_state_dict(vae_sd)
+        # else:
+        #     vae_sd = ldm_patched.modules.utils.load_torch_file(vae_filename_param)
+
+        vae_filename = vae_filename_param
+        vae_sd = ldm_patched.modules.utils.state_dict_prefix_replace(sd, {k: "" for k in model_config.vae_key_prefix}, filter_keys=True)
+        vae_sd = model_config.process_vae_state_dict(vae_sd)
+
         vae = VAE(sd=vae_sd)
 
     if output_clip:
@@ -620,7 +634,7 @@ def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, o
         printF(name=MasterName.get_master_name(), info="left over keys: {}".format(left_over)).printf()
 
     if output_model:
-        model_patcher = ldm_patched.modules.model_patcher.ModelPatcher(model, load_device=load_device, offload_device=model_management.unet_offload_device(), current_device=inital_load_device)
+        model_patcher = ldm_patched.modules.model_patcher.ModelPatcher(model, load_device=load_device, offload_device=model_management.unet_offload_device())
         if inital_load_device != torch.device("cpu"):
             printF(name=MasterName.get_master_name(), info="loaded straight to GPU").printf()
             model_management.load_model_gpu(model_patcher)

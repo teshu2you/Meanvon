@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Aug 19, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/469902/wai-realcn?modelVersionId=738368",
+	"Version": "v10.0",
+	"Tags": "style photorealistic woman realistic",
+	"Usage_Tips": "Recommended Setting Steps: 30 CFG scale: 3.5~7 Sampler: Euler a ADetailer face_yolov8n/s.pt use (ADetailer sampler: DPM++ 2M, ADetailer scheduler: Karras )",
+	"Author": "WAI0731",
+	"ReMark": "V10 Simple Usage Guide 1.For users who just want to generate images simply, please make sure to follow my recommended settings, especially for negative prompts. Please do not change them arbitrarily. CFG just use 7.  2.For advanced users, my recommendation is to delete Positive Prompt ’realistic,photorealistic, ‘ and start generating with a CFG scale of 3.5. If the result is not satisfactory, please increase the CFG gradually, up to a maximum of 7.If the results are still unsatisfactory, consider adding realistic tag.3.Regarding negative prompts, please do not delete them arbitrarily, as this can affect the image generation quality. However, advanced users are welcome to edit them freely. If you have better prompts, please make sure to leave me a message.V10"
+}

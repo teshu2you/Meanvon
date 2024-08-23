@@ -70,6 +70,7 @@ def load_settings():
     settings['freeu_b2'] = 1.02
     settings['freeu_s1'] = 0.99
     settings['freeu_s2'] = 0.95
+    settings['play_notification_sound'] = True
 
     if exists('settings.json'):
         with open('settings.json') as settings_file:
