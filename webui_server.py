@@ -2712,11 +2712,37 @@ with (gr.Blocks(
                     seed_random = gr.Checkbox(label='Random seed', value=settings['seed_random'])
                     same_seed_for_all = gr.Checkbox(label='Same seed for all images',
                                                     value=settings['same_seed_for_all'])
+                image_seed = gr.Textbox(label='Seed', value=settings['seed'], max_lines=1,
+                                        visible=not settings['seed_random'])
+
+                with gr.Row():
                     play_notification_sound = gr.Checkbox(label='Notificate me when all tasks done',
                                                           value=settings['play_notification_sound'], interactive=True)
 
-                image_seed = gr.Textbox(label='Seed', value=settings['seed'], max_lines=1,
-                                        visible=not settings['seed_random'])
+                    notification_file = 'notification.mp3'
+                    if os.path.exists(notification_file):
+                        notification = gr.State(value=notification_file)
+                        notification_input = gr.Audio(label='Notification', interactive=True,
+                                                      value=notification_file,
+                                                      elem_id='audio_notification', visible=settings['play_notification_sound'],
+                                                      show_edit_button=False)
+
+                    def play_notification_checked(r, notification):
+                        return gr.update(visible=r, value=notification if r else None)
+
+
+                    def notification_input_changed(notification_input, notification):
+                        if notification_input:
+                            notification = notification_input
+                        return notification
+
+
+                    play_notification_sound.change(fn=play_notification_checked,
+                                                   inputs=[play_notification_sound, notification],
+                                                   outputs=[notification_input], queue=False)
+                    notification_input.change(fn=notification_input_changed,
+                                              inputs=[notification_input, notification], outputs=[notification],
+                                              queue=False)
 
                 def get_scope_of_influence():
                     return '<b>Valid Saved Parameters (as below):</b>' \
@@ -2778,31 +2804,6 @@ with (gr.Blocks(
 
                 history_link = gr.HTML()
                 shared.gradio_root.load(update_history_link, outputs=[history_link], queue=False, show_progress="full")
-
-                notification_file = 'notification.mp3'
-                if os.path.exists(notification_file):
-                    notification = gr.State(value=notification_file)
-                    notification_input = gr.Audio(label='Notification', interactive=True,
-                                                  elem_id='audio_notification', visible=False,
-                                                  show_edit_button=False)
-
-
-                    def play_notification_checked(r, notification):
-                        return gr.update(visible=r, value=notification if r else None)
-
-
-                    def notification_input_changed(notification_input, notification):
-                        if notification_input:
-                            notification = notification_input
-                        return notification
-
-
-                    play_notification_sound.change(fn=play_notification_checked,
-                                                   inputs=[play_notification_sound, notification],
-                                                   outputs=[notification_input], queue=False)
-                    notification_input.change(fn=notification_input_changed,
-                                              inputs=[notification_input, notification], outputs=[notification],
-                                              queue=False)
 
 
                 def performance_changed(ps, fs):
