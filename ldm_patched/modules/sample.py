@@ -52,6 +52,11 @@ def cleanup_additional_models(models):
 def sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative, latent_image, denoise=1.0,
            disable_noise=False, start_step=None, last_step=None, force_full_denoise=False, noise_mask=None, sigmas=None,
            callback=None, disable_pbar=False, seed=None):
+
+    from backend.diffusion_engine.flux import Flux
+    if isinstance(model, Flux):
+        model = model.forge_objects.unet
+
     sampler = ldm_patched.modules.samplers.KSampler(model, steps=steps, device=model.load_device, sampler=sampler_name,
                                                     scheduler=scheduler, denoise=denoise,
                                                     model_options=model.model_options)
@@ -60,6 +65,7 @@ def sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative
                              last_step=last_step, force_full_denoise=force_full_denoise, denoise_mask=noise_mask,
                              sigmas=sigmas, callback=callback, disable_pbar=disable_pbar, seed=seed)
     samples = samples.to(ldm_patched.modules.model_management.intermediate_device())
+
     return samples
 
 

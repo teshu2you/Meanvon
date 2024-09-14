@@ -10,6 +10,7 @@ from .. import attention
 from einops import rearrange, repeat
 from .util import timestep_embedding
 import ldm_patched.modules.ops
+import ldm_patched.ldm.common_dit
 
 def default(x, y):
     if x is not None:
@@ -112,9 +113,7 @@ class PatchEmbed(nn.Module):
         #             f"Input width ({W}) should be divisible by patch size ({self.patch_size[1]})."
         #         )
         if self.dynamic_img_pad:
-            pad_h = (self.patch_size[0] - H % self.patch_size[0]) % self.patch_size[0]
-            pad_w = (self.patch_size[1] - W % self.patch_size[1]) % self.patch_size[1]
-            x = torch.nn.functional.pad(x, (0, pad_w, 0, pad_h), mode=self.padding_mode)
+            x = ldm_patched.ldm.common_dit.pad_to_patch_size(x, self.patch_size, padding_mode=self.padding_mode)
         x = self.proj(x)
         if self.flatten:
             x = x.flatten(2).transpose(1, 2)  # NCHW -> NLC
@@ -234,32 +233,6 @@ class TimestepEmbedder(nn.Module):
             operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype, device=device),
         )
         self.frequency_embedding_size = frequency_embedding_size
-
-    # @staticmethod
-    # def timestep_embedding(t, dim, max_period=10000):
-    #     """
-    #     Create sinusoidal timestep embeddings.
-    #     :param t: a 1-D Tensor of N indices, one per batch element.
-    #                       These may be fractional.
-    #     :param dim: the dimension of the output.
-    #     :param max_period: controls the minimum frequency of the embeddings.
-    #     :return: an (N, D) Tensor of positional embeddings.
-    #     """
-    #     half = dim // 2
-    #     freqs = torch.exp(
-    #         -math.log(max_period)
-    #         * torch.arange(start=0, end=half, dtype=torch.float32, device=t.device)
-    #         / half
-    #     )
-    #     args = t[:, None].float() * freqs[None]
-    #     embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
-    #     if dim % 2:
-    #         embedding = torch.cat(
-    #             [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
-    #         )
-    #     if torch.is_floating_point(t):
-    #         embedding = embedding.to(dtype=t.dtype)
-    #     return embedding
 
     def forward(self, t, dtype, **kwargs):
         t_freq = timestep_embedding(t, self.frequency_embedding_size).to(dtype)
@@ -383,29 +356,8 @@ class RMSNorm(torch.nn.Module):
         else:
             self.register_parameter("weight", None)
 
-    def _norm(self, x):
-        """
-        Apply the RMSNorm normalization to the input tensor.
-        Args:
-            x (torch.Tensor): The input tensor.
-        Returns:
-            torch.Tensor: The normalized tensor.
-        """
-        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-
     def forward(self, x):
-        """
-        Forward pass through the RMSNorm layer.
-        Args:
-            x (torch.Tensor): The input tensor.
-        Returns:
-            torch.Tensor: The output tensor after applying RMSNorm.
-        """
-        x = self._norm(x)
-        if self.learnable_scale:
-            return x * self.weight.to(device=x.device, dtype=x.dtype)
-        else:
-            return x
+        return ldm_patched.ldm.common_dit.rms_norm(x, self.weight, self.eps)
 
 
 class SwiGLUFeedForward(nn.Module):
@@ -751,7 +703,7 @@ class MMDiT(nn.Module):
         context_processor_layers = None,
         context_size = 4096,
         num_blocks = None,
-        final_layer = True,                          
+        final_layer = True,
         dtype = None, #TODO
         device = None,
         operations = None,
@@ -776,7 +728,7 @@ class MMDiT(nn.Module):
         if num_blocks is None:
             num_blocks = depth
 
-        self.depth = depth                                                     
+        self.depth = depth
         self.num_heads = num_heads
 
         self.x_embedder = PatchEmbed(
@@ -904,7 +856,7 @@ class MMDiT(nn.Module):
         x: torch.Tensor,
         c_mod: torch.Tensor,
         context: Optional[torch.Tensor] = None,
-        control=None,
+        control = None,
     ) -> torch.Tensor:
         if self.register_length > 0:
             context = torch.cat(
@@ -941,7 +893,7 @@ class MMDiT(nn.Module):
         t: torch.Tensor,
         y: Optional[torch.Tensor] = None,
         context: Optional[torch.Tensor] = None,
-        control=None,
+        control = None,
     ) -> torch.Tensor:
         """
         Forward pass of DiT.
@@ -976,7 +928,7 @@ class OpenAISignatureMMDITWrapper(MMDiT):
         timesteps: torch.Tensor,
         context: Optional[torch.Tensor] = None,
         y: Optional[torch.Tensor] = None,
-        control=None,
+        control = None,
         **kwargs,
     ) -> torch.Tensor:
         return super().forward(x, timesteps, context=context, y=y, control=control)

@@ -1,23 +1,39 @@
-import math
-import sys
+"""
+    This file is part of ComfyUI.
+    Copyright (C) 2024 Comfy
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
 import torch
 from ldm_patched.ldm.modules.diffusionmodules.openaimodel import UNetModel, Timestep
 from ldm_patched.ldm.cascade.stage_c import StageC
-from ldm_patched.ldm.cascade.stage_b import StageB                                           
+from ldm_patched.ldm.cascade.stage_b import StageB
 from ldm_patched.ldm.modules.encoders.noise_aug_modules import CLIPEmbeddingNoiseAugmentation
 from ldm_patched.ldm.modules.diffusionmodules.upscaling import ImageConcatWithNoiseAugmentation
 from ldm_patched.ldm.modules.diffusionmodules.mmdit import OpenAISignatureMMDITWrapper
 import ldm_patched.ldm.aura.mmdit
 import ldm_patched.ldm.hydit.models
-import ldm_patched.ldm.flux.model
 import ldm_patched.ldm.audio.dit
 import ldm_patched.ldm.audio.embedders
 import ldm_patched.ldm.flux.model
+
 import ldm_patched.modules.model_management
 import ldm_patched.modules.conds
 import ldm_patched.modules.ops
-
 from enum import Enum
+
 from util.printf import printF, MasterName
 from . import utils
 import ldm_patched.modules.latent_formats
@@ -35,6 +51,7 @@ class ModelType(Enum):
 
 
 from ldm_patched.modules.model_sampling import EPS, V_PREDICTION, EDM, ModelSamplingDiscrete, ModelSamplingContinuousEDM, StableCascadeSampling, ModelSamplingContinuousV
+
 
 def model_sampling(model_config, model_type):
     s = ModelSamplingDiscrete
@@ -76,16 +93,21 @@ class BaseModel(torch.nn.Module):
         self.latent_format = model_config.latent_format
         self.model_config = model_config
         self.manual_cast_dtype = model_config.manual_cast_dtype
+        self.device = device
 
         if not unet_config.get("disable_unet_model_creation", False):
-            if self.manual_cast_dtype is not None:
-                operations = ldm_patched.modules.ops.manual_cast
+            if model_config.custom_operations is None:
+                operations = ldm_patched.modules.ops.pick_operations(unet_config.get("dtype", None), self.manual_cast_dtype)
             else:
-                operations = ldm_patched.modules.ops.disable_weight_init
+                operations = model_config.custom_operations
             self.diffusion_model = unet_model(**unet_config, device=device, operations=operations)
             if ldm_patched.modules.model_management.force_channels_last():
                 self.diffusion_model.to(memory_format=torch.channels_last)
-                printF(name=MasterName.get_master_name(), info="using channels last mode for diffusion model").printf()
+                printF(name=MasterName.get_master_name(),
+                       info="using channels last mode for diffusion model").printf()
+            printF(name=MasterName.get_master_name(),
+                   info="model weight dtype {}, manual cast: {}".format(self.get_dtype(), self.manual_cast_dtype)).printf()
+
         self.model_type = model_type
         self.model_sampling = model_sampling(model_config, model_type)
 
@@ -93,12 +115,11 @@ class BaseModel(torch.nn.Module):
         if self.adm_channels is None:
             self.adm_channels = 0
 
-        self.inpaint_model = False
-
         self.concat_keys = ()
-        printF(name=MasterName.get_master_name(), info="[model_type]  = {}".format(model_type.name)).printf()
-        printF(name=MasterName.get_master_name(), info="[UNet ADM Dimension] = {}".format(self.adm_channels)).printf()
-        printF(name=MasterName.get_master_name(), info="[model weight dtype] =  {}, [manual cast] = {}".format(self.get_dtype(), self.manual_cast_dtype)).printf()
+        printF(name=MasterName.get_master_name(),
+               info="model_type {}".format(model_type.name)).printf()
+        printF(name=MasterName.get_master_name(),
+               info="adm {}".format(self.adm_channels)).printf()
         self.memory_usage_factor = model_config.memory_usage_factor
 
     def apply_model(self, x, t, c_concat=None, c_crossattn=None, control=None, transformer_options={}, **kwargs):
@@ -124,8 +145,7 @@ class BaseModel(torch.nn.Module):
                     extra = extra.to(dtype)
             extra_conds[o] = extra
 
-        model_output = self.diffusion_model(xc, t, context=context, control=control,
-                                            transformer_options=transformer_options, **extra_conds).float()
+        model_output = self.diffusion_model(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds).float()
         return self.model_sampling.calculate_denoised(sigma, model_output, x)
 
     def get_dtype(self):
@@ -177,7 +197,7 @@ class BaseModel(torch.nn.Module):
                     elif ck == "masked_image":
                         cond_concat.append(self.blank_inpaint_image_like(noise))
             data = torch.cat(cond_concat, dim=1)
-            out['c_concat'] = (ldm_patched.modules.conds.CONDNoiseShape(data))
+            out['c_concat'] = ldm_patched.modules.conds.CONDNoiseShape(data)
 
         adm = self.encode_adm(**kwargs)
         if adm is not None:
@@ -213,6 +233,7 @@ class BaseModel(torch.nn.Module):
         if len(u) > 0:
             printF(name=MasterName.get_master_name(),
                    info="unet unexpected: {}".format(u)).printf()
+
         del to_load
         return self
 
@@ -262,7 +283,6 @@ class BaseModel(torch.nn.Module):
             #TODO: this needs to be tweaked
             area = input_shape[0] * math.prod(input_shape[2:])
             return (area * ldm_patched.modules.model_management.dtype_size(dtype) * 0.01 * self.memory_usage_factor) * (1024 * 1024)
-
         else:
             #TODO: this formula might be too aggressive since I tweaked the sub-quad and split algorithms to use less memory.
             area = input_shape[0] * math.prod(input_shape[2:])
@@ -293,7 +313,6 @@ def unclip_adm(unclip_conditioning, device, noise_augmentor, noise_augment_merge
 
     return adm_out
 
-
 class SD21UNCLIP(BaseModel):
     def __init__(self, model_config, noise_aug_config, model_type=ModelType.V_PREDICTION, device=None):
         super().__init__(model_config, model_type, device=device)
@@ -313,14 +332,11 @@ def sdxl_pooled(args, noise_augmentor):
     else:
         return args["pooled_output"]
 
-
 class SDXLRefiner(BaseModel):
     def __init__(self, model_config, model_type=ModelType.EPS, device=None):
         super().__init__(model_config, model_type, device=device)
         self.embedder = Timestep(256)
-        self.noise_augmentor = CLIPEmbeddingNoiseAugmentation(
-            **{"noise_schedule_config": {"timesteps": 1000, "beta_schedule": "squaredcos_cap_v2"},
-               "timestep_dim": 1280})
+        self.noise_augmentor = CLIPEmbeddingNoiseAugmentation(**{"noise_schedule_config": {"timesteps": 1000, "beta_schedule": "squaredcos_cap_v2"}, "timestep_dim": 1280})
 
     def encode_adm(self, **kwargs):
         clip_pooled = sdxl_pooled(kwargs, self.noise_augmentor)
@@ -343,14 +359,11 @@ class SDXLRefiner(BaseModel):
         flat = torch.flatten(torch.cat(out)).unsqueeze(dim=0).repeat(clip_pooled.shape[0], 1)
         return torch.cat((clip_pooled.to(flat.device), flat), dim=1)
 
-
 class SDXL(BaseModel):
     def __init__(self, model_config, model_type=ModelType.EPS, device=None):
         super().__init__(model_config, model_type, device=device)
         self.embedder = Timestep(256)
-        self.noise_augmentor = CLIPEmbeddingNoiseAugmentation(
-            **{"noise_schedule_config": {"timesteps": 1000, "beta_schedule": "squaredcos_cap_v2"},
-               "timestep_dim": 1280})
+        self.noise_augmentor = CLIPEmbeddingNoiseAugmentation(**{"noise_schedule_config": {"timesteps": 1000, "beta_schedule": "squaredcos_cap_v2"}, "timestep_dim": 1280})
 
     def encode_adm(self, **kwargs):
         clip_pooled = sdxl_pooled(kwargs, self.noise_augmentor)
@@ -417,10 +430,8 @@ class SVD_img2vid(BaseModel):
         if "time_conditioning" in kwargs:
             out["time_context"] = ldm_patched.modules.conds.CONDCrossAttn(kwargs["time_conditioning"])
 
-        out['image_only_indicator'] = ldm_patched.modules.conds.CONDConstant(torch.zeros((1,), device=device))
         out['num_video_frames'] = ldm_patched.modules.conds.CONDConstant(noise.shape[0])
         return out
-
 
 class SV3D_u(SVD_img2vid):
     def encode_adm(self, **kwargs):
@@ -451,9 +462,9 @@ class SV3D_p(SVD_img2vid):
         out = list(map(lambda a: utils.resize_to_batch_size(a, noise.shape[0]), out))
         return torch.cat(out, dim=1)
 
+
 class Stable_Zero123(BaseModel):
     def __init__(self, model_config, model_type=ModelType.EPS, device=None, cc_projection_weight=None, cc_projection_bias=None):
-                                          
         super().__init__(model_config, model_type, device=device)
         self.cc_projection = ldm_patched.modules.ops.manual_cast.Linear(cc_projection_weight.shape[1], cc_projection_weight.shape[0], dtype=self.get_dtype(), device=device)
         self.cc_projection.weight.copy_(cc_projection_weight)
@@ -482,12 +493,10 @@ class Stable_Zero123(BaseModel):
             out['c_crossattn'] = ldm_patched.modules.conds.CONDCrossAttn(cross_attn)
         return out
 
-
 class SD_X4Upscaler(BaseModel):
     def __init__(self, model_config, model_type=ModelType.V_PREDICTION, device=None):
         super().__init__(model_config, model_type, device=device)
-        self.noise_augmentor = ImageConcatWithNoiseAugmentation(
-            noise_schedule_config={"linear_start": 0.0001, "linear_end": 0.02}, max_noise_level=350)
+        self.noise_augmentor = ImageConcatWithNoiseAugmentation(noise_schedule_config={"linear_start": 0.0001, "linear_end": 0.02}, max_noise_level=350)
 
     def extra_conds(self, **kwargs):
         out = {}
@@ -501,7 +510,7 @@ class SD_X4Upscaler(BaseModel):
         noise_level = round((self.noise_augmentor.max_noise_level) * noise_augment)
 
         if image is None:
-            image = torch.zeros_like(noise)[:, :3]
+            image = torch.zeros_like(noise)[:,:3]
 
         if image.shape[1:] != noise.shape[1:]:
             image = utils.common_upscale(image.to(device), noise.shape[-1], noise.shape[-2], "bilinear", "center")
@@ -515,7 +524,6 @@ class SD_X4Upscaler(BaseModel):
         out['c_concat'] = ldm_patched.modules.conds.CONDNoiseShape(image)
         out['y'] = ldm_patched.modules.conds.CONDRegular(noise_level)
         return out
-
 
 class IP2P:
     def extra_conds(self, **kwargs):
@@ -617,17 +625,6 @@ class SD3(BaseModel):
             out['c_crossattn'] = ldm_patched.modules.conds.CONDRegular(cross_attn)
         return out
 
-    def memory_required(self, input_shape):
-        if ldm_patched.modules.model_management.xformers_enabled() or ldm_patched.modules.model_management.pytorch_attention_flash_attention():
-            dtype = self.get_dtype()
-            if self.manual_cast_dtype is not None:
-                dtype = self.manual_cast_dtype
-            #TODO: this probably needs to be tweaked
-            area = input_shape[0] * input_shape[2] * input_shape[3]
-            return (area * ldm_patched.modules.model_management.dtype_size(dtype) * 0.012) * (1024 * 1024)
-        else:
-            area = input_shape[0] * input_shape[2] * input_shape[3]
-            return (area * 0.3) * (1024 * 1024)
 
 class AuraFlow(BaseModel):
     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
@@ -640,11 +637,12 @@ class AuraFlow(BaseModel):
             out['c_crossattn'] = ldm_patched.modules.conds.CONDRegular(cross_attn)
         return out
 
+
 class StableAudio1(BaseModel):
     def __init__(self, model_config, seconds_start_embedder_weights, seconds_total_embedder_weights, model_type=ModelType.V_PREDICTION_CONTINUOUS, device=None):
-        super().__init__(model_config, model_type, device=device, unet_model=ldm_patched.ldm.audio.dit.AudioDiffusionTransformer)
-        self.seconds_start_embedder = ldm_patched.ldm.audio.embedders.NumberConditioner(768, min_val=0, max_val=512)
-        self.seconds_total_embedder = ldm_patched.ldm.audio.embedders.NumberConditioner(768, min_val=0, max_val=512)
+        super().__init__(model_config, model_type, device=device, unet_model=ldm_patched.modules.ldm.audio.dit.AudioDiffusionTransformer)
+        self.seconds_start_embedder = ldm_patched.modules.ldm.audio.embedders.NumberConditioner(768, min_val=0, max_val=512)
+        self.seconds_total_embedder = ldm_patched.modules.ldm.audio.embedders.NumberConditioner(768, min_val=0, max_val=512)
         self.seconds_start_embedder.load_state_dict(seconds_start_embedder_weights)
         self.seconds_total_embedder.load_state_dict(seconds_total_embedder_weights)
 
@@ -670,10 +668,8 @@ class StableAudio1(BaseModel):
         return out
 
     def state_dict_for_saving(self, clip_state_dict=None, vae_state_dict=None, clip_vision_state_dict=None):
-        sd = super().state_dict_for_saving(clip_state_dict=clip_state_dict, vae_state_dict=vae_state_dict,
-                                           clip_vision_state_dict=clip_vision_state_dict)
-        d = {"conditioner.conditioners.seconds_start.": self.seconds_start_embedder.state_dict(),
-             "conditioner.conditioners.seconds_total.": self.seconds_total_embedder.state_dict()}
+        sd = super().state_dict_for_saving(clip_state_dict=clip_state_dict, vae_state_dict=vae_state_dict, clip_vision_state_dict=clip_vision_state_dict)
+        d = {"conditioner.conditioners.seconds_start.": self.seconds_start_embedder.state_dict(), "conditioner.conditioners.seconds_total.": self.seconds_total_embedder.state_dict()}
         for k in d:
             s = d[k]
             for l in s:
@@ -691,7 +687,6 @@ class HunyuanDiT(BaseModel):
             out['c_crossattn'] = ldm_patched.modules.conds.CONDRegular(cross_attn)
 
         attention_mask = kwargs.get("attention_mask", None)
-
         if attention_mask is not None:
             out['text_embedding_mask'] = ldm_patched.modules.conds.CONDRegular(attention_mask)
 
@@ -710,8 +705,7 @@ class HunyuanDiT(BaseModel):
         target_width = kwargs.get("target_width", width)
         target_height = kwargs.get("target_height", height)
 
-        out['image_meta_size'] = ldm_patched.modules.conds.CONDRegular(
-            torch.FloatTensor([[height, width, target_height, target_width, 0, 0]]))
+        out['image_meta_size'] = ldm_patched.modules.conds.CONDRegular(torch.FloatTensor([[height, width, target_height, target_width, 0, 0]]))
         return out
 
 class Flux(BaseModel):

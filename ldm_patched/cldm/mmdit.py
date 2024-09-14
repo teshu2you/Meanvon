@@ -1,12 +1,7 @@
 import torch
 from typing import Dict, Optional
 import ldm_patched.ldm.modules.diffusionmodules.mmdit
-from einops import rearrange, repeat
 
-def default(x, y):
-    if x is not None:
-        return x
-    return y
 class ControlNet(ldm_patched.ldm.modules.diffusionmodules.mmdit.MMDiT):
     def __init__(
         self,

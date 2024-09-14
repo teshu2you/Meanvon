@@ -4,7 +4,6 @@ from . import utils
 
 from . import sd1_clip
 from . import sdxl_clip
-
 import ldm_patched.text_encoders.sd2_clip
 import ldm_patched.text_encoders.sd3_clip
 import ldm_patched.text_encoders.sa_t5
@@ -16,7 +15,6 @@ from . import supported_models_base
 from . import latent_formats
 
 from . import diffusers_convert
-
 
 class SD15(supported_models_base.BASE):
     unet_config = {
@@ -38,8 +36,7 @@ class SD15(supported_models_base.BASE):
     def process_clip_state_dict(self, state_dict):
         k = list(state_dict.keys())
         for x in k:
-            if x.startswith("cond_stage_model.transformer.") and not x.startswith(
-                    "cond_stage_model.transformer.text_model."):
+            if x.startswith("cond_stage_model.transformer.") and not x.startswith("cond_stage_model.transformer.text_model."):
                 y = x.replace("cond_stage_model.transformer.", "cond_stage_model.transformer.text_model.")
                 state_dict[y] = state_dict.pop(x)
 
@@ -65,7 +62,6 @@ class SD15(supported_models_base.BASE):
     def clip_target(self, state_dict={}):
         return supported_models_base.ClipTarget(sd1_clip.SD1Tokenizer, sd1_clip.SD1ClipModel)
 
-
 class SD20(supported_models_base.BASE):
     unet_config = {
         "context_dim": 1024,
@@ -85,7 +81,7 @@ class SD20(supported_models_base.BASE):
     memory_usage_factor = 1.0
 
     def model_type(self, state_dict, prefix=""):
-        if self.unet_config["in_channels"] == 4:  # SD2.0 inpainting models are not v prediction
+        if self.unet_config["in_channels"] == 4: #SD2.0 inpainting models are not v prediction
             k = "{}output_blocks.11.1.transformer_blocks.0.norm1.bias".format(prefix)
             out = state_dict.get(k, None)
             if out is not None and torch.std(out, unbiased=False) > 0.09: # not sure how well this will actually work. I guess we will find out.
@@ -110,7 +106,6 @@ class SD20(supported_models_base.BASE):
     def clip_target(self, state_dict={}):
         return supported_models_base.ClipTarget(ldm_patched.text_encoders.sd2_clip.SD2Tokenizer, ldm_patched.text_encoders.sd2_clip.SD2ClipModel)
 
-
 class SD21UnclipL(SD20):
     unet_config = {
         "context_dim": 1024,
@@ -121,8 +116,7 @@ class SD21UnclipL(SD20):
     }
 
     clip_vision_prefix = "embedder.model.visual."
-    noise_aug_config = {"noise_schedule_config": {"timesteps": 1000, "beta_schedule": "squaredcos_cap_v2"},
-                        "timestep_dim": 768}
+    noise_aug_config = {"noise_schedule_config": {"timesteps": 1000, "beta_schedule": "squaredcos_cap_v2"}, "timestep_dim": 768}
 
 
 class SD21UnclipH(SD20):
@@ -135,9 +129,7 @@ class SD21UnclipH(SD20):
     }
 
     clip_vision_prefix = "embedder.model.visual."
-    noise_aug_config = {"noise_schedule_config": {"timesteps": 1000, "beta_schedule": "squaredcos_cap_v2"},
-                        "timestep_dim": 1024}
-
+    noise_aug_config = {"noise_schedule_config": {"timesteps": 1000, "beta_schedule": "squaredcos_cap_v2"}, "timestep_dim": 1024}
 
 class SDXLRefiner(supported_models_base.BASE):
     unet_config = {
@@ -177,7 +169,6 @@ class SDXLRefiner(supported_models_base.BASE):
     def clip_target(self, state_dict={}):
         return supported_models_base.ClipTarget(sdxl_clip.SDXLTokenizer, sdxl_clip.SDXLRefinerClipModel)
 
-
 class SDXL(supported_models_base.BASE):
     unet_config = {
         "model_channels": 320,
@@ -189,7 +180,8 @@ class SDXL(supported_models_base.BASE):
     }
 
     latent_format = latent_formats.SDXL
-    memory_usage_factor = 0.7
+
+    memory_usage_factor = 0.8
 
     def model_type(self, state_dict, prefix=""):
         if 'edm_mean' in state_dict and 'edm_std' in state_dict: #Playground V2.5
@@ -248,7 +240,6 @@ class SDXL(supported_models_base.BASE):
     def clip_target(self, state_dict={}):
         return supported_models_base.ClipTarget(sdxl_clip.SDXLTokenizer, sdxl_clip.SDXLClipModel)
 
-
 class SSD1B(SDXL):
     unet_config = {
         "model_channels": 320,
@@ -258,7 +249,6 @@ class SSD1B(SDXL):
         "adm_in_channels": 2816,
         "use_temporal_attention": False,
     }
-
 
 class Segmind_Vega(SDXL):
     unet_config = {
@@ -381,13 +371,11 @@ class Stable_Zero123(supported_models_base.BASE):
     latent_format = latent_formats.SD15
 
     def get_model(self, state_dict, prefix="", device=None):
-        out = model_base.Stable_Zero123(self, device=device, cc_projection_weight=state_dict["cc_projection.weight"],
-                                        cc_projection_bias=state_dict["cc_projection.bias"])
+        out = model_base.Stable_Zero123(self, device=device, cc_projection_weight=state_dict["cc_projection.weight"], cc_projection_bias=state_dict["cc_projection.bias"])
         return out
 
     def clip_target(self, state_dict={}):
         return None
-
 
 class SD_X4Upscaler(SD20):
     unet_config = {
@@ -522,7 +510,9 @@ class SD3(supported_models_base.BASE):
 
     unet_extra_config = {}
     latent_format = latent_formats.SD3
+
     memory_usage_factor = 1.2
+
     text_encoder_key_prefix = ["text_encoders."]
 
     def get_model(self, state_dict, prefix="", device=None):
@@ -564,7 +554,6 @@ class StableAudio(supported_models_base.BASE):
         seconds_total_sd = utils.state_dict_prefix_replace(state_dict, {"conditioner.conditioners.seconds_total.": ""}, filter_keys=True)
         return model_base.StableAudio1(self, seconds_start_embedder_weights=seconds_start_sd, seconds_total_embedder_weights=seconds_total_sd, device=device)
 
-
     def process_unet_state_dict(self, state_dict):
         for k in list(state_dict.keys()):
             if k.endswith(".cross_attend_norm.beta") or k.endswith(".ff_norm.beta") or k.endswith(".pre_norm.beta"): #These weights are all zero
@@ -577,7 +566,6 @@ class StableAudio(supported_models_base.BASE):
 
     def clip_target(self, state_dict={}):
         return supported_models_base.ClipTarget(ldm_patched.text_encoders.sa_t5.SAT5Tokenizer, ldm_patched.text_encoders.sa_t5.SAT5Model)
-
 
 class AuraFlow(supported_models_base.BASE):
     unet_config = {
@@ -652,9 +640,9 @@ class Flux(supported_models_base.BASE):
     unet_extra_config = {}
     latent_format = latent_formats.Flux
 
-    memory_usage_factor = 2.6
+    memory_usage_factor = 2.8
 
-    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+    supported_inference_dtypes = [torch.bfloat16, torch.float16, torch.float32]
 
     vae_key_prefix = ["vae."]
     text_encoder_key_prefix = ["text_encoders."]
@@ -666,9 +654,10 @@ class Flux(supported_models_base.BASE):
     def clip_target(self, state_dict={}):
         pref = self.text_encoder_key_prefix[0]
         t5_key = "{}t5xxl.transformer.encoder.final_layer_norm.weight".format(pref)
+        dtype_t5 = None
         if t5_key in state_dict:
             dtype_t5 = state_dict[t5_key].dtype
-        return supported_models_base.ClipTarget(ldm_patched.text_encoders.flux.FluxTokenizer, ldm_patched.text_encoders.flux.FluxClipModel)
+        return supported_models_base.ClipTarget(ldm_patched.text_encoders.flux.FluxTokenizer, ldm_patched.text_encoders.flux.flux_clip(dtype_t5=dtype_t5))
 
 class FluxSchnell(Flux):
     unet_config = {

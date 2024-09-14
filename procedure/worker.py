@@ -1432,14 +1432,14 @@ class taskManager:
 
             for i, t in enumerate(self.tasks):
                 self.progressbar(async_task, 7, f'Encoding positive #{i + 1} ...')
-                t['c'] = pipeline.clip_encode(texts=t['positive'], pool_top_k=t['positive_top_k'])
+                t['c'] = pipeline.clip_encode(texts=t['positive'], pool_top_k=t['positive_top_k'], steps=self.steps)
 
             for i, t in enumerate(self.tasks):
                 if abs(float(self.guidance_scale) - 1.0) < 1e-4:
                     t['uc'] = pipeline.clone_cond(t['c'])
                 else:
                     self.progressbar(async_task, 10, f'Encoding negative #{i + 1} ...')
-                    t['uc'] = pipeline.clip_encode(texts=t['negative'], pool_top_k=t['negative_top_k'])
+                    t['uc'] = pipeline.clip_encode(texts=t['negative'], pool_top_k=t['negative_top_k'], steps=self.steps)
             # printF(name=MasterName.get_master_name(), info="[Parameters] tasks = {}".format(self.tasks)).printf()
 
     def check_vary_in_goals(self, async_task):

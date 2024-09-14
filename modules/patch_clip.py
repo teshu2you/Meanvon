@@ -76,31 +76,23 @@ def patched_encode_token_weights(self, token_weight_pairs):
 def patched_SDClipModel__init__(self, version="openai/clip-vit-large-patch14", device="cpu", max_length=77,
                  freeze=True, layer="last", layer_idx=None, textmodel_json_config=None, dtype=None, model_class=ldm_patched.modules.clip_model.CLIPTextModel,
                  special_tokens={"start": 49406, "end": 49407, "pad": 49407}, layer_norm_hidden_state=True, enable_attention_masks=False, zero_out_masked=False,
-                 return_projected_pooled=True, return_attention_masks=False):
+                 return_projected_pooled=True, return_attention_masks=False, model_options={}):
     torch.nn.Module.__init__(self)
     assert layer in self.LAYERS
 
     if textmodel_json_config is None:
         textmodel_json_config = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../ldm_patched", "modules", "sd1_clip_config.json")
 
-    # with open(textmodel_json_config) as f:
-    #     config = json.load(f)
+    with open(textmodel_json_config) as f:
+        config = json.load(f)
 
-    config = CLIPTextConfig.from_json_file(textmodel_json_config)
+    operations = model_options.get("custom_operations", None)
+    if operations is None:
+        operations = ldm_patched.modules.ops.manual_cast
 
-    # self.transformer = model_class(config, dtype, device, ldm_patched.modules.ops.manual_cast)
-    self.num_layers = config.num_hidden_layers
-
-    with use_patched_ops(ops.manual_cast):
-        with modeling_utils.no_init_weights():
-            self.transformer = CLIPTextModel(config)
-
-    if dtype is not None:
-        self.transformer.to(dtype)
-
-    self.transformer.text_model.embeddings.to(torch.float32)
-    self.text_projection = torch.nn.Parameter(torch.eye(self.transformer.get_input_embeddings().weight.shape[1]))
-    # self.num_layers = self.transformer.num_layers
+    self.operations = operations
+    self.transformer = model_class(config, dtype, device, self.operations)
+    self.num_layers = self.transformer.num_layers
 
     self.max_length = max_length
     if freeze:
@@ -131,7 +123,7 @@ def patched_SDClipModel_forward(self, tokens):
     tokens = torch.LongTensor(tokens).to(device)
 
     attention_mask = None
-    if self.enable_attention_masks:
+    if self.enable_attention_masks or self.zero_out_masked or self.return_attention_masks:
         attention_mask = torch.zeros_like(tokens)
         end_token = self.special_tokens.get("end", -1)
         for x in range(attention_mask.shape[0]):
@@ -144,27 +136,24 @@ def patched_SDClipModel_forward(self, tokens):
     if self.enable_attention_masks:
         attention_mask_model = attention_mask
 
-    outputs = self.transformer(tokens, attention_mask_model, output_hidden_states=self.layer == "hidden")
+    outputs = self.transformer(tokens, attention_mask_model, intermediate_output=self.layer_idx,
+                               final_layer_norm_intermediate=self.layer_norm_hidden_state, dtype=torch.float32)
     self.transformer.set_input_embeddings(backup_embeds)
 
-    # print(f"outputs: {outputs}")
-
-    if self.layer == "last":
-        z = outputs.last_hidden_state
-    elif self.layer == "pooled":
-        z = outputs.pooler_output[:, None, :]
+    if self.layer == "last" or outputs[1] is None:
+        z = outputs[0].float()
     else:
-        z = outputs.hidden_states[self.layer_idx]
-        if self.layer_norm_hidden_state:
-            z = self.transformer.text_model.final_layer_norm(z)
+        z = outputs[1].float()
 
-    if hasattr(outputs, "pooler_output"):
-        pooled_output = outputs.pooler_output.float()
-    else:
-        pooled_output = None
+    if self.zero_out_masked:
+        z *= attention_mask.unsqueeze(-1).float()
 
-    if self.text_projection is not None and pooled_output is not None:
-        pooled_output = pooled_output.float().to(self.text_projection.device) @ self.text_projection.float()
+    pooled_output = None
+    if len(outputs) >= 3:
+        if not self.return_projected_pooled and len(outputs) >= 4 and outputs[3] is not None:
+            pooled_output = outputs[3].float()
+        elif outputs[2] is not None:
+            pooled_output = outputs[2].float()
 
     extra = {}
     if self.return_attention_masks:

@@ -1,17 +1,40 @@
+"""
+    This file is part of ComfyUI.
+    Copyright (C) 2024 Comfy
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+
 import torch
+from enum import Enum
 import math
 import os
+import logging
 import ldm_patched.modules.utils
 import ldm_patched.modules.model_management
 import ldm_patched.modules.model_detection
 import ldm_patched.modules.model_patcher
 import ldm_patched.modules.ops
 import ldm_patched.modules.latent_formats
-import ldm_patched.controlnet.cldm
+
+import ldm_patched.cldm.cldm
 import ldm_patched.t2i_adapter.adapter
 import ldm_patched.ldm.cascade.controlnet
 import ldm_patched.cldm.mmdit
-from util.printf import printF, MasterName
+import ldm_patched.ldm.hydit.controlnet
+import ldm_patched.ldm.flux.controlnet
 
 
 def broadcast_image_to(tensor, target_batch_size, batched_number):
@@ -32,6 +55,10 @@ def broadcast_image_to(tensor, target_batch_size, batched_number):
     else:
         return torch.cat([tensor] * batched_number, dim=0)
 
+class StrengthType(Enum):
+    CONSTANT = 1
+    LINEAR_UP = 2
+
 class ControlBase:
     def __init__(self, device=None):
         self.cond_hint_original = None
@@ -39,7 +66,7 @@ class ControlBase:
         self.strength = 1.0
         self.timestep_percent_range = (0.0, 1.0)
         self.latent_format = None
-        self.vae = None                                              
+        self.vae = None
         self.global_average_pooling = False
         self.timestep_range = None
         self.compression_ratio = 8
@@ -50,13 +77,15 @@ class ControlBase:
             device = ldm_patched.modules.model_management.get_torch_device()
         self.device = device
         self.previous_controlnet = None
+        self.extra_conds = []
+        self.strength_type = StrengthType.CONSTANT
 
     def set_cond_hint(self, cond_hint, strength=1.0, timestep_percent_range=(0.0, 1.0), vae=None):
         self.cond_hint_original = cond_hint
         self.strength = strength
         self.timestep_percent_range = timestep_percent_range
         if self.latent_format is not None:
-            self.vae = vae                                          
+            self.vae = vae
         return self
 
     def pre_run(self, model, percent_to_timestep_function):
@@ -92,6 +121,8 @@ class ControlBase:
         c.latent_format = self.latent_format
         c.extra_args = self.extra_args.copy()
         c.vae = self.vae
+        c.extra_conds = self.extra_conds.copy()
+        c.strength_type = self.strength_type
 
     def inference_memory_requirements(self, dtype):
         if self.previous_controlnet is not None:
@@ -104,17 +135,20 @@ class ControlBase:
         for key in control:
             control_output = control[key]
             applied_to = set()
-            for i in range(len(control)):
-                x = control[i]
+            for i in range(len(control_output)):
+                x = control_output[i]
                 if x is not None:
                     if self.global_average_pooling:
                         x = torch.mean(x, dim=(2, 3), keepdim=True).repeat(1, 1, x.shape[2], x.shape[3])
 
                     if x not in applied_to: #memory saving strategy, allow shared tensors and only apply strength to shared tensors once
                         applied_to.add(x)
-                        x *= self.strength
+                        if self.strength_type == StrengthType.CONSTANT:
+                            x *= self.strength
+                        elif self.strength_type == StrengthType.LINEAR_UP:
+                            x *= (self.strength ** float(len(control_output) - i))
 
-                    if x.dtype != output_dtype:
+                    if output_dtype is not None and x.dtype != output_dtype:
                         x = x.to(output_dtype)
 
                 out[key].append(x)
@@ -133,26 +167,28 @@ class ControlBase:
                             if o[i].shape[0] < prev_val.shape[0]:
                                 o[i] = prev_val + o[i]
                             else:
-                                o[i] = prev_val + o[i]  # TODO: change back to inplace add if shared tensors stop being an issue
-
+                                o[i] = prev_val + o[i] #TODO: change back to inplace add if shared tensors stop being an issue
         return out
 
     def set_extra_arg(self, argument, value=None):
         self.extra_args[argument] = value
 
+
 class ControlNet(ControlBase):
-    def __init__(self, control_model=None, global_average_pooling=False, compression_ratio=8, latent_format=None, device=None, load_device=None, manual_cast_dtype=None):
+    def __init__(self, control_model=None, global_average_pooling=False, compression_ratio=8, latent_format=None, device=None, load_device=None, manual_cast_dtype=None, extra_conds=["y"], strength_type=StrengthType.CONSTANT):
         super().__init__(device)
         self.control_model = control_model
         self.load_device = load_device
         if control_model is not None:
             self.control_model_wrapped = ldm_patched.modules.model_patcher.ModelPatcher(self.control_model, load_device=load_device, offload_device=ldm_patched.modules.model_management.unet_offload_device())
 
-        self.compression_ratio = compression_ratio                                                  
+        self.compression_ratio = compression_ratio
         self.global_average_pooling = global_average_pooling
         self.model_sampling_current = None
         self.manual_cast_dtype = manual_cast_dtype
-        self.latent_format = latent_format                                         
+        self.latent_format = latent_format
+        self.extra_conds += extra_conds
+        self.strength_type = strength_type
 
     def get_control(self, x_noisy, t, cond, batched_number):
         control_prev = None
@@ -170,14 +206,13 @@ class ControlNet(ControlBase):
         if self.manual_cast_dtype is not None:
             dtype = self.manual_cast_dtype
 
-        output_dtype = x_noisy.dtype
         if self.cond_hint is None or x_noisy.shape[2] * self.compression_ratio != self.cond_hint.shape[2] or x_noisy.shape[3] * self.compression_ratio != self.cond_hint.shape[3]:
             if self.cond_hint is not None:
                 del self.cond_hint
             self.cond_hint = None
             compression_ratio = self.compression_ratio
             if self.vae is not None:
-                compression_ratio *= self.vae.downscale_ratio                                                    
+                compression_ratio *= self.vae.downscale_ratio
             self.cond_hint = ldm_patched.modules.utils.common_upscale(self.cond_hint_original, x_noisy.shape[3] * compression_ratio, x_noisy.shape[2] * compression_ratio, self.upscale_algorithm, "center")
             if self.vae is not None:
                 loaded_models = ldm_patched.modules.model_management.loaded_models(only_currently_used=True)
@@ -185,19 +220,22 @@ class ControlNet(ControlBase):
                 ldm_patched.modules.model_management.load_models_gpu(loaded_models)
             if self.latent_format is not None:
                 self.cond_hint = self.latent_format.process_in(self.cond_hint)
-            self.cond_hint = self.cond_hint.to(device=self.device, dtype=dtype)                                   
+            self.cond_hint = self.cond_hint.to(device=self.device, dtype=dtype)
         if x_noisy.shape[0] != self.cond_hint.shape[0]:
             self.cond_hint = broadcast_image_to(self.cond_hint, x_noisy.shape[0], batched_number)
 
         context = cond.get('crossattn_controlnet', cond['c_crossattn'])
-        y = cond.get('y', None)
-        if y is not None:
-            y = y.to(dtype)
+        extra = self.extra_args.copy()
+        for c in self.extra_conds:
+            temp = cond.get(c, None)
+            if temp is not None:
+                extra[c] = temp.to(dtype)
+
         timestep = self.model_sampling_current.timestep(t)
         x_noisy = self.model_sampling_current.calculate_input(t, x_noisy)
 
-        control = self.control_model(x=x_noisy.to(dtype), hint=self.cond_hint, timesteps=timestep.float(), context=context.to(dtype), y=y, **self.extra_args)
-        return self.control_merge(control, control_prev, output_dtype)
+        control = self.control_model(x=x_noisy.to(dtype), hint=self.cond_hint, timesteps=timestep.to(dtype), context=context.to(dtype), **extra)
+        return self.control_merge(control, control_prev, output_dtype=None)
 
     def copy(self):
         c = ControlNet(None, global_average_pooling=self.global_average_pooling, load_device=self.load_device, manual_cast_dtype=self.manual_cast_dtype)
@@ -285,6 +323,7 @@ class ControlLora(ControlNet):
         ControlBase.__init__(self, device)
         self.control_weights = control_weights
         self.global_average_pooling = global_average_pooling
+        self.extra_conds += ["y"]
 
     def pre_run(self, model, percent_to_timestep_function):
         super().pre_run(model, percent_to_timestep_function)
@@ -303,7 +342,7 @@ class ControlLora(ControlNet):
 
         controlnet_config["operations"] = control_lora_ops
         controlnet_config["dtype"] = dtype
-        self.control_model = ldm_patched.controlnet.cldm.ControlNet(**controlnet_config)
+        self.control_model = ldm_patched.cldm.cldm.ControlNet(**controlnet_config)
         self.control_model.to(ldm_patched.modules.model_management.get_torch_device())
         diffusion_model = model.diffusion_model
         sd = diffusion_model.state_dict()
@@ -337,12 +376,8 @@ class ControlLora(ControlNet):
     def inference_memory_requirements(self, dtype):
         return ldm_patched.modules.utils.calculate_parameters(self.control_weights) * ldm_patched.modules.model_management.dtype_size(dtype) + ControlBase.inference_memory_requirements(self, dtype)
 
-def load_controlnet_mmdit(sd):
-    new_sd = ldm_patched.modules.model_detection.convert_diffusers_mmdit(sd, "")
-    model_config = ldm_patched.modules.model_detection.model_config_from_unet(new_sd, "", True)
-    num_blocks = ldm_patched.modules.model_detection.count_blocks(new_sd, 'joint_blocks.{}.')
-    for k in sd:
-        new_sd[k] = sd[k]
+def controlnet_config(sd):
+    model_config = ldm_patched.modules.model_detection.model_config_from_unet(sd, "", True)
 
     supported_inference_dtypes = model_config.supported_inference_dtypes
 
@@ -355,21 +390,82 @@ def load_controlnet_mmdit(sd):
     else:
         operations = ldm_patched.modules.ops.disable_weight_init
 
-    control_model = ldm_patched.modules.cldm.mmdit.ControlNet(num_blocks=num_blocks, operations=operations, device=load_device, dtype=unet_dtype, **controlnet_config)
-    missing, unexpected = control_model.load_state_dict(new_sd, strict=False)
+    offload_device = ldm_patched.modules.model_management.unet_offload_device()
+    return model_config, operations, load_device, unet_dtype, manual_cast_dtype, offload_device
+
+def controlnet_load_state_dict(control_model, sd):
+    missing, unexpected = control_model.load_state_dict(sd, strict=False)
 
     if len(missing) > 0:
-        printF(name=MasterName.get_master_name(), info="missing controlnet keys: {}".format(missing)).printf()
+        logging.warning("missing controlnet keys: {}".format(missing))
 
     if len(unexpected) > 0:
-        printF(name=MasterName.get_master_name(), info="unexpected controlnet keys: {}".format(unexpected)).printf()
+        logging.debug("unexpected controlnet keys: {}".format(unexpected))
+    return control_model
+
+def load_controlnet_mmdit(sd):
+    new_sd = ldm_patched.modules.model_detection.convert_diffusers_mmdit(sd, "")
+    model_config, operations, load_device, unet_dtype, manual_cast_dtype, offload_device = controlnet_config(new_sd)
+    num_blocks = ldm_patched.modules.model_detection.count_blocks(new_sd, 'joint_blocks.{}.')
+    for k in sd:
+        new_sd[k] = sd[k]
+
+    control_model = ldm_patched.cldm.mmdit.ControlNet(num_blocks=num_blocks, operations=operations, device=offload_device, dtype=unet_dtype, **model_config.unet_config)
+    control_model = controlnet_load_state_dict(control_model, new_sd)
 
     latent_format = ldm_patched.modules.latent_formats.SD3()
     latent_format.shift_factor = 0 #SD3 controlnet weirdness
     control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, load_device=load_device, manual_cast_dtype=manual_cast_dtype)
-    return control                             
+    return control
+
+
+def load_controlnet_hunyuandit(controlnet_data):
+    model_config, operations, load_device, unet_dtype, manual_cast_dtype, offload_device = controlnet_config(controlnet_data)
+
+    control_model = ldm_patched.ldm.hydit.controlnet.HunYuanControlNet(operations=operations, device=offload_device, dtype=unet_dtype)
+    control_model = controlnet_load_state_dict(control_model, controlnet_data)
+
+    latent_format = ldm_patched.modules.latent_formats.SDXL()
+    extra_conds = ['text_embedding_mask', 'encoder_hidden_states_t5', 'text_embedding_mask_t5', 'image_meta_size', 'style', 'cos_cis_img', 'sin_cis_img']
+    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds, strength_type=StrengthType.CONSTANT)
+    return control
+
+def load_controlnet_flux_xlabs_mistoline(sd, mistoline=False):
+    model_config, operations, load_device, unet_dtype, manual_cast_dtype, offload_device = controlnet_config(sd)
+    control_model = ldm_patched.ldm.flux.controlnet.ControlNetFlux(mistoline=mistoline, operations=operations, device=offload_device, dtype=unet_dtype, **model_config.unet_config)
+    control_model = controlnet_load_state_dict(control_model, sd)
+    extra_conds = ['y', 'guidance']
+    control = ControlNet(control_model, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds)
+    return control
+
+def load_controlnet_flux_instantx(sd):
+    new_sd = ldm_patched.modules.model_detection.convert_diffusers_mmdit(sd, "")
+    model_config, operations, load_device, unet_dtype, manual_cast_dtype, offload_device = controlnet_config(new_sd)
+    for k in sd:
+        new_sd[k] = sd[k]
+
+    num_union_modes = 0
+    union_cnet = "controlnet_mode_embedder.weight"
+    if union_cnet in new_sd:
+        num_union_modes = new_sd[union_cnet].shape[0]
+
+    control_model = ldm_patched.ldm.flux.controlnet.ControlNetFlux(latent_input=True, num_union_modes=num_union_modes, operations=operations, device=offload_device, dtype=unet_dtype, **model_config.unet_config)
+    control_model = controlnet_load_state_dict(control_model, new_sd)
+
+    latent_format = ldm_patched.modules.latent_formats.Flux()
+    extra_conds = ['y', 'guidance']
+    control = ControlNet(control_model, compression_ratio=1, latent_format=latent_format, load_device=load_device, manual_cast_dtype=manual_cast_dtype, extra_conds=extra_conds)
+    return control
+
+def convert_mistoline(sd):
+    return ldm_patched.modules.utils.state_dict_prefix_replace(sd, {"single_controlnet_blocks.": "controlnet_single_blocks."})
+
+
 def load_controlnet(ckpt_path, model=None):
     controlnet_data = ldm_patched.modules.utils.load_torch_file(ckpt_path, safe_load=True)
+    if 'after_proj_list.18.bias' in controlnet_data.keys(): #Hunyuan DiT
+        return load_controlnet_hunyuandit(controlnet_data)
+
     if "lora_controlnet" in controlnet_data:
         return ControlLora(controlnet_data)
 
@@ -424,11 +520,17 @@ def load_controlnet(ckpt_path, model=None):
 
         leftover_keys = controlnet_data.keys()
         if len(leftover_keys) > 0:
-            printF(name=MasterName.get_master_name(),
-                   info="leftover keys: {}".format(leftover_keys)).printf()
+            logging.warning("leftover keys: {}".format(leftover_keys))
         controlnet_data = new_sd
-    elif "controlnet_blocks.0.weight" in controlnet_data: #SD3 diffusers format
-        return load_controlnet_mmdit(controlnet_data)                                                                               
+    elif "controlnet_blocks.0.weight" in controlnet_data:
+        if "double_blocks.0.img_attn.norm.key_norm.scale" in controlnet_data:
+            return load_controlnet_flux_xlabs_mistoline(controlnet_data)
+        elif "pos_embed_input.proj.weight" in controlnet_data:
+            return load_controlnet_mmdit(controlnet_data) #SD3 diffusers controlnet
+        elif "controlnet_x_embedder.weight" in controlnet_data:
+            return load_controlnet_flux_instantx(controlnet_data)
+    elif "controlnet_blocks.0.linear.weight" in controlnet_data: #mistoline flux
+        return load_controlnet_flux_xlabs_mistoline(convert_mistoline(controlnet_data), mistoline=True)
 
     pth_key = 'control_model.zero_convs.0.0.weight'
     pth = False
@@ -442,8 +544,7 @@ def load_controlnet(ckpt_path, model=None):
     else:
         net = load_t2i_adapter(controlnet_data)
         if net is None:
-            printF(name=MasterName.get_master_name(),
-                   info="error checkpoint does not contain controlnet or t2i adapter data".format(ckpt_path)).printf()
+            logging.error("error checkpoint does not contain controlnet or t2i adapter data {}".format(ckpt_path))
         return net
 
     if controlnet_config is None:
@@ -461,6 +562,7 @@ def load_controlnet(ckpt_path, model=None):
     if manual_cast_dtype is not None:
         controlnet_config["operations"] = ldm_patched.modules.ops.manual_cast
     controlnet_config["dtype"] = unet_dtype
+    controlnet_config["device"] = ldm_patched.modules.model_management.unet_offload_device()
     controlnet_config.pop("out_channels")
     controlnet_config["hint_channels"] = controlnet_data["{}input_hint_block.0.weight".format(prefix)].shape[1]
     control_model = ldm_patched.cldm.cldm.ControlNet(**controlnet_config)
@@ -478,8 +580,7 @@ def load_controlnet(ckpt_path, model=None):
                             cd = controlnet_data[x]
                             cd += model_sd[sd_key].type(cd.dtype).to(cd.device)
             else:
-                printF(name=MasterName.get_master_name(),
-                       info="WARNING: Loaded a diff controlnet without a model. It will very likely not work.").printf()
+                logging.warning("WARNING: Loaded a diff controlnet without a model. It will very likely not work.")
 
         class WeightsLoader(torch.nn.Module):
             pass
@@ -490,12 +591,10 @@ def load_controlnet(ckpt_path, model=None):
         missing, unexpected = control_model.load_state_dict(controlnet_data, strict=False)
 
     if len(missing) > 0:
-        printF(name=MasterName.get_master_name(),
-               info="missing controlnet keys: {}".format(missing)).printf()
+        logging.warning("missing controlnet keys: {}".format(missing))
 
     if len(unexpected) > 0:
-        printF(name=MasterName.get_master_name(),
-               info="unexpected controlnet keys: {}".format(unexpected)).printf()
+        logging.debug("unexpected controlnet keys: {}".format(unexpected))
 
     global_average_pooling = False
     filename = os.path.splitext(ckpt_path)[0]
@@ -552,6 +651,7 @@ class T2IAdapter(ControlBase):
         control_input = {}
         for k in self.control_input:
             control_input[k] = list(map(lambda a: None if a is None else a.clone(), self.control_input[k]))
+
         return self.control_merge(control_input, control_prev, x_noisy.dtype)
 
     def copy(self):
@@ -589,13 +689,13 @@ def load_t2i_adapter(t2i_data):
         xl = False
         if cin == 256 or cin == 768:
             xl = True
-        model_ad = ldm_patched.modules.t2i_adapter.adapter.Adapter(cin=cin, channels=[channel, channel*2, channel*4, channel*4][:4], nums_rb=2, ksize=ksize, sk=True, use_conv=use_conv, xl=xl)
+        model_ad = ldm_patched.t2i_adapter.adapter.Adapter(cin=cin, channels=[channel, channel*2, channel*4, channel*4][:4], nums_rb=2, ksize=ksize, sk=True, use_conv=use_conv, xl=xl)
     elif "backbone.0.0.weight" in keys:
-        model_ad = ldm_patched.modules.ldm.cascade.controlnet.ControlNet(c_in=t2i_data['backbone.0.0.weight'].shape[1], proj_blocks=[0, 4, 8, 12, 51, 55, 59, 63])
+        model_ad = ldm_patched.ldm.cascade.controlnet.ControlNet(c_in=t2i_data['backbone.0.0.weight'].shape[1], proj_blocks=[0, 4, 8, 12, 51, 55, 59, 63])
         compression_ratio = 32
         upscale_algorithm = 'bilinear'
     elif "backbone.10.blocks.0.weight" in keys:
-        model_ad = ldm_patched.modules.ldm.cascade.controlnet.ControlNet(c_in=t2i_data['backbone.0.weight'].shape[1], bottleneck_mode="large", proj_blocks=[0, 4, 8, 12, 51, 55, 59, 63])
+        model_ad = ldm_patched.ldm.cascade.controlnet.ControlNet(c_in=t2i_data['backbone.0.weight'].shape[1], bottleneck_mode="large", proj_blocks=[0, 4, 8, 12, 51, 55, 59, 63])
         compression_ratio = 1
         upscale_algorithm = 'nearest-exact'
     else:
@@ -603,11 +703,9 @@ def load_t2i_adapter(t2i_data):
 
     missing, unexpected = model_ad.load_state_dict(t2i_data)
     if len(missing) > 0:
-        printF(name=MasterName.get_master_name(),
-               info="t2i missing {}".format(missing)).printf()
+        logging.warning("t2i missing {}".format(missing))
 
     if len(unexpected) > 0:
-        printF(name=MasterName.get_master_name(),
-               info="t2i unexpected {}".format(unexpected)).printf()
+        logging.debug("t2i unexpected {}".format(unexpected))
 
     return T2IAdapter(model_ad, model_ad.input_channels, compression_ratio, upscale_algorithm)

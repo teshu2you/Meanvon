@@ -1,6 +1,6 @@
 import os
 import sys
-
+import backend
 import torch
 import time
 import math
@@ -411,7 +411,7 @@ def patched_unet_forward(self, x, timesteps=None, context=None, y=None, control=
     transformer_patches = transformer_options.get("patches", {})
 
     num_video_frames = kwargs.get("num_video_frames", self.default_num_video_frames)
-    image_only_indicator = kwargs.get("image_only_indicator", self.default_image_only_indicator)
+    image_only_indicator = kwargs.get("image_only_indicator", None)
     time_context = kwargs.get("time_context", None)
 
     assert (y is not None) == (
@@ -474,16 +474,30 @@ def patched_unet_forward(self, x, timesteps=None, context=None, y=None, control=
         return self.out(h)
 
 
-def patched_load_models_gpu(*args, **kwargs):
+def patched_new_load_models_gpu(*args, **kwargs):
     execution_start_time = time.perf_counter()
     # ATTENTION : load_models_gpu_origin is valid here
-    y = ldm_patched.modules.model_management.load_models_gpu_origin(*args, **kwargs)
+
+    y = backend.memory_management.load_models_gpu_origin(*args, **kwargs)
+
     moving_time = time.perf_counter() - execution_start_time
     if moving_time > 0.1:
         printF(name=MasterName.get_master_name(),
                info="[MeanVon Model Management] Moving model(s) has taken {:.2f} seconds".format(moving_time)).printf()
     return y
 
+
+def patched_old_load_models_gpu(*args, **kwargs):
+    execution_start_time = time.perf_counter()
+    # ATTENTION : load_models_gpu_origin is valid here
+
+    y = ldm_patched.modules.model_management.load_models_gpu_origin(*args, **kwargs)
+
+    moving_time = time.perf_counter() - execution_start_time
+    if moving_time > 0.1:
+        printF(name=MasterName.get_master_name(),
+               info="[MeanVon Model Management] Moving model(s) has taken {:.2f} seconds".format(moving_time)).printf()
+    return y
 
 def build_loaded(module, loader_name):
     original_loader_name = loader_name + '_origin'
@@ -530,8 +544,15 @@ def patch_all():
     if not hasattr(ldm_patched.modules.model_management, 'load_models_gpu_origin'):
         ldm_patched.modules.model_management.load_models_gpu_origin = ldm_patched.modules.model_management.load_models_gpu
 
-    ldm_patched.modules.model_management.load_models_gpu = patched_load_models_gpu
+    if not hasattr(backend.memory_management, 'load_models_gpu_origin'):
+        backend.memory_management.load_models_gpu_origin = backend.memory_management.load_models_gpu
+
+    ldm_patched.modules.model_management.load_models_gpu = patched_old_load_models_gpu
+    backend.memory_management.load_models_gpu = patched_new_load_models_gpu
+
     ldm_patched.modules.model_patcher.ModelPatcher.calculate_weight = calculate_weight_patched
+    backend.patcher.base.ModelPatcher.calculate_weight = calculate_weight_patched
+
     ldm_patched.controlnet.cldm.ControlNet.forward = patched_cldm_forward
     ldm_patched.ldm.modules.diffusionmodules.openaimodel.UNetModel.forward = patched_unet_forward
     ldm_patched.modules.model_base.SDXL.encode_adm = sdxl_encode_adm_patched

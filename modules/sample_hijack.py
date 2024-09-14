@@ -1,6 +1,7 @@
 import torch
 import ldm_patched.modules.samplers
 import ldm_patched.modules.model_management
+from backend.modules.k_model import KModel
 from ldm_patched.contrib.external_align_your_steps import AlignYourStepsScheduler
 from collections import namedtuple
 from ldm_patched.contrib.external_custom_sampler import SDTurboScheduler
@@ -92,6 +93,7 @@ def sample_hacked(model, noise, positive, negative, cfg, device, sampler, sigmas
 
     cfg_guider = CFGGuider(model)
     cfg_guider.set_conds(positive, negative)
+    cfg_guider.set_model_sampler_cfg_function(sampler_cfg_function={"cond": positive, "uncond": negative, "cond_scale": cfg})
     cfg_guider.set_cfg(cfg)
 
     if current_refiner is not None and hasattr(current_refiner.model, 'extra_conds'):
@@ -143,6 +145,8 @@ def calculate_sigmas_scheduler_hacked(obj, scheduler_name, steps):
     # print(f"model_sampling: {model.model_sampling}")
     if isinstance(obj, SDXL) or isinstance(obj, BaseModel):
         model_sampling = obj.model_sampling
+    elif isinstance(obj, KModel):
+        model_sampling = obj.predictor
     else:
         model_sampling = obj
     if scheduler_name == "karras":

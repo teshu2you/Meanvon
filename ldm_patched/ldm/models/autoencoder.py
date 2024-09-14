@@ -1,14 +1,18 @@
+# Attention
+import math
+
 import torch
-# import pytorch_lightning as pl
-import torch.nn.functional as F
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ldm_patched.ldm.modules.distributions.distributions import DiagonalGaussianDistribution
 
-from ldm_patched.ldm.util import instantiate_from_config
+from ldm_patched.ldm.util import instantiate_from_config, get_obj_from_str
 from ldm_patched.ldm.modules.ema import LitEma
 import ldm_patched.modules.ops
+from sgm.modules.autoencoding.regularizers import AbstractRegularizer
+from util.printf import printF, MasterName
+
 
 class DiagonalGaussianRegularizer(torch.nn.Module):
     def __init__(self, sample: bool = True):
@@ -54,7 +58,8 @@ class AbstractAutoencoder(torch.nn.Module):
 
         if self.use_ema:
             self.model_ema = LitEma(self, decay=ema_decay)
-            logpy.info(f"Keeping EMAs of {len(list(self.model_ema.buffers()))}.")
+            printF(name=MasterName.get_master_name(),
+                   info="Keeping EMAs of {}.".format(len=len(list(self.model_ema.buffers())))).printf()
 
     def get_input(self, batch) -> Any:
         raise NotImplementedError()
@@ -70,14 +75,16 @@ class AbstractAutoencoder(torch.nn.Module):
             self.model_ema.store(self.parameters())
             self.model_ema.copy_to(self)
             if context is not None:
-                logpy.info(f"{context}: Switched to EMA weights")
+                printF(name=MasterName.get_master_name(),
+                       info="{}: Switched to EMA weights".format(context)).printf()
         try:
             yield None
         finally:
             if self.use_ema:
                 self.model_ema.restore(self.parameters())
                 if context is not None:
-                    logpy.info(f"{context}: Restored training weights")
+                    printF(name=MasterName.get_master_name(),
+                           info="{}: Restored training weights".format(context)).printf()
 
     def encode(self, *args, **kwargs) -> torch.Tensor:
         raise NotImplementedError("encode()-method of abstract base class called")
@@ -86,7 +93,8 @@ class AbstractAutoencoder(torch.nn.Module):
         raise NotImplementedError("decode()-method of abstract base class called")
 
     def instantiate_optimizer_from_config(self, params, lr, cfg):
-        logpy.info(f"loading >>> {cfg['target']} <<< optimizer from config")
+        printF(name=MasterName.get_master_name(),
+               info="loading >>> {} <<< optimizer from config".format(cfg['target'])).printf()
         return get_obj_from_str(cfg["target"])(
             params, lr=lr, **cfg.get("params", dict())
         )

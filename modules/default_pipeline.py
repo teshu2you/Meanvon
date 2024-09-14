@@ -1,6 +1,10 @@
 import copy
 import sys
 
+import backend
+from backend.diffusion_engine.flux import Flux
+import lark
+from ldm_patched.text_encoders.hydit import *
 import modules.core as core
 import os
 import torch
@@ -14,6 +18,8 @@ import extras.vae_interpose as vae_interpose
 from extras.expansion import FooocusExpansion
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
+from collections import namedtuple
+from modules.upscaler import model
 from modules.util import get_current_log_path, get_previous_log_path, show_cuda_info, free_cuda_mem, free_cuda_cache, \
     get_file_from_folder_list, get_enabled_loras
 
@@ -29,7 +35,7 @@ from diffusers import (
     KDPM2AncestralDiscreteScheduler,
 )
 
-from ldm_patched.modules.model_base import SDXL, SDXLRefiner
+from ldm_patched.modules.model_base import SDXL, SDXLRefiner, HunyuanDiT
 from modules.sample_hijack import clip_separate
 from ldm_patched.k_diffusion.sampling import BrownianTreeNoiseSampler
 from modules.settings import default_settings
@@ -59,6 +65,7 @@ controlnet_depth_hash = ''
 final_expansion = None
 final_unet = None
 final_clip = None
+final_model_ori = None
 final_vae = None
 final_refiner_unet = None
 final_refiner_vae = None
@@ -109,6 +116,10 @@ def get_model_file_type(name):
         model_file_type = constants.TYPE_LCM
     elif "turbo" in l_name:
         model_file_type = constants.TYPE_TURBO
+    elif "hunyuandit" in l_name:
+        model_file_type = constants.TYPE_HunyuanDiT
+    elif "flux" in l_name:
+        model_file_type = constants.TYPE_Flux
     else:
         model_file_type = constants.TYPE_NORMAL
     return model_file_type
@@ -152,7 +163,8 @@ def refresh_base_model(name, performance_selection=None):
         return
 
     # model_base = core.StableDiffusionModel()
-    model_base = core.load_model(filename)
+    vae_filename = [get_file_from_folder_list(modules.config.default_flux_vae_name, modules.config.path_vae), get_file_from_folder_list(modules.config.default_flux_text_encoder_clip, modules.config.path_text_encoder), get_file_from_folder_list(modules.config.default_flux_text_encoder_t5xxl, modules.config.path_text_encoder)]
+    model_base = core.load_model(filename, model_file_type=get_model_file_type(name), vae_filename=vae_filename)
     printF(name=MasterName.get_master_name(),
            info="[Warning] Base model loaded: {}".format(model_base.filename)).printf()
     return
@@ -201,8 +213,7 @@ def refresh_refiner_model(name, performance_selection=None):
         free_cuda_mem()
         return
 
-    model_file_type = get_model_file_type(name)
-    model_refiner = core.load_model(filename, model_file_type=model_file_type)
+    model_refiner = core.load_model(filename, model_file_type=get_model_file_type(name))
     printF(name=MasterName.get_master_name(),
            info="[Warning] Refiner model loaded: {}".format(model_refiner.filename)).printf()
 
@@ -310,8 +321,12 @@ def clip_encode_single(clip, text, verbose=False):
         if verbose:
             printF(name=MasterName.get_master_name(), info="[CLIP Cached] = {}".format(text)).printf()
         return cached
+
     tokens = clip.tokenize(text)
-    result = clip.encode_from_tokens(tokens, return_pooled=True)
+    if isinstance(clip.cond_stage_model, HyditModel):
+        result = clip.encode_from_tokens(tokens, return_pooled=False, return_dict=True)
+    else:
+        result = clip.encode_from_tokens(tokens, return_pooled=True)
 
     clip.fcs_cond_cache[text] = result
     if verbose:
@@ -338,10 +353,95 @@ def clone_cond(conds):
     return results
 
 
+schedule_parser = lark.Lark(r"""
+!start: (prompt | /[][():]/+)*
+prompt: (emphasized | scheduled | alternate | plain | WHITESPACE)*
+!emphasized: "(" prompt ")"
+        | "(" prompt ":" prompt ")"
+        | "[" prompt "]"
+scheduled: "[" [prompt ":"] prompt ":" [WHITESPACE] NUMBER [WHITESPACE] "]"
+alternate: "[" prompt ("|" [prompt])+ "]"
+WHITESPACE: /\s+/
+plain: /([^\\\[\]():|]|\\.)+/
+%import common.SIGNED_NUMBER -> NUMBER
+""")
+
+def get_learned_conditioning_prompt_schedules(prompts, base_steps):
+    int_offset = 0
+    flt_offset = 0
+    steps = base_steps
+
+    def collect_steps(steps, tree):
+        res = [steps]
+
+        class CollectSteps(lark.Visitor):
+            def scheduled(self, tree):
+                s = tree.children[-2]
+                v = float(s)
+                v = v*steps if v<1 else v
+                tree.children[-2] = min(steps, int(v))
+                if tree.children[-2] >= 1:
+                    res.append(tree.children[-2])
+
+            def alternate(self, tree):
+                res.extend(range(1, steps+1))
+
+        CollectSteps().visit(tree)
+        return sorted(set(res))
+
+    def at_step(step, tree):
+        class AtStep(lark.Transformer):
+            def scheduled(self, args):
+                before, after, _, when, _ = args
+                yield before or () if step <= when else after
+            def alternate(self, args):
+                args = ["" if not arg else arg for arg in args]
+                yield args[(step - 1) % len(args)]
+            def start(self, args):
+                def flatten(x):
+                    if isinstance(x, str):
+                        yield x
+                    else:
+                        for gen in x:
+                            yield from flatten(gen)
+                return ''.join(flatten(args))
+            def plain(self, args):
+                yield args[0].value
+            def __default__(self, data, children, meta):
+                for child in children:
+                    yield child
+        return AtStep().transform(tree)
+
+    def get_schedule(prompt):
+        try:
+            tree = schedule_parser.parse(prompt)
+        except lark.exceptions.LarkError:
+            if 0:
+                import traceback
+                traceback.print_exc()
+            return [[steps, prompt]]
+        return [[t, at_step(t, tree)] for t in collect_steps(steps, tree)]
+
+    promptdict = {prompt: get_schedule(prompt) for prompt in set(prompts)}
+    return [promptdict[prompt] for prompt in prompts]
+
+class SdConditioning(list):
+    """
+    A list with prompts for stable diffusion's conditioner model.
+    Can also specify width and height of created image - SDXL needs it.
+    """
+    def __init__(self, prompts, copy_from=None):
+        super().__init__()
+        self.extend(prompts)
+
+        if copy_from is None:
+            copy_from = prompts
+
+
 @torch.no_grad()
 @torch.inference_mode()
-def clip_encode(texts, pool_top_k=1):
-    global final_clip
+def clip_encode(texts, pool_top_k=1, steps=30):
+    global final_clip, final_model_ori
 
     if final_clip is None:
         return None
@@ -355,41 +455,48 @@ def clip_encode(texts, pool_top_k=1):
     pooled_acc = 0
     flag = True
 
-    for i, text in enumerate(texts):
-        result_ces = clip_encode_single(final_clip, text, verbose=False)
-        if isinstance(result_ces, dict):
-            cond = result_ces.get("cond")
-            pooled = result_ces.get("pooled_output")
-            att_mask = result_ces.get("attention_mask")
-            cdt_mt5xl = result_ces.get("conditioning_mt5xl")
-            att_mask_mt5xl = result_ces.get("attention_mask_mt5xl")
-            flag = False
-        else:
-            cond, pooled = result_ces
-            flag = True
+    if isinstance(final_model_ori, Flux):
+        result_ces = final_model_ori.get_learned_conditioning(texts, skip_flag=False)
+        cond = result_ces.get("crossattn")
+        pooled = result_ces.get("vector", 0)
 
-        cond_list.append(cond)
-        if i < pool_top_k:
-            pooled_acc += pooled
+        return [[cond, {"pooled_output": pooled}]]
 
-    if flag:
-        return [[torch.cat(cond_list, dim=1),
-                 {"pooled_output": pooled_acc}]]
     else:
-        return [[torch.cat(cond_list, dim=1),
-                 {"pooled_output": pooled_acc, "attention_mask": att_mask, "attention_mask_mt5xl": att_mask_mt5xl,
-                  "conditioning_mt5xl": cdt_mt5xl}]]
+        for i, text in enumerate(texts):
+            result_ces = clip_encode_single(final_clip, text, verbose=False)
+            if isinstance(result_ces, dict):
+                cond = result_ces.get("cond")
+                pooled = result_ces.get("pooled_output", 0)
+                att_mask = result_ces.get("attention_mask")
+                cdt_mt5xl = result_ces.get("conditioning_mt5xl")
+                att_mask_mt5xl = result_ces.get("attention_mask_mt5xl")
+                flag = False
+            else:
+                cond, pooled = result_ces
+                flag = True
 
-@torch.no_grad()
-@torch.inference_mode()
-def set_clip_skip(clip_skip: int):
-    global final_clip
+            cond_list.append(cond)
+            if i < pool_top_k and pooled is not None:
+                pooled_acc += pooled
 
-    if final_clip is None:
-        return
+        if flag:
+            return [[torch.cat(cond_list, dim=1),{"pooled_output": pooled_acc}]]
+        else:
+            return [[torch.cat(cond_list, dim=1),
+                     {"pooled_output": pooled_acc, "attention_mask": att_mask, "attention_mask_mt5xl": att_mask_mt5xl,
+                      "conditioning_mt5xl": cdt_mt5xl}]]
 
-    final_clip.clip_layer(-abs(clip_skip))
-    return
+# @torch.no_grad()
+# @torch.inference_mode()
+# def set_clip_skip(clip_skip: int):
+#     global final_clip
+#
+#     if final_clip is None:
+#         return
+#
+#     final_clip.clip_layer(-abs(clip_skip))
+#     return
 
 @torch.no_grad()
 @torch.inference_mode()
@@ -406,7 +513,10 @@ def prepare_text_encoder(async_call=True):
         pass
     assert_model_integrity()
     if final_clip is not None:
-        ldm_patched.modules.model_management.load_models_gpu([final_clip.patcher, final_expansion.patcher])
+        if isinstance(final_clip, backend.patcher.vae.ModelPatcher):
+            backend.memory_management.load_models_gpu([final_clip.patcher, final_expansion.patcher])
+        else:
+            ldm_patched.modules.model_management.load_models_gpu([final_clip.patcher, final_expansion.patcher])
     else:
         printF(name=MasterName.get_master_name(), info="[final_clip] = {}".format(final_clip)).printf()
     return
@@ -416,11 +526,12 @@ def prepare_text_encoder(async_call=True):
 @torch.inference_mode()
 def refresh_everything(refiner_model_name, base_model_name, loras,
                        base_model_additional_loras=None, use_synthetic_refiner=False, performance_selection=None):
-    global final_unet, final_clip, final_vae, final_refiner_unet, final_refiner_vae, final_expansion, final_loras
+    global final_unet, final_clip, final_vae, final_refiner_unet, final_refiner_vae, final_expansion, final_loras, final_model_ori
 
     final_unet = None
     final_clip = None
     final_vae = None
+    final_model_ori = None
     final_refiner_unet = None
     final_refiner_vae = None
 
@@ -441,13 +552,18 @@ def refresh_everything(refiner_model_name, base_model_name, loras,
 
     final_unet = model_base.unet_with_lora
     final_clip = model_base.clip_with_lora
+    final_model_ori = model_base.model_ori
     final_vae = model_base.vae
 
     final_refiner_unet = model_refiner.unet_with_lora
     final_refiner_vae = model_refiner.vae
 
+    flag_new_engine = False
+    if isinstance(final_unet, backend.patcher.unet.UnetPatcher):
+        flag_new_engine = True
+
     if final_expansion is None:
-        final_expansion = FooocusExpansion()
+        final_expansion = FooocusExpansion(flag=flag_new_engine)
 
     prepare_text_encoder(async_call=True)
     clear_all_caches()
@@ -528,12 +644,11 @@ def refresh_clip_vision():
 @torch.inference_mode()
 def set_clip_skips(base_clip_skip, refiner_clip_skip):
     global model_base, model_refiner
-    model_base.clip.clip_layer(base_clip_skip)
-    # print(model_base.__dict__)
+
+    model_base.set_clip_skip(base_clip_skip)
     if model_refiner is not None:
-        # print(model_refiner.__dict__)
         if model_refiner.clip is not None:
-            model_refiner.clip.clip_layer(refiner_clip_skip)
+            model_refiner.set_clip_skip(refiner_clip_skip)
     return
 
 
@@ -591,38 +706,53 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
                       control_lora_depth, depth_start, depth_stop, depth_strength,
                       latent=None, denoise=1.0, tiled=False, cfg_scale=7.0, refiner_swap_method='joint',
                       disable_preview=False):
-    target_unet, target_vae, target_refiner_unet, target_refiner_vae, target_clip \
-        = final_unet, final_vae, final_refiner_unet, final_refiner_vae, final_clip
+    target_unet, target_vae, target_refiner_unet, target_refiner_vae, target_clip, target_model_ori \
+        = final_unet, final_vae, final_refiner_unet, final_refiner_vae, final_clip, final_model_ori
 
     assert refiner_swap_method in ['joint', 'separate', 'vae']
 
-    if final_refiner_vae is not None and final_refiner_unet is not None:
-        # Refiner Use Different VAE (then it is SD15)
-        if denoise > 0.9:
-            refiner_swap_method = 'vae'
-        else:
-            refiner_swap_method = 'joint'
-            if denoise > (float(steps - switch) / float(steps)) ** 0.834:  # karras 0.834
-                target_unet, target_vae, target_refiner_unet, target_refiner_vae \
-                    = final_unet, final_vae, None, None
-                printF(name=MasterName.get_master_name(),
-                       info="[Sampler] only use Base because of partial denoise.").printf()
-            else:
-                positive_cond = clip_separate(positive_cond, target_model=final_refiner_unet.model,
-                                              target_clip=final_clip)
-                negative_cond = clip_separate(negative_cond, target_model=final_refiner_unet.model,
-                                              target_clip=final_clip)
-                target_unet, target_vae, target_refiner_unet, target_refiner_vae \
-                    = final_refiner_unet, final_refiner_vae, None, None
-                printF(name=MasterName.get_master_name(),
-                       info="[Sampler] only use Refiner because of partial denoise.").printf()
-
-    printF(name=MasterName.get_master_name(),
-           info="[Sampler] refiner_swap_method = {}".format(refiner_swap_method)).printf()
     if latent is None:
         initial_latent = core.generate_empty_latent(width=width, height=height, batch_size=1)
     else:
         initial_latent = latent
+
+    if isinstance(target_model_ori, Flux):
+        target_unet = target_model_ori
+
+        alphas_cumprod_modifiers = target_unet.forge_objects.unet.model_options.get('alphas_cumprod_modifiers', [])
+        alphas_cumprod_backup = None
+
+        if len(alphas_cumprod_modifiers) > 0:
+            alphas_cumprod_backup = target_unet.alphas_cumprod
+            for modifier in alphas_cumprod_modifiers:
+                target_unet.alphas_cumprod = modifier(target_unet.alphas_cumprod)
+            target_unet.forge_objects.unet.model.model_sampling.set_sigmas(
+                ((1 - target_unet.alphas_cumprod) / target_unet.alphas_cumprod) ** 0.5)
+
+    else:
+        if final_refiner_vae is not None and final_refiner_unet is not None:
+            # Refiner Use Different VAE (then it is SD15)
+            if denoise > 0.9:
+                refiner_swap_method = 'vae'
+            else:
+                refiner_swap_method = 'joint'
+                if denoise > (float(steps - switch) / float(steps)) ** 0.834:  # karras 0.834
+                    target_unet, target_vae, target_refiner_unet, target_refiner_vae \
+                        = final_unet, final_vae, None, None
+                    printF(name=MasterName.get_master_name(),
+                           info="[Sampler] only use Base because of partial denoise.").printf()
+                else:
+                    positive_cond = clip_separate(positive_cond, target_model=final_refiner_unet.model,
+                                                  target_clip=final_clip)
+                    negative_cond = clip_separate(negative_cond, target_model=final_refiner_unet.model,
+                                                  target_clip=final_clip)
+                    target_unet, target_vae, target_refiner_unet, target_refiner_vae \
+                        = final_refiner_unet, final_refiner_vae, None, None
+                    printF(name=MasterName.get_master_name(),
+                           info="[Sampler] only use Refiner because of partial denoise.").printf()
+
+    printF(name=MasterName.get_master_name(),
+           info="[Sampler] refiner_swap_method = {}".format(refiner_swap_method)).printf()
 
     minmax_sigmas = calculate_sigmas(sampler=sampler_name, scheduler=scheduler_name, model=final_unet.model,
                                      steps=steps, denoise=denoise)
@@ -666,7 +796,8 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
             refiner_switch=switch,
             previewer_start=0,
             previewer_end=steps,
-            disable_preview=disable_preview
+            disable_preview=disable_preview,
+            width=width, height=height
         )
         decoded_latent = core.decode_vae(vae=target_vae, latent_image=sampled_latent, tiled=tiled)
 
@@ -685,7 +816,8 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
             scheduler=scheduler_name,
             previewer_start=0,
             previewer_end=steps,
-            disable_preview=disable_preview
+            disable_preview=disable_preview,
+            width=width, height=height
         )
         printF(name=MasterName.get_master_name(),
                info="[Warning] Refiner swapped by changing ksampler. Noise preserved.").printf()
@@ -710,7 +842,8 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
             scheduler=scheduler_name,
             previewer_start=switch,
             previewer_end=steps,
-            disable_preview=disable_preview
+            disable_preview=disable_preview,
+            width=width, height=height
         )
 
         target_model = target_refiner_vae
@@ -738,7 +871,8 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
             scheduler=scheduler_name,
             previewer_start=0,
             previewer_end=steps,
-            disable_preview=disable_preview
+            disable_preview=disable_preview,
+            width=width, height=height
         )
         printF(name=MasterName.get_master_name(), info="[Warning] Fooocus VAE-based swap.").printf()
 
@@ -779,7 +913,8 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
             previewer_end=steps,
             sigmas=sigmas,
             noise_mean=noise_mean,
-            disable_preview=disable_preview
+            disable_preview=disable_preview,
+            width=width, height=height
         )
 
         target_model = target_refiner_vae
@@ -863,3 +998,5 @@ def lightning_process_diffusion(positive_cond, negative_cond, steps, width, heig
     output = pipe(**common_args)
 
     return output.images
+
+

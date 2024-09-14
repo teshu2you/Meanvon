@@ -10,12 +10,17 @@ import sys
 
 import torch
 import math
-import ldm_patched.modules.model_management as model_management
+import backend.memory_management as New_memory_management
+import ldm_patched.modules.model_management as Old_model_management
+from backend.patcher.base import ModelPatcher as New_ModelPatcher
+from ldm_patched.modules.model_patcher import ModelPatcher as Old_ModelPatcher
 
 from transformers.generation.logits_process import LogitsProcessorList
 from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
+
+import backend.patcher.base
 from modules.config import path_fooocus_expansion
-from ldm_patched.modules.model_patcher import ModelPatcher
+
 from util.printf import printF, MasterName
 
 # limitation of np.random.seed(), called from transformers.set_seed()
@@ -37,7 +42,15 @@ def remove_pattern(x, pattern):
 
 
 class FooocusExpansion:
-    def __init__(self):
+    def __init__(self, flag=False):
+
+        if flag:
+            model_management = New_memory_management
+            ModelPatcher = New_ModelPatcher
+        else:
+            model_management = Old_model_management
+            ModelPatcher = Old_ModelPatcher
+
         self.tokenizer = AutoTokenizer.from_pretrained(path_fooocus_expansion)
 
         positive_words = open(os.path.join(path_fooocus_expansion, 'positive.txt'),
@@ -101,7 +114,10 @@ class FooocusExpansion:
 
         if self.patcher.current_device != self.patcher.load_device:
             print('Fooocus Expansion loaded by itself.')
-            model_management.load_model_gpu(self.patcher)
+            if isinstance(self.patcher, backend.patcher.base.ModelPatcher):
+                New_memory_management.load_model_gpu(self.patcher)
+            else:
+                Old_model_management.load_model_gpu(self.patcher)
 
         seed = int(seed) % SEED_LIMIT_NUMPY
         set_seed(seed)

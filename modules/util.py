@@ -409,8 +409,8 @@ def is_json(data: str) -> bool:
 
 
 def get_file_from_folder_list(name, folders):
-    print(f"name : {name}")
-    print(f"folders : {folders}")
+    # print(f"name : {name}")
+    # print(f"folders : {folders}")
 
     for folder in folders:
         filename = os.path.abspath(os.path.realpath(os.path.join(folder, name)))

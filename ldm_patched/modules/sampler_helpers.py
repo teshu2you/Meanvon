@@ -1,4 +1,6 @@
 import torch
+import backend
+
 import ldm_patched.modules.model_management
 import ldm_patched.modules.conds
 
@@ -63,7 +65,12 @@ def prepare_sampling(model, noise_shape, conds):
     models, inference_memory = get_additional_models(conds, model.model_dtype())
     memory_required = model.memory_required([noise_shape[0] * 2] + list(noise_shape[1:])) + inference_memory
     minimum_memory_required = model.memory_required([noise_shape[0]] + list(noise_shape[1:])) + inference_memory
-    ldm_patched.modules.model_management.load_models_gpu([model] + models, memory_required=memory_required, minimum_memory_required=minimum_memory_required)
+    if isinstance(model, backend.patcher.base.ModelPatcher):
+        backend.memory_management.load_models_gpu([model] + models, memory_required=memory_required,
+                                                  minimum_memory_required=minimum_memory_required)
+    else:
+        ldm_patched.modules.model_management.load_models_gpu([model] + models, memory_required=memory_required,
+                                                             minimum_memory_required=minimum_memory_required)
 
     real_model = model.model
 

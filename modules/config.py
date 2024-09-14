@@ -69,6 +69,10 @@ def load_paths(paths_filename):
                     paths_dict['controlnet_path'] = paths_obj['path_controlnet']
                 if 'path_vae_approx' in paths_obj:
                     paths_dict['vae_approx_path'] = paths_obj['path_vae_approx']
+                if 'path_vae' in paths_obj:
+                    paths_dict['vae_path'] = paths_obj['path_vae']
+                if 'path_text_encoder' in paths_obj:
+                    paths_dict['text_encoder_path'] = paths_obj['path_text_encoder']
                 if 'path_fooocus_expansion' in paths_obj:
                     paths_dict['fooocus_expansion_path'] = paths_obj['path_fooocus_expansion']
                 if 'path_upscale_models' in paths_obj:
@@ -282,6 +286,8 @@ paths_checkpoints = get_dir_or_set_default('paths_checkpoints', ['../models/chec
 paths_loras = get_dir_or_set_default('paths_loras', ['../models/loras/'], True)
 path_embeddings = get_dir_or_set_default('path_embeddings', '../models/embeddings/')
 path_vae_approx = get_dir_or_set_default('path_vae_approx', '../models/vae_approx/')
+path_vae = get_dir_or_set_default('path_vae', '../models/vae/')
+path_text_encoder = get_dir_or_set_default('path_text_encoder', '../models/text_encoder/')
 path_upscale_models = get_dir_or_set_default('path_upscale_models', '../models/upscale_models/')
 path_inpaint = get_dir_or_set_default('path_inpaint', '../models/inpaint/')
 path_controlnet = get_dir_or_set_default('path_controlnet', '../models/controlnet/')
@@ -394,6 +400,11 @@ temp_path_cleanup_on_launch = get_config_item_or_set_default(
 os.makedirs(temp_outputs_path, exist_ok=True)
 
 default_clip_vision_name = 'clip_vision_g.safetensors'
+
+default_flux_vae_name = 'ae.safetensors'
+default_flux_text_encoder_clip = 'clip_l.safetensors'
+default_flux_text_encoder_t5xxl = 't5xxl_fp8_e4m3fn.safetensors'
+
 default_controlnet_canny_name = 'control-lora-canny-rank128.safetensors'
 default_controlnet_depth_name = 'control-lora-depth-rank128.safetensors'
 
@@ -406,31 +417,31 @@ controlnet_lora_depth_filenames = []
 default_model_preset_name = "default"
 
 model_types = [
-    "Stable_Zero123",
-    "SD15_instructpix2pix",
+    # "Stable_Zero123",
+    # "SD15_instructpix2pix",
     "SD15",
-    "SD20",
-    "SD21UnclipL",
-    "SD21UnclipH",
-    "SDXL_instructpix2pix",
-    "SDXLRefiner",
+    # "SD20",
+    # "SD21UnclipL",
+    # "SD21UnclipH",
+    # "SDXL_instructpix2pix",
+    # "SDXLRefiner",
     "SDXL",
-    "SSD1B",
-    "KOALA_700M",
-    "KOALA_1B",
-    "Segmind_Vega",
-    "SD_X4Upscaler",
-    "Stable_Cascade_C",
-    "Stable_Cascade_B",
-    "SV3D_u",
-    "SV3D_p",
-    "SD3",
-    "StableAudio",
-    "AuraFlow",
+    # "SSD1B",
+    # "KOALA_700M",
+    # "KOALA_1B",
+    # "Segmind_Vega",
+    # "SD_X4Upscaler",
+    # "Stable_Cascade_C",
+    # "Stable_Cascade_B",
+    # "SV3D_u",
+    # "SV3D_p",
+    # "SD3",
+    # "StableAudio",
+    # "AuraFlow",
     "HunyuanDiT",
-    "HunyuanDiT1",
+    # "HunyuanDiT1",
     "Flux",
-    "FluxSchnell"
+    # "FluxSchnell"
 ]
 
 default_model_type = "SDXL"
@@ -732,7 +743,7 @@ with open(config_example_path, "w", encoding="utf-8") as json_file:
 os.makedirs(path_outputs, exist_ok=True)
 
 model_filenames = []
-sdxl_model_filenames = []
+sd_model_filenames = []
 sd15_model_filenames = []
 lora_filenames = []
 sdxl_lora_filenames = []
@@ -745,7 +756,7 @@ wildcard_filenames = []
 
 
 def get_model_filenames(folder_paths, name_filter=None):
-    extensions = ['.pth', '.ckpt', '.bin', '.safetensors', '.fooocus.patch']
+    extensions = ['.pth', '.ckpt', '.bin', '.gguf', '.safetensors', '.fooocus.patch']
     files = []
     for folder in folder_paths:
         files += get_files_from_folder(folder, extensions, name_filter)
@@ -765,7 +776,7 @@ def get_preset_filenames(model_presets_path, name_filter=None):
 
 
 def update_all_model_names():
-    global preset_filenames, model_filenames, lora_filenames, controlnet_lora_canny_filenames, controlnet_lora_depth_filenames, sd15_model_filenames, sdxl_model_filenames, sdxl_lora_filenames, sd15_lora_filenames
+    global preset_filenames, model_filenames, lora_filenames, controlnet_lora_canny_filenames, controlnet_lora_depth_filenames, sd15_model_filenames, sd_model_filenames, sdxl_lora_filenames, sd15_lora_filenames
     global wildcard_filenames, available_presets
     model_filenames = get_model_filenames(paths_checkpoints)
     lora_filenames = get_model_filenames(paths_loras)
@@ -781,13 +792,13 @@ def update_all_model_names():
         sd15_lora_filenames += get_model_filenames(lorafile_path, name_filter=i)
 
     for j in sdxl_list_str:
-        sdxl_model_filenames += get_model_filenames(modelfile_path, name_filter=j)
+        sd_model_filenames += get_model_filenames(modelfile_path, name_filter=j)
         sdxl_lora_filenames += get_model_filenames(lorafile_path, name_filter=j)
 
     sd15_model_filenames = sorted(set(sd15_model_filenames), key=sd15_model_filenames.index)
     sd15_lora_filenames = sorted(set(sd15_lora_filenames), key=sd15_lora_filenames.index)
 
-    sdxl_model_filenames = sorted(set(sdxl_model_filenames), key=sdxl_model_filenames.index)
+    sd_model_filenames = sorted(set(sd_model_filenames), key=sd_model_filenames.index)
     sdxl_lora_filenames = sorted(set(sdxl_lora_filenames), key=sdxl_lora_filenames.index)
 
     controlnet_lora_canny_filenames = get_model_filenames(controlnet_lora_path, name_filter="canny")

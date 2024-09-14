@@ -3230,7 +3230,7 @@ with (gr.Blocks(
                                                       value=modules.config.default_model_type, show_label=True)
                 with gr.Row():
                     base_model = gr.Dropdown(label='Base Model (SDXL only)',
-                                             choices=modules.config.sdxl_model_filenames,
+                                             choices=modules.config.sd_model_filenames,
                                              value=modules.config.default_base_model_name, show_label=True)
 
                     refiner_model = gr.Dropdown(label='Refiner (SDXL or SD 1.5)',
@@ -3302,15 +3302,19 @@ with (gr.Blocks(
 
                     if "SDXL" in x:
                         return [gr.update(label=x, choices=new_model_type_filenames, value=_value),
-                                gr.update(visible=True)]
+                                gr.update(visible=True), gr.update(visible=True)]
+                    if "HunyuanDiT" in x or "Flux" in x:
+                        return [gr.update(label=x, choices=new_model_type_filenames, value=_value),
+                                gr.update(visible=False, value="None"), gr.update(value="ALL_UnChecked")]
                     else:
                         return [gr.update(label=x, choices=new_model_type_filenames, value=_value),
-                                gr.update(visible=False, value="None")]
+                                gr.update(visible=False, value="None"), gr.update(visible=True)]
 
 
                 model_type_selector.change(fn=get_model_type_selector, inputs=[model_type_selector, base_model],
-                                           outputs=[base_model, refiner_model],
-                                           show_progress=False, queue=False)
+                                           outputs=[base_model, refiner_model, style_class],
+                                           show_progress=False, queue=False)  \
+                .then(fn=change_style_class, inputs=style_class, outputs=style_selections)
 
                 base_model.change(fn=get_thumbnail_info, inputs=base_model,
                                   outputs=[bm_acc, img_bm_thumbnail, img_bm_info],

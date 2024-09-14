@@ -1,4 +1,10 @@
 import sys
+from backend import utils
+import backend
+from backend.diffusion_engine.flux import Flux
+from backend.modules.k_model import KModel
+from modules import devices
+from modules.rng import ImageRNG
 from util.printf import printF, MasterName
 import modules.constants as constants
 import os
@@ -21,10 +27,11 @@ from ldm_patched.contrib.external import VAEDecode, EmptyLatentImage, VAEEncode,
     VAEEncodeForInpaint, \
     ControlNetApplyAdvanced, ConditioningZeroOut, ConditioningAverage, CLIPVisionEncode, unCLIPConditioning, \
     ControlNetApplyAdvanced
-from ldm_patched.modules.model_base import SDXL, SDXLRefiner, HunyuanDiT, Flux, AuraFlow
+from ldm_patched.modules.model_base import SDXL, SDXLRefiner
 from modules.lora import match_lora
 from ldm_patched.modules.lora import model_lora_keys_unet, model_lora_keys_clip, load_lora
-from modules.config import path_embeddings
+from modules.config import path_embeddings, path_vae
+from modules import sd_vae_approx, sd_vae_taesd
 from modules.util import get_file_from_folder_list
 from ldm_patched.contrib.external_post_processing import ImageScaleToTotalPixels
 from ldm_patched.contrib.external_model_advanced import ModelSamplingDiscrete, ModelSamplingContinuousEDM
@@ -45,7 +52,7 @@ opFreeU = FreeU_V2()
 opModelSamplingContinuousEDM = ModelSamplingContinuousEDM()
 
 class StableDiffusionModel:
-    def __init__(self, unet=None, vae=None, clip=None, clip_vision=None, filename=None, vae_filename=None):
+    def __init__(self, unet=None, vae=None, clip=None, clip_vision=None, filename=None, vae_filename=None, model_ori=None):
         if isinstance(filename, str):
             is_refiner = isinstance(unet.model, SDXLRefiner)
             if unet is not None:
@@ -61,8 +68,11 @@ class StableDiffusionModel:
         self.clip_vision = clip_vision
         self.filename = filename
         self.vae_filename = vae_filename
-        self.unet_with_lora = unet
-        self.clip_with_lora = clip
+
+        self.model_ori = model_ori
+
+        self.unet_with_lora = self.unet
+        self.clip_with_lora = self.clip
         self.visited_loras = ''
 
         self.lora_key_map_unet = {}
@@ -75,6 +85,12 @@ class StableDiffusionModel:
         if self.clip is not None:
             self.lora_key_map_clip = model_lora_keys_clip(self.clip.cond_stage_model, self.lora_key_map_clip)
             self.lora_key_map_clip.update({x: x for x in self.clip.cond_stage_model.state_dict().keys()})
+
+    def set_clip_skip(self, clip_skip):
+        if isinstance(self.model_ori, backend.diffusion_engine.base.ForgeDiffusionEngine):
+            self.model_ori.set_clip_skip(clip_skip)
+        else:
+            self.clip.clip_layer(clip_skip)
 
     @torch.no_grad()
     @torch.inference_mode()
@@ -137,7 +153,6 @@ class StableDiffusionModel:
                 printF(name=MasterName.get_master_name(),
                        info="Loaded LoRA [{}] for UNet [{}] with {} keys at weight {}.".format(
                            lora_filename, self.filename, len(loaded_keys), weight)).printf()
-                print(f'')
                 for item in lora_unet:
                     if item not in loaded_keys:
                         printF(name=MasterName.get_master_name(),
@@ -198,9 +213,9 @@ def apply_controlnet(positive, negative, control_net, image, strength, start_per
 @torch.no_grad()
 @torch.inference_mode()
 def load_model(ckpt_filename, model_file_type=constants.TYPE_NORMAL, vae_filename=None):
-    unet, clip, vae, vae_filename, clip_vision = load_checkpoint_guess_config(ckpt_filename, embedding_directory=path_embeddings,
+    unet, clip, vae, vae_filename, clip_vision, model_ori = load_checkpoint_guess_config(ckpt_filename, embedding_directory=path_embeddings,model_options={}, te_model_options={},
                                                                 model_file_type=model_file_type, vae_filename_param=vae_filename)
-    return StableDiffusionModel(unet=unet, clip=clip, vae=vae, clip_vision=clip_vision, filename=ckpt_filename, vae_filename=vae_filename)
+    return StableDiffusionModel(unet=unet, clip=clip, vae=vae, clip_vision=clip_vision, filename=ckpt_filename, vae_filename=vae_filename, model_ori=model_ori)
 
 @torch.no_grad()
 @torch.inference_mode()
@@ -282,11 +297,12 @@ def encode_vae_inpaint(vae, pixels, mask):
 
     return latent, latent_mask
 
+VAE_approx_models = {}
 
 class VAEApprox(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, latent_channels=4):
         super(VAEApprox, self).__init__()
-        self.conv1 = torch.nn.Conv2d(4, 8, (7, 7))
+        self.conv1 = torch.nn.Conv2d(latent_channels, 8, (7, 7))
         self.conv2 = torch.nn.Conv2d(8, 16, (5, 5))
         self.conv3 = torch.nn.Conv2d(16, 32, (3, 3))
         self.conv4 = torch.nn.Conv2d(32, 64, (3, 3))
@@ -306,7 +322,43 @@ class VAEApprox(torch.nn.Module):
         return x
 
 
-VAE_approx_models = {}
+approximation_indexes = {"Full": 0, "Approx NN": 1, "Approx cheap": 2, "TAESD": 3}
+def samples_to_images_tensor(sample, approximation=None, model=None):
+    if approximation == 2:
+        x_sample = sd_vae_approx.cheap_approximation(model, sample)
+    elif approximation == 1:
+        m = sd_vae_approx.model(model)
+        if m is None:
+            x_sample = sd_vae_approx.cheap_approximation(model, sample)
+        else:
+            x_sample = m(sample.to(devices.device, devices.dtype)).detach()
+    elif approximation == 3:
+        m = sd_vae_taesd.decoder_model(model)
+        if m is None:
+            x_sample = sd_vae_approx.cheap_approximation(model, sample)
+        else:
+            x_sample = m(sample.to(devices.device, devices.dtype)).detach()
+            x_sample = x_sample * 2 - 1
+    else:
+        x_sample = model.decode_first_stage(sample)
+
+    return x_sample
+
+def decode_first_stage(model, x):
+    approx_index = approximation_indexes.get("Full", 0)
+    return samples_to_images_tensor(x, approx_index, model)
+
+
+class DecodedSamples(list):
+    already_decoded = True
+def decode_latent_batch(model, batch, target_device=None, check_for_nans=False):
+    samples = DecodedSamples()
+    samples_pytorch = decode_first_stage(model, batch).to(target_device)
+
+    for x in samples_pytorch:
+        samples.append(x)
+
+    return samples
 
 
 @torch.no_grad()
@@ -315,36 +367,64 @@ def get_previewer(model):
     global VAE_approx_models
 
     from modules.config import path_vae_approx
-    is_sdxl = isinstance(model.model.latent_format, ldm_patched.modules.latent_formats.SDXL)
-    vae_approx_filename = os.path.join(path_vae_approx, 'xlvaeapp.pth' if is_sdxl else 'vaeapp_sd15.pth')
+    if isinstance(model, Flux):
+        vae_approx_filename = os.path.join(path_vae, modules.config.default_flux_vae_name)
+    else:
+        if isinstance(model.model.latent_format, ldm_patched.modules.latent_formats.SDXL):
+            vae_approx_filename = os.path.join(path_vae_approx, 'xlvaeapp.pth')
+        else:
+            vae_approx_filename = os.path.join(path_vae_approx, 'vaeapp_sd15.pth')
 
     if vae_approx_filename in VAE_approx_models:
         VAE_approx_model = VAE_approx_models[vae_approx_filename]
     else:
-        sd = torch.load(vae_approx_filename, map_location='cpu')
-        VAE_approx_model = VAEApprox()
-        VAE_approx_model.load_state_dict(sd)
-        del sd
-        VAE_approx_model.eval()
+        if isinstance(model, Flux):
+            # sd = model.forge_objects.clip.patcher.model
+            sd = utils.load_torch_file(vae_approx_filename, safe_load=False, device='cpu' if devices.device.type != 'cuda' else None)
+            VAE_approx_model = VAEApprox(latent_channels=model.forge_objects.vae.latent_channels)
+            VAE_approx_model.load_state_dict(sd, strict=False)
+            del sd
+            VAE_approx_model.eval()
+            VAE_approx_model.to(devices.device, devices.dtype)
 
-        if ldm_patched.modules.model_management.should_use_fp16():
-            VAE_approx_model.half()
-            VAE_approx_model.current_type = torch.float16
         else:
-            VAE_approx_model.float()
-            VAE_approx_model.current_type = torch.float32
+            sd = torch.load(vae_approx_filename, map_location='cpu')
+            VAE_approx_model = VAEApprox()
+            VAE_approx_model.load_state_dict(sd)
+            del sd
+            VAE_approx_model.eval()
 
-        VAE_approx_model.to(ldm_patched.modules.model_management.get_torch_device())
+            if ldm_patched.modules.model_management.should_use_fp16():
+                VAE_approx_model.half()
+                VAE_approx_model.current_type = torch.float16
+            else:
+                VAE_approx_model.float()
+                VAE_approx_model.current_type = torch.float32
+
+            VAE_approx_model.to(ldm_patched.modules.model_management.get_torch_device())
         VAE_approx_models[vae_approx_filename] = VAE_approx_model
 
     @torch.no_grad()
     @torch.inference_mode()
     def preview_function(x0, step, total_steps):
         with torch.no_grad():
+            # if isinstance(model, Flux):
+            #     x_sample = decode_latent_batch(model, x0, target_device=devices.cpu, check_for_nans=True)
+            #     x_sample = torch.stack(x_sample).float()
+            #     x_sample = torch.clamp((x_sample + 1.0) / 2.0, min=0.0, max=1.0)
+            #     x_sample = 255. * np.moveaxis(x0.cpu().numpy(), 0, 2)
+            #     x_sample = x_sample.astype(np.uint8)
+            # else:
+            #     x_sample = x0.to(VAE_approx_model.current_type)
+            #     x_sample = VAE_approx_model(x_sample) * 127.5 + 127.5
+            #     x_sample = einops.rearrange(x_sample, 'b c h w -> b h w c')[0]
+            #     x_sample = x_sample.cpu().numpy().clip(0, 255).astype(np.uint8)
+
             x_sample = x0.to(VAE_approx_model.current_type)
             x_sample = VAE_approx_model(x_sample) * 127.5 + 127.5
             x_sample = einops.rearrange(x_sample, 'b c h w -> b h w c')[0]
             x_sample = x_sample.cpu().numpy().clip(0, 255).astype(np.uint8)
+
             return x_sample
 
     return preview_function
@@ -355,20 +435,29 @@ def get_previewer(model):
 def ksampler(model, positive, negative, latent, seed=None, steps=30, cfg=7.0, sampler_name='dpmpp_2m_sde_gpu',
              scheduler='karras', denoise=1.0, disable_noise=False, start_step=None, last_step=None,
              force_full_denoise=False, callback_function=None, refiner=None, refiner_switch=-1,
-             previewer_start=None, previewer_end=None, sigmas=None, noise_mean=None, disable_preview=False):
-    if sigmas is not None:
-        sigmas = sigmas.clone().to(ldm_patched.modules.model_management.get_torch_device())
+             previewer_start=None, previewer_end=None, sigmas=None, noise_mean=None, disable_preview=False, width=None, height=None):
 
     latent_image = latent["samples"]
 
-    if disable_noise:
-        noise = torch.zeros(latent_image.size(), dtype=latent_image.dtype, layout=latent_image.layout, device="cpu")
-    else:
-        batch_inds = latent["batch_index"] if "batch_index" in latent else None
-        noise = ldm_patched.modules.sample.prepare_noise(latent_image, seed, batch_inds)
 
-    if isinstance(noise_mean, torch.Tensor):
-        noise = noise + noise_mean - torch.mean(noise, dim=1, keepdim=True)
+    if sigmas is not None:
+        sigmas = sigmas.clone().to(ldm_patched.modules.model_management.get_torch_device())
+
+    if isinstance(model, Flux):
+        latent_channels = model.forge_objects.vae.latent_channels
+        rng = ImageRNG((latent_channels, height // 8, width // 8), [seed], subseeds=None, subseed_strength=0, seed_resize_from_h=0, seed_resize_from_w=0)
+        noise = rng.next()
+        latent_image = torch.zeros_like(noise)
+
+    else:
+        if disable_noise:
+            noise = torch.zeros(latent_image.size(), dtype=latent_image.dtype, layout=latent_image.layout, device="cpu")
+        else:
+            batch_inds = latent["batch_index"] if "batch_index" in latent else None
+            noise = ldm_patched.modules.sample.prepare_noise(latent_image, seed, batch_inds)
+
+        if isinstance(noise_mean, torch.Tensor):
+            noise = noise + noise_mean - torch.mean(noise, dim=1, keepdim=True)
 
     noise_mask = None
     if "noise_mask" in latent:

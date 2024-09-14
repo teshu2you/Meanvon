@@ -4,6 +4,7 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
+import logging
 
 from .util import (
     checkpoint,
@@ -359,7 +360,7 @@ def apply_control(h, control, name):
             try:
                 h += ctrl
             except:
-                print("warning control could not be applied", h.shape, ctrl.shape)
+                logging.warning("warning control could not be applied {} {}".format(h.shape, ctrl.shape))
     return h
 
 class UNetModel(nn.Module):
@@ -485,7 +486,6 @@ class UNetModel(nn.Module):
         self.predict_codebook_ids = n_embed is not None
 
         self.default_num_video_frames = None
-        self.default_image_only_indicator = None
 
         time_embed_dim = model_channels * 4
         self.time_embed = nn.Sequential(
@@ -498,7 +498,7 @@ class UNetModel(nn.Module):
             if isinstance(self.num_classes, int):
                 self.label_emb = nn.Embedding(num_classes, time_embed_dim, dtype=self.dtype, device=device)
             elif self.num_classes == "continuous":
-                print("setting up linear c_adm embedding layer")
+                logging.debug("setting up linear c_adm embedding layer")
                 self.label_emb = nn.Linear(1, time_embed_dim)
             elif self.num_classes == "sequential":
                 assert adm_in_channels is not None
@@ -842,6 +842,11 @@ class UNetModel(nn.Module):
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False).to(x.dtype)
         emb = self.time_embed(t_emb)
 
+        if "emb_patch" in transformer_patches:
+            patch = transformer_patches["emb_patch"]
+            for p in patch:
+                emb = p(emb, self.model_channels, transformer_options)
+
         if self.num_classes is not None:
             assert y.shape[0] == x.shape[0]
             emb = emb + self.label_emb(y)
@@ -866,6 +871,7 @@ class UNetModel(nn.Module):
         if self.middle_block is not None:
             h = forward_timestep_embed(self.middle_block, h, emb, context, transformer_options, time_context=time_context, num_video_frames=num_video_frames, image_only_indicator=image_only_indicator)
         h = apply_control(h, control, 'middle')
+
 
         for id, module in enumerate(self.output_blocks):
             transformer_options["block"] = ("output", id)

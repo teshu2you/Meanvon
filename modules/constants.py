@@ -15,6 +15,8 @@ TYPE_LCM = "lcm"
 TYPE_TURBO = "turbo"
 # TYPE_HYPER_SD must be set "lower"
 TYPE_HYPER_SD = "hyper-sd"
+TYPE_HunyuanDiT = "hunyuandit"
+TYPE_Flux = "flux"
 # extreme_speed disused
 TYPE_EXTREME_SPEED = "extreme_speed"
 TYPE_NORMAL = "normal"

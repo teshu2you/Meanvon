@@ -1,3 +1,5 @@
+import backend.patcher.unet
+from backend.modules.k_model import KModel
 from ldm_patched.k_diffusion import sampling as k_diffusion_sampling
 from ldm_patched.unipc import uni_pc
 import torch
@@ -142,6 +144,7 @@ def calc_cond_batch(model, conds, x_in, timestep, model_options):
     out_conds = []
     out_counts = []
     to_run = []
+    cond_y = None
 
     for i in range(len(conds)):
         out_conds.append(torch.zeros_like(x_in))
@@ -150,6 +153,8 @@ def calc_cond_batch(model, conds, x_in, timestep, model_options):
         cond = conds[i]
         if cond is not None:
             for x in cond:
+                if isinstance(model, KModel) and x.get('pooled_output') is not None and i==0:
+                    cond_y = x['pooled_output']
                 p = get_area_and_mult(x, x_in, timestep)
                 if p is None:
                     continue
@@ -221,6 +226,10 @@ def calc_cond_batch(model, conds, x_in, timestep, model_options):
         transformer_options["sigmas"] = timestep
 
         c['transformer_options'] = transformer_options
+
+        if cond_y is not None:
+            # c['y'] = ldm_patched.modules.conds.CONDRegular(cond_y)
+            c['y'] = cond_y
 
         if 'model_function_wrapper' in model_options:
             output = model_options['model_function_wrapper'](model.apply_model, {"input": input_x, "timestep": timestep_, "c": c, "cond_or_uncond": cond_or_uncond}).chunk(batch_chunks)
@@ -472,7 +481,10 @@ def create_cond_with_same_area_if_none(conds, c): #TODO: handle dim != 2
     conds += [out]
 
 def calculate_start_end_timesteps(model, conds):
-    s = model.model_sampling
+    if isinstance(model, KModel):
+        s = model.predictor
+    else:
+        s = model.model_sampling
     for t in range(len(conds)):
         x = conds[t]
 
@@ -492,7 +504,10 @@ def calculate_start_end_timesteps(model, conds):
             conds[t] = n
 
 def pre_run_control(model, conds):
-    s = model.model_sampling
+    if isinstance(model, KModel):
+        s = model.predictor
+    else:
+        s = model.model_sampling
     for t in range(len(conds)):
         x = conds[t]
 
@@ -567,7 +582,10 @@ class Sampler:
         pass
 
     def max_denoise(self, model_wrap, sigmas):
-        max_sigma = float(model_wrap.inner_model.model_sampling.sigma_max)
+        if isinstance(model_wrap.inner_model, KModel):
+            max_sigma = float(model_wrap.inner_model.predictor.sigma_max)
+        else:
+            max_sigma = float(model_wrap.inner_model.model_sampling.sigma_max)
         sigma = float(sigmas[0])
         return math.isclose(max_sigma, sigma, rel_tol=1e-05) or sigma > max_sigma
 
@@ -592,7 +610,10 @@ class KSAMPLER(Sampler):
         else:
             model_k.noise = noise
 
-        noise = model_wrap.inner_model.model_sampling.noise_scaling(sigmas[0], noise, latent_image, self.max_denoise(model_wrap, sigmas))
+        if isinstance(model_wrap.inner_model, KModel):
+            noise = model_wrap.inner_model.predictor.noise_scaling(sigmas[0], noise, latent_image, self.max_denoise(model_wrap, sigmas))
+        else:
+            noise = model_wrap.inner_model.model_sampling.noise_scaling(sigmas[0], noise, latent_image, self.max_denoise(model_wrap, sigmas))
 
         k_callback = None
         total_steps = len(sigmas) - 1
@@ -600,7 +621,11 @@ class KSAMPLER(Sampler):
             k_callback = lambda x: callback(x["i"], x["denoised"], x["x"], total_steps)
 
         samples = self.sampler_function(model_k, noise, sigmas, extra_args=extra_args, callback=k_callback, disable=disable_pbar, **self.extra_options)
-        samples = model_wrap.inner_model.model_sampling.inverse_noise_scaling(sigmas[-1], samples)
+
+        if isinstance(model_wrap.inner_model, KModel):
+            samples = model_wrap.inner_model.predictor.inverse_noise_scaling(sigmas[-1], samples)
+        else:
+            samples = model_wrap.inner_model.model_sampling.inverse_noise_scaling(sigmas[-1], samples)
         return samples
 
 
@@ -664,6 +689,9 @@ def process_conds(model, noise, conds, device, latent_image=None, denoise_mask=N
 
 class CFGGuider:
     def __init__(self, model_patcher):
+        self.loaded_models = None
+        self.conds = {}
+        self.inner_model = None
         self.model_patcher = model_patcher
         self.model_options = model_patcher.model_options
         self.original_conds = {}
@@ -671,6 +699,9 @@ class CFGGuider:
 
     def set_conds(self, positive, negative):
         self.inner_set_conds({"positive": positive, "negative": negative})
+
+    def set_model_sampler_cfg_function(self, sampler_cfg_function):
+        self.model_options["sampler_cfg_function"] = sampler_cfg_function
 
     def set_cfg(self, cfg):
         self.cfg = cfg
@@ -695,13 +726,16 @@ class CFGGuider:
         extra_args = {"model_options": self.model_options, "seed":seed}
 
         samples = sampler.sample(self, sigmas, extra_args, callback, noise, latent_image, denoise_mask, disable_pbar)
-        return self.inner_model.process_latent_out(samples.to(torch.float32))
+
+        if isinstance(self.inner_model, KModel):
+            return self.inner_model.model_config.latent_format.process_out(samples.to(torch.float32))
+        else:
+            return self.inner_model.process_latent_out(samples.to(torch.float32))
 
     def sample(self, noise, latent_image, sampler, sigmas, denoise_mask=None, callback=None, disable_pbar=False, seed=None):
         if sigmas.shape[-1] == 0:
             return latent_image
 
-        self.conds = {}
         for k in self.original_conds:
             self.conds[k] = list(map(lambda a: a.copy(), self.original_conds[k]))
 
@@ -790,7 +824,11 @@ class KSampler:
             steps += 1
             discard_penultimate_sigma = True
 
-        sigmas = ldm_patched.modules.samplers.calculate_sigmas_scheduler(self.model.get_model_object("model_sampling"), self.scheduler, steps)
+        if isinstance(self.model, backend.patcher.unet.UnetPatcher):
+            sigmas = ldm_patched.modules.samplers.calculate_sigmas_scheduler(
+                self.model.get_model_object("predictor"), self.scheduler, steps)
+        else:
+            sigmas = ldm_patched.modules.samplers.calculate_sigmas_scheduler(self.model.get_model_object("model_sampling"), self.scheduler, steps)
 
         if discard_penultimate_sigma:
             sigmas = torch.cat([sigmas[:-2], sigmas[-1:]])
