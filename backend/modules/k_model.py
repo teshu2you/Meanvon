@@ -64,3 +64,11 @@ class KModel(torch.nn.Module):
                 dtype_size = 4
 
         return scaler * area * dtype_size * 16384
+
+    def extra_conds(self, **kwargs):
+        out = {}
+        cross_attn = kwargs.get("cross_attn", None)
+        if cross_attn is not None:
+            out['c_crossattn'] = ldm_patched.modules.conds.CONDRegular(cross_attn)
+        out['guidance'] = ldm_patched.modules.conds.CONDRegular(torch.FloatTensor([kwargs.get("guidance", 3.5)]))
+        return out

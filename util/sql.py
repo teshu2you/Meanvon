@@ -53,7 +53,7 @@ if platform.system().lower() == 'windows':
 else:
     default_sqlite_db_path = os.path.join(os.path.dirname(__file__), "../database.db")
 
-connection_uri = os.environ.get("FOOOCUS_DB_CONF", f"sqlite:///{default_sqlite_db_path}")
+connection_uri = os.environ.get("MeanVon_DB_CONF", f"sqlite:///{default_sqlite_db_path}")
 
 
 class GenerateRecord(Base):
