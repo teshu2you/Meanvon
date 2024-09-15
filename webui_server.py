@@ -447,17 +447,16 @@ with (gr.Blocks(
     with gr.Row():
         with gr.Column():
             with gr.Row():
-                nsfw_filter = gr.Radio(label="NSFW Filter", choices=["0", "1"], value="0", visible=True,
+                nsfw_filter = gr.Radio(label="NSFW Filter", choices=["0", "1"], value="0", visible=True, scale=1,
                                        interactive=True)
+            with gr.Row():
                 btn_free_gpu_mem = gr.Button(value="Free GPU Memory", size="sm")
-
 
             def free_gpu(x):
                 free_cuda_mem()
                 free_cuda_cache()
                 gr.Info("free cuda memory!")
                 return gr.update()
-
 
             btn_free_gpu_mem.click(fn=free_gpu, inputs=btn_free_gpu_mem, outputs=btn_free_gpu_mem)
 
@@ -1379,6 +1378,150 @@ with (gr.Blocks(
                 # image_factory_advanced_checkbox = gr.Checkbox(label='Configuration', value=modules.config.default_image_factory_advanced_checkbox, container=True, elem_classes='min_check')
             with gr.Row(visible=False) as image_input_panel:
                 with gr.Tabs():
+                    with gr.TabItem(label='Image 2 Image') as uov_tab:
+                        with gr.Row():
+                            img2img_mode = gr.Checkbox(label='Image Gallery', value=settings['img2img_mode'])
+                        with gr.Row(visible=False) as image_2_image_panel:
+
+                            input_gallery = gr.Gallery(label='Input', show_label=True, object_fit='contain',
+                                                       height=700,
+                                                       visible=True)
+
+                            revision_gallery = gr.Gallery(label='Revision', show_label=True, object_fit='contain',
+                                                          height=700, visible=True)
+                        with gr.Row():
+                            revision_mode = gr.Checkbox(label='Revision (prompting with images)',
+                                                        value=settings['revision_mode'])
+                        with gr.Row():
+                            revision_strength_1 = gr.Slider(label='Revision Strength for Image 1', minimum=-2,
+                                                            maximum=2,
+                                                            step=0.01,
+                                                            value=settings['revision_strength_1'],
+                                                            visible=settings['revision_mode'])
+                            revision_strength_2 = gr.Slider(label='Revision Strength for Image 2', minimum=-2,
+                                                            maximum=2,
+                                                            step=0.01,
+                                                            value=settings['revision_strength_2'],
+                                                            visible=settings['revision_mode'])
+
+                            revision_strength_3 = gr.Slider(label='Revision Strength for Image 3', minimum=-2,
+                                                            maximum=2,
+                                                            step=0.01,
+                                                            value=settings['revision_strength_3'],
+                                                            visible=settings['revision_mode'])
+
+                            revision_strength_4 = gr.Slider(label='Revision Strength for Image 4', minimum=-2,
+                                                            maximum=2,
+                                                            step=0.01,
+                                                            value=settings['revision_strength_4'],
+                                                            visible=settings['revision_mode'])
+
+
+                        def revision_changed(value):
+                            return gr.update(visible=value == True), gr.update(visible=value == True), gr.update(
+                                visible=value == True), gr.update(visible=value == True)
+
+                        with gr.Row():
+                            revision_mode.change(fn=revision_changed, inputs=[revision_mode],
+                                                 outputs=[revision_strength_1, revision_strength_2, revision_strength_3,
+                                                          revision_strength_4])
+
+                            positive_prompt_strength = gr.Slider(label='Positive Prompt Strength', minimum=0, maximum=1,
+                                                                 step=0.01,
+                                                                 value=settings['positive_prompt_strength'])
+                            negative_prompt_strength = gr.Slider(label='Negative Prompt Strength', minimum=0, maximum=1,
+                                                                 step=0.01,
+                                                                 value=settings['negative_prompt_strength'])
+
+                            img2img_start_step = gr.Slider(label='Image-2-Image Start Step', minimum=0.0, maximum=0.8,
+                                                           step=0.01,
+                                                           value=settings['img2img_start_step'])
+                            img2img_denoise = gr.Slider(label='Image-2-Image Denoise', minimum=0.2, maximum=1.0, step=0.01,
+                                                        value=settings['img2img_denoise'])
+                            img2img_scale = gr.Slider(label='Image-2-Image Scale', minimum=1.0, maximum=2.0, step=0.25,
+                                                      value=settings['img2img_scale'],
+                                                      info='For upscaling - use with low denoise values')
+                        keep_input_names = gr.Checkbox(label='Keep Input Names', value=settings['keep_input_names'],
+                                                       elem_classes='type_small_row')
+                        with gr.Row():
+                            load_input_images_button = gr.UploadButton(label='Load Image(s) to Input',
+                                                                       file_count='multiple',
+                                                                       file_types=["image"],
+                                                                       elem_classes='type_small_row',
+                                                                       min_width=0)
+                            load_revision_images_button = gr.UploadButton(label='Load Image(s) to Revision',
+                                                                          file_count='multiple', file_types=["image"],
+                                                                          elem_classes='type_small_row', min_width=0)
+                            output_to_input_button = gr.Button(label='Output to Input', value='Output to Input',
+                                                               elem_classes='type_small_row', min_width=0)
+                            output_to_revision_button = gr.Button(label='Output to Revision',
+                                                                  value='Output to Revision',
+                                                                  elem_classes='type_small_row', min_width=0)
+
+                        img2img_ctrls = [img2img_mode, img2img_start_step, img2img_denoise, img2img_scale,
+                                         revision_mode,
+                                         positive_prompt_strength, negative_prompt_strength,
+                                         revision_strength_1, revision_strength_2, revision_strength_3,
+                                         revision_strength_4]
+
+
+                        def verify_revision(rev, gallery_in, gallery_rev, gallery_out):
+                            if rev and len(gallery_rev) == 0:
+                                if len(gallery_in) > 0:
+                                    gr.Info('Revision: imported input')
+                                    return gr.update(), list(map(lambda x: x['name'], gallery_in[:1]))
+                                elif len(gallery_out) > 0:
+                                    gr.Info('Revision: imported output')
+                                    return gr.update(), list(map(lambda x: x['name'], gallery_out[:1]))
+                                else:
+                                    gr.Warning('Revision: disabled (no images available)')
+                                    return gr.update(value=False), gr.update()
+                            else:
+                                return gr.update(), gr.update()
+
+                        with gr.Row():
+                            control_lora_canny = gr.Checkbox(label='Control-LoRA: Canny', value=settings['control_lora_canny'])
+                            with gr.Row():
+                                canny_edge_low = gr.Slider(label='Edge Detection Low', minimum=0.0, maximum=1.0, step=0.01,
+                                                           value=settings['canny_edge_low'], visible=settings['control_lora_canny'])
+                                canny_edge_high = gr.Slider(label='Edge Detection High', minimum=0.0, maximum=1.0, step=0.01,
+                                                            value=settings['canny_edge_high'],
+                                                            visible=settings['control_lora_canny'])
+                                canny_start = gr.Slider(label='Canny Start', minimum=0.0, maximum=1.0, step=0.01,
+                                                        value=settings['canny_start'], visible=settings['control_lora_canny'])
+                                canny_stop = gr.Slider(label='Canny Stop', minimum=0.0, maximum=1.0, step=0.01,
+                                                       value=settings['canny_stop'], visible=settings['control_lora_canny'])
+                                canny_strength = gr.Slider(label='Canny Strength', minimum=0.0, maximum=2.0, step=0.01,
+                                                           value=settings['canny_strength'], visible=settings['control_lora_canny'])
+
+
+                            def canny_changed(value):
+                                return gr.update(visible=value == True), gr.update(visible=value == True), gr.update(
+                                    visible=value == True), \
+                                    gr.update(visible=value == True), gr.update(visible=value == True)
+
+
+                            control_lora_canny.change(fn=canny_changed, inputs=[control_lora_canny],
+                                                      outputs=[canny_edge_low, canny_edge_high, canny_start, canny_stop,
+                                                               canny_strength])
+                        with gr.Row():
+                            control_lora_depth = gr.Checkbox(label='Control-LoRA: Depth', value=settings['control_lora_depth'])
+                            with gr.Row():
+                                depth_start = gr.Slider(label='Depth Start', minimum=0.0, maximum=1.0, step=0.01,
+                                                        value=settings['depth_start'], visible=settings['control_lora_depth'])
+                                depth_stop = gr.Slider(label='Depth Stop', minimum=0.0, maximum=1.0, step=0.01,
+                                                       value=settings['depth_stop'], visible=settings['control_lora_depth'])
+                                depth_strength = gr.Slider(label='Depth Strength', minimum=0.0, maximum=2.0, step=0.01,
+                                                           value=settings['depth_strength'], visible=settings['control_lora_depth'])
+
+                                def depth_changed(value):
+                                    return gr.update(visible=value == True), gr.update(visible=value == True), gr.update(
+                                        visible=value == True)
+
+                                control_lora_depth.change(fn=depth_changed, inputs=[control_lora_depth],
+                                                          outputs=[depth_start, depth_stop, depth_strength])
+
+
                     with gr.TabItem(label='Upscale or Variation') as uov_tab:
                         with gr.Row():
                             with gr.Column():
@@ -1389,10 +1532,10 @@ with (gr.Blocks(
                                                       value=flags.disabled)
                                 gr.HTML(
                                     '<a href="https://github.com/lllyasviel/Fooocus/discussions/390" target="_blank">\U0001F4D4 Document</a>')
-                    with gr.TabItem(label='Image Prompt') as ip_tab:
+                    with gr.TabItem(label='ControlNet') as ip_tab:
                         ip_advanced = gr.Checkbox(label='Advanced', value=False, container=False)
                         gr.HTML(
-                            '* \"Image Prompt\" is powered by Fooocus Image Mixture Engine (v1.0.1). <a href="https://github.com/lllyasviel/Fooocus/discussions/557" target="_blank">\U0001F4D4 Document</a>')
+                            '* \"Image Prompt\" <a href="https://github.com/lllyasviel/Fooocus/discussions/557" target="_blank">\U0001F4D4 Document</a>')
                         with gr.Row():
                             ip_images = []
                             ip_types = []
@@ -1507,7 +1650,6 @@ with (gr.Blocks(
                                 results['metadata_scheme'] = metadata_scheme.value
 
                             return results
-
 
                         metadata_input_image.upload(trigger_metadata_preview, inputs=metadata_input_image,
                                                     outputs=metadata_json, queue=False, show_progress=True)
@@ -2615,13 +2757,6 @@ with (gr.Blocks(
             # gallery = gr.Gallery(label='Gallery', show_label=False, object_fit='contain', height=720, visible=True, elem_classes='resizable_area')
             with gr.Column() as gallery_holder:
                 with gr.Tabs(selected=GALLERY_ID_OUTPUT) as gallery_tabs:
-                    with gr.Tab(label='Input', id=GALLERY_ID_INPUT) as input_tab:
-                        input_gallery = gr.Gallery(label='Input', show_label=False, object_fit='contain',
-                                                   height=700,
-                                                   visible=True)
-                    with gr.Tab(label='Revision', id=GALLERY_ID_REVISION) as revision_tab:
-                        revision_gallery = gr.Gallery(label='Revision', show_label=False, object_fit='contain',
-                                                      height=700, visible=True)
                     with gr.Tab(label='Output', id=GALLERY_ID_OUTPUT):
                         output_gallery = gr.Gallery(label='Output', show_label=False, object_fit='contain',
                                                     height=700,
@@ -2879,141 +3014,6 @@ with (gr.Blocks(
                         + '<br> <a href="https://github.com/CCmahua/ChatTTS-Enhanced" target="_blank">\U0001F4DA  ChatTTS-Enhanced</a>'
                         )
 
-            with gr.Tab(label='I2I&CN'):
-                img2img_mode = gr.Checkbox(label='Image-2-Image', value=settings['img2img_mode'])
-                with gr.Row(visible=False) as image_2_image_panel:
-                    with gr.Row():
-                        revision_mode = gr.Checkbox(label='Revision (prompting with images)',
-                                                    value=settings['revision_mode'])
-                    with gr.Row():
-                        revision_strength_1 = gr.Slider(label='Revision Strength for Image 1', minimum=-2,
-                                                        maximum=2,
-                                                        step=0.01,
-                                                        value=settings['revision_strength_1'],
-                                                        visible=settings['revision_mode'])
-                    with gr.Row():
-                        revision_strength_2 = gr.Slider(label='Revision Strength for Image 2', minimum=-2,
-                                                        maximum=2,
-                                                        step=0.01,
-                                                        value=settings['revision_strength_2'],
-                                                        visible=settings['revision_mode'])
-                    with gr.Row():
-                        revision_strength_3 = gr.Slider(label='Revision Strength for Image 3', minimum=-2,
-                                                        maximum=2,
-                                                        step=0.01,
-                                                        value=settings['revision_strength_3'],
-                                                        visible=settings['revision_mode'])
-                    with gr.Row():
-                        revision_strength_4 = gr.Slider(label='Revision Strength for Image 4', minimum=-2,
-                                                        maximum=2,
-                                                        step=0.01,
-                                                        value=settings['revision_strength_4'],
-                                                        visible=settings['revision_mode'])
-
-
-                    def revision_changed(value):
-                        return gr.update(visible=value == True), gr.update(visible=value == True), gr.update(
-                            visible=value == True), gr.update(visible=value == True)
-
-
-                    revision_mode.change(fn=revision_changed, inputs=[revision_mode],
-                                         outputs=[revision_strength_1, revision_strength_2, revision_strength_3,
-                                                  revision_strength_4])
-
-                    positive_prompt_strength = gr.Slider(label='Positive Prompt Strength', minimum=0, maximum=1,
-                                                         step=0.01,
-                                                         value=settings['positive_prompt_strength'])
-                    negative_prompt_strength = gr.Slider(label='Negative Prompt Strength', minimum=0, maximum=1,
-                                                         step=0.01,
-                                                         value=settings['negative_prompt_strength'])
-
-                    img2img_start_step = gr.Slider(label='Image-2-Image Start Step', minimum=0.0, maximum=0.8,
-                                                   step=0.01,
-                                                   value=settings['img2img_start_step'])
-                    img2img_denoise = gr.Slider(label='Image-2-Image Denoise', minimum=0.2, maximum=1.0, step=0.01,
-                                                value=settings['img2img_denoise'])
-                    img2img_scale = gr.Slider(label='Image-2-Image Scale', minimum=1.0, maximum=2.0, step=0.25,
-                                              value=settings['img2img_scale'],
-                                              info='For upscaling - use with low denoise values')
-                    keep_input_names = gr.Checkbox(label='Keep Input Names', value=settings['keep_input_names'],
-                                                   elem_classes='type_small_row')
-                    with gr.Row():
-                        load_input_images_button = gr.UploadButton(label='Load Image(s) to Input',
-                                                                   file_count='multiple',
-                                                                   file_types=["image"],
-                                                                   elem_classes='type_small_row',
-                                                                   min_width=0)
-                        load_revision_images_button = gr.UploadButton(label='Load Image(s) to Revision',
-                                                                      file_count='multiple', file_types=["image"],
-                                                                      elem_classes='type_small_row', min_width=0)
-                    with gr.Row():
-                        output_to_input_button = gr.Button(label='Output to Input', value='Output to Input',
-                                                           elem_classes='type_small_row', min_width=0)
-                        output_to_revision_button = gr.Button(label='Output to Revision',
-                                                              value='Output to Revision',
-                                                              elem_classes='type_small_row', min_width=0)
-
-                    img2img_ctrls = [img2img_mode, img2img_start_step, img2img_denoise, img2img_scale,
-                                     revision_mode,
-                                     positive_prompt_strength, negative_prompt_strength,
-                                     revision_strength_1, revision_strength_2, revision_strength_3,
-                                     revision_strength_4]
-
-
-                    def verify_revision(rev, gallery_in, gallery_rev, gallery_out):
-                        if rev and len(gallery_rev) == 0:
-                            if len(gallery_in) > 0:
-                                gr.Info('Revision: imported input')
-                                return gr.update(), list(map(lambda x: x['name'], gallery_in[:1]))
-                            elif len(gallery_out) > 0:
-                                gr.Info('Revision: imported output')
-                                return gr.update(), list(map(lambda x: x['name'], gallery_out[:1]))
-                            else:
-                                gr.Warning('Revision: disabled (no images available)')
-                                return gr.update(value=False), gr.update()
-                        else:
-                            return gr.update(), gr.update()
-
-                control_lora_canny = gr.Checkbox(label='Control-LoRA: Canny', value=settings['control_lora_canny'])
-                canny_edge_low = gr.Slider(label='Edge Detection Low', minimum=0.0, maximum=1.0, step=0.01,
-                                           value=settings['canny_edge_low'], visible=settings['control_lora_canny'])
-                canny_edge_high = gr.Slider(label='Edge Detection High', minimum=0.0, maximum=1.0, step=0.01,
-                                            value=settings['canny_edge_high'],
-                                            visible=settings['control_lora_canny'])
-                canny_start = gr.Slider(label='Canny Start', minimum=0.0, maximum=1.0, step=0.01,
-                                        value=settings['canny_start'], visible=settings['control_lora_canny'])
-                canny_stop = gr.Slider(label='Canny Stop', minimum=0.0, maximum=1.0, step=0.01,
-                                       value=settings['canny_stop'], visible=settings['control_lora_canny'])
-                canny_strength = gr.Slider(label='Canny Strength', minimum=0.0, maximum=2.0, step=0.01,
-                                           value=settings['canny_strength'], visible=settings['control_lora_canny'])
-
-
-                def canny_changed(value):
-                    return gr.update(visible=value == True), gr.update(visible=value == True), gr.update(
-                        visible=value == True), \
-                        gr.update(visible=value == True), gr.update(visible=value == True)
-
-
-                control_lora_canny.change(fn=canny_changed, inputs=[control_lora_canny],
-                                          outputs=[canny_edge_low, canny_edge_high, canny_start, canny_stop,
-                                                   canny_strength])
-
-                control_lora_depth = gr.Checkbox(label='Control-LoRA: Depth', value=settings['control_lora_depth'])
-                depth_start = gr.Slider(label='Depth Start', minimum=0.0, maximum=1.0, step=0.01,
-                                        value=settings['depth_start'], visible=settings['control_lora_depth'])
-                depth_stop = gr.Slider(label='Depth Stop', minimum=0.0, maximum=1.0, step=0.01,
-                                       value=settings['depth_stop'], visible=settings['control_lora_depth'])
-                depth_strength = gr.Slider(label='Depth Strength', minimum=0.0, maximum=2.0, step=0.01,
-                                           value=settings['depth_strength'], visible=settings['control_lora_depth'])
-
-
-                def depth_changed(value):
-                    return gr.update(visible=value == True), gr.update(visible=value == True), gr.update(
-                        visible=value == True)
-
-
-                control_lora_depth.change(fn=depth_changed, inputs=[control_lora_depth],
-                                          outputs=[depth_start, depth_stop, depth_strength])
 
             with gr.Tab(label='Style'):
                 style_class = gr.Radio(label='Style Selector',
@@ -3827,7 +3827,7 @@ with (gr.Blocks(
 
 
         img2img_mode.change(fn=img2img_mode_checked, inputs=[img2img_mode],
-                            outputs=[image_2_image_panel, input_tab, revision_tab], queue=False)
+                            outputs=[image_2_image_panel, input_gallery, revision_gallery], queue=False)
 
         load_input_images_button.upload(fn=load_input_images_handler, inputs=[load_input_images_button],
                                         outputs=[input_gallery, gallery_tabs, image_number])

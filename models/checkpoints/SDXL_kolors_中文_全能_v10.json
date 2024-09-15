@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"2024/07/19",
+	"Base": "Kolors",
+	"Links": "https://www.liblib.art/modelinfo/86dff3d48c5940e0891e6682f8165fc8?from=search",
+	"Version": "v1.0",
+	"Tags": "style anime sexy",
+	"Usage_Tips": "Euler a CFG 5",
+	"Author": "快手",
+	"ReMark": "Kolors is a large-scale text-to-image generation model based on latent diffusion, developed by the Kuaishou Kolors team. Trained on billions of text-image pairs, Kolors exhibits significant advantages over both open-source and closed-source models in visual quality, complex semantic accuracy, and text rendering for both Chinese and English characters. Furthermore, Kolors supports both Chinese and English inputs, demonstrating strong performance in understanding and generating Chinese-specific content. For more details, please refer to this technical report.我们收集了一个名为 KolorsPrompts 的综合文本到图像评估数据集，用于将 Kolors 与其他最先进的开放模型和闭源模型进行比较。KolorsPrompts 包括 1,000 多个提示，涵盖 14 个类别和 12 个评估维度。评估过程包括人工和机器评估。在相关基准评估中，科乐尔表现出极具竞争力的表现，达到了行业领先的标准。"
+}

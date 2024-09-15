@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Sep 5, 2024",
+	"Base": "Flux.1 S",
+	"Links": "https://civitai.work/models/673188?modelVersionId=808552",
+	"Version": "v1.0",
+	"Tags": "base model",
+	"Usage_Tips": "Schnell V1 Much faster, getting good results with 1-4 steps.",
+	"Author": "Seeker70",
+	"ReMark": "If you like the models, please follow. I would love to see my models get in the onsite generator. Maybe with enough followers it will happen. V1.1 is the new version without European Flux which allows for much more variety of faces. Both look amazing. Schnell V1 Much faster, getting good results with 1-4 steps. Quality is not quite on the level of the Dev model, but much faster. So far it seems text is more consistently good though. New GGUF version of the Schnell model up now. Thanks to pkmngotrnr for converting them for me. Much appreciated. So far works in Comfy only at least for me. DEVfp8V1.1GGUF is now up as well. V1 version has European Flux mixed in at what seemed like a pretty low percentage, but it seems like it is a bit too strong. If you like this look, feel free to use this one.This is my initial FLUX model. It is base on the flux1-dev-fp8 model. This is a merge only in the sense that I merged in some Loras that I like to make it more realistic. As with all of my models, the goal is the best photo realism that I can achieve. If it will do other things well, that is a bonus. Until I can learn a lot more about FLUX, and see if at some point true merges are possible, this is a pretty good start. I don't know about compatibility with all software. I use ForgeUI and I am able to run it fine. Most gens take about a minute and a half for me at 1024 X 1328. I use Euler with the Beta scheduler or the Simple. I haven't experimented much yet with other samplers. I typically use 24 to 28 steps."
+}
