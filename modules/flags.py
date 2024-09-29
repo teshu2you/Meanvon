@@ -17,7 +17,7 @@ KSAMPLER = {
     "euler": "Euler",
     "euler_ancestral": "Euler a",
     "heun": "Heun",
-    "heunpp2": "",
+    "heunpp2": "HeunPP2",
     "dpm_2": "DPM2",
     "dpm_2_ancestral": "DPM2 a",
     "lms": "LMS",
@@ -29,11 +29,15 @@ KSAMPLER = {
     "dpmpp_2m": "DPM++ 2M",
     "dpmpp_2m_sde": "DPM++ 2M SDE",
     "dpmpp_2m_sde_gpu": "DPM++ 2M SDE",
-    "dpmpp_3m_sde": "",
-    "dpmpp_3m_sde_gpu": "",
+    "dpmpp_3m_sde": "DPM++ 3M SDE",
+    "dpmpp_3m_sde_gpu": "DPM++ 3M SDE",
     "ddpm": "",
     "lcm": "LCM",
-    "tcd": "TCD"
+    "tcd": "TCD",
+    "des": "DEIS",
+    "ipndm": "IPNDM",
+    "ipndm_v": "IPNDM_V",
+    "restart": "Restart"
 }
 
 SAMPLER_EXTRA = {

@@ -4,6 +4,8 @@ from backend.huggingface_guess.detection import model_config_from_unet, unet_pre
 def guess(state_dict):
     unet_key_prefix = unet_prefix_from_state_dict(state_dict)
     result = model_config_from_unet(state_dict, unet_key_prefix, use_base_if_no_match=False)
+    if result is None:
+        result = model_config_from_diffusers_unet(state_dict)
     result.unet_key_prefix = [unet_key_prefix]
     if 'image_model' in result.unet_config:
         del result.unet_config['image_model']

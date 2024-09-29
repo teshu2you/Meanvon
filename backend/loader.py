@@ -1,10 +1,11 @@
+# Attention !
 import os
 import torch
 import logging
 import importlib
 
 import backend.args
-
+import backend.patcher_diffusion
 from diffusers import DiffusionPipeline
 from transformers import modeling_utils
 
@@ -13,16 +14,20 @@ from backend.utils import read_arbitrary_config, load_torch_file, beautiful_prin
 from backend.state_dict import try_filter_state_dict, load_state_dict
 from backend.operations import using_forge_operations
 from backend.nn.vae import IntegratedAutoencoderKL
-from backend.nn.clip import IntegratedCLIP
+from backend.nn.clip import IntegratedCLIP, IntegratedCLIPKolors
 from backend.nn.unet import IntegratedUNet2DConditionModel
+from backend.nn.kolors import IntegratedKolors2DConditionModel
 from backend import huggingface_guess, memory_management
 from backend.diffusion_engine.sd15 import StableDiffusion
 from backend.diffusion_engine.sd20 import StableDiffusion2
 from backend.diffusion_engine.sdxl import StableDiffusionXL
+from backend.diffusion_engine.kolors import Kolors
 from backend.diffusion_engine.flux import Flux
 from util.printf import printF, MasterName
+from backend.patcher_diffusion.kolors.models.modeling_chatglm import ChatGLMModel, ChatGLMConfig
+from backend.patcher_diffusion.kolors.models.tokenization_chatglm import ChatGLMTokenizer
 
-possible_models = [StableDiffusion, StableDiffusion2, StableDiffusionXL, Flux]
+possible_models = [StableDiffusion, StableDiffusion2, StableDiffusionXL, Flux, Kolors]
 
 
 # logging.getLogger("diffusers").setLevel(logging.ERROR)
@@ -35,15 +40,20 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
     if component_name in ['feature_extractor', 'safety_checker']:
         return None
 
-    if lib_name in ['transformers', 'diffusers']:
+    if lib_name in ['transformers', 'diffusers', 'kolors']:
         if component_name in ['scheduler']:
             cls = getattr(importlib.import_module(lib_name), cls_name)
             return cls.from_pretrained(os.path.join(repo_path, component_name))
         if component_name.startswith('tokenizer'):
-            cls = getattr(importlib.import_module(lib_name), cls_name)
-            comp = cls.from_pretrained(os.path.join(repo_path, component_name))
-            comp._eventual_warn_about_too_long_sequence = lambda *args, **kwargs: None
+            if cls_name == 'ChatGLMTokenizer':
+                comp = ChatGLMTokenizer.from_pretrained(os.path.join(repo_path, component_name))
+            else:
+                cls = getattr(importlib.import_module(lib_name), cls_name)
+                comp = cls.from_pretrained(os.path.join(repo_path, component_name))
+                comp._eventual_warn_about_too_long_sequence = lambda *args, **kwargs: None
+
             return comp
+
         if cls_name in ['AutoencoderKL']:
             assert isinstance(state_dict, dict) and len(state_dict) > 16, 'You do not have VAE state dict!'
 
@@ -73,6 +83,25 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
             ], log_name=cls_name)
 
             return model
+
+        if component_name.startswith('text_encoder') and cls_name in ['ChatGLMModel']:
+            assert isinstance(state_dict, dict) and len(state_dict) > 16, 'You do not have CLIP state dict!'
+
+            config_clip = ChatGLMConfig.from_pretrained(config_path)
+            to_args = dict(device=memory_management.cpu, dtype=memory_management.text_encoder_dtype())
+
+            with modeling_utils.no_init_weights():
+                with modeling_utils.no_init_weights():
+                    model = IntegratedCLIPKolors(ChatGLMModel, config=config_clip, add_text_projection=True).to(**to_args)
+
+            load_state_dict(model, state_dict, ignore_errors=[
+                'transformer.text_projection.weight',
+                'transformer.text_model.embeddings.position_ids',
+                'logit_scale'
+            ], log_name=cls_name)
+
+            return model
+
         if cls_name == 'T5EncoderModel':
             assert isinstance(state_dict, dict) and len(state_dict) > 16, 'You do not have T5 state dict!'
 
@@ -109,7 +138,10 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
 
             model_loader = None
             if cls_name == 'UNet2DConditionModel':
-                model_loader = lambda c: IntegratedUNet2DConditionModel.from_config(c)
+                if "kolors" in guess.huggingface_repo.lower():
+                    model_loader = lambda c: IntegratedKolors2DConditionModel.from_config(c)
+                else:
+                    model_loader = lambda c: IntegratedUNet2DConditionModel.from_config(c)
             if cls_name == 'FluxTransformer2DModel':
                 from backend.nn.flux import IntegratedFluxTransformer2DModel
                 model_loader = lambda c: IntegratedFluxTransformer2DModel(**c)
@@ -219,6 +251,13 @@ def replace_state_dict(sd, asd, guess):
             del sd[k]
         for k, v in asd.items():
             sd[f"{text_encoder_key_prefix}t5xxl.transformer.{k}"] = v
+
+    if 'encoder.layers.0.input_layernorm.weight' in asd:
+        keys_to_delete = [k for k in sd if k.startswith(f"{text_encoder_key_prefix}")]
+        for k in keys_to_delete:
+            del sd[k]
+        for k, v in asd.items():
+            sd[f"{text_encoder_key_prefix}clip_l.transformer.{k}"] = v
 
     return sd
 

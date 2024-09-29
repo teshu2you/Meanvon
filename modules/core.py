@@ -2,6 +2,8 @@ import sys
 from backend import utils
 import backend
 from backend.diffusion_engine.flux import Flux
+from backend.diffusion_engine.kolors import Kolors
+
 from backend.modules.k_model import KModel
 from modules import devices
 from modules.rng import ImageRNG
@@ -369,6 +371,8 @@ def get_previewer(model):
     from modules.config import path_vae_approx
     if isinstance(model, Flux):
         vae_approx_filename = os.path.join(path_vae, modules.config.default_flux_vae_name)
+    elif isinstance(model, Kolors):
+        vae_approx_filename = os.path.join(path_vae_approx, 'xlvaeapp.pth')
     else:
         if isinstance(model.model.latent_format, ldm_patched.modules.latent_formats.SDXL):
             vae_approx_filename = os.path.join(path_vae_approx, 'xlvaeapp.pth')
@@ -378,7 +382,7 @@ def get_previewer(model):
     if vae_approx_filename in VAE_approx_models:
         VAE_approx_model = VAE_approx_models[vae_approx_filename]
     else:
-        if isinstance(model, Flux):
+        if isinstance(model, Flux) or isinstance(model, Kolors):
             # sd = model.forge_objects.clip.patcher.model
             sd = utils.load_torch_file(vae_approx_filename, safe_load=False, device='cpu' if devices.device.type != 'cuda' else None)
             VAE_approx_model = VAEApprox(latent_channels=model.forge_objects.vae.latent_channels)
@@ -438,7 +442,6 @@ def ksampler(model, positive, negative, latent, seed=None, steps=30, cfg=7.0, sa
              previewer_start=None, previewer_end=None, sigmas=None, noise_mean=None, disable_preview=False, width=None, height=None):
 
     latent_image = latent["samples"]
-
 
     if sigmas is not None:
         sigmas = sigmas.clone().to(ldm_patched.modules.model_management.get_torch_device())

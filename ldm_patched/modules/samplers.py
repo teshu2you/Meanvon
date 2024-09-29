@@ -1,4 +1,5 @@
 import backend.patcher.unet
+from backend.huggingface_guess.model_list import Kolors
 from backend.modules.k_model import KModel
 from ldm_patched.k_diffusion import sampling as k_diffusion_sampling
 from ldm_patched.unipc import uni_pc
@@ -290,7 +291,7 @@ def sampling_function(model, x, timestep, uncond, cond, cond_scale, model_option
     for fn in model_options.get("sampler_pre_cfg_function", []):
         args = {"conds":conds, "conds_out": out, "cond_scale": cond_scale, "timestep": timestep,
                 "input": x, "sigma": timestep, "model": model, "model_options": model_options}
-        out  = fn(args)
+        out = fn(args)
 
     return cfg_function(model, out[0], out[1], cond_scale, x, timestep, model_options=model_options, cond=cond, uncond=uncond_)
 

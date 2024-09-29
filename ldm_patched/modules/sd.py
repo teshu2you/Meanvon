@@ -568,7 +568,7 @@ forge_unet_storage_dtype_options = {
     'float8-e5m2 (fp16 LoRA)': (torch.float8_e5m2, True),
 }
 def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, output_clipvision=False, embedding_directory=None, output_model=True, model_options={}, te_model_options={},model_file_type=None, vae_filename_param=None):
-    if model_file_type == constants.TYPE_Flux:
+    if model_file_type in [constants.TYPE_Flux, constants.TYPE_Kolors]:
         sd_model = forge_loader(sd=ckpt_path, additional_state_dicts=vae_filename_param, skip=False)
         model_data.set_sd_model(sd_model)
 

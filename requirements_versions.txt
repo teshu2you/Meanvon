@@ -78,3 +78,4 @@ vector-quantize-pytorch~=1.14.45
 ffmpeg-python~=0.2.0
 pytorch-lightning~=1.9.4
 lark>=1.2.2
+cpm_kernels

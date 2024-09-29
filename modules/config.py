@@ -287,6 +287,7 @@ paths_loras = get_dir_or_set_default('paths_loras', ['../models/loras/'], True)
 path_embeddings = get_dir_or_set_default('path_embeddings', '../models/embeddings/')
 path_vae_approx = get_dir_or_set_default('path_vae_approx', '../models/vae_approx/')
 path_vae = get_dir_or_set_default('path_vae', '../models/vae/')
+path_llm = get_dir_or_set_default('path_llm', '../models/LLM/')
 path_text_encoder = get_dir_or_set_default('path_text_encoder', '../models/text_encoder/')
 path_upscale_models = get_dir_or_set_default('path_upscale_models', '../models/upscale_models/')
 path_inpaint = get_dir_or_set_default('path_inpaint', '../models/inpaint/')
@@ -408,6 +409,8 @@ default_flux_text_encoder_t5xxl = 't5xxl_fp8_e4m3fn.safetensors'
 default_controlnet_canny_name = 'control-lora-canny-rank128.safetensors'
 default_controlnet_depth_name = 'control-lora-depth-rank128.safetensors'
 
+default_kolors_chatglm_name = "chatglm3-4bit.safetensors"
+
 preset_filenames = []
 model_filenames = []
 lora_filenames = []
@@ -441,7 +444,8 @@ model_types = [
     "HunyuanDiT",
     # "HunyuanDiT1",
     "Flux",
-    # "FluxSchnell"
+    # "FluxSchnell",
+    "Kolors"
 ]
 
 default_model_type = "SDXL"

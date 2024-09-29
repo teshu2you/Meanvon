@@ -265,7 +265,7 @@ def get_files_from_folder(folder_path, exensions=None, name_filter=None):
             relative_path = ""
         for filename in sorted(files, key=lambda s: s.casefold()):
             _, file_extension = os.path.splitext(filename)
-            if (exensions is None or file_extension.lower() in exensions) and (name_filter is None or name_filter in _):
+            if (exensions is None or file_extension.lower() in exensions) and (name_filter is None or name_filter.lower() in _.lower()):
                 path = os.path.join(relative_path, filename)
                 filenames.append(path)
     return filenames

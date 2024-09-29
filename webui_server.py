@@ -216,27 +216,28 @@ def metadata_to_ctrls(metadata, ctrls):
     if 'guidance_scale' in metadata:
         ctrls[16] = metadata.get('guidance_scale')
 
+    # ".safetensors" by default.
     if 'base_model' in metadata:
         _tmp = metadata.get('base_model')
-        if ".safetensors" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
+        if ".safetensors" not in _tmp and ".gguf" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
             ctrls[17] = _tmp + ".safetensors"
         else:
             ctrls[17] = _tmp
     elif 'base_model_name' in metadata:
         _tmp = metadata.get('base_model_name')
-        if ".safetensors" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
+        if ".safetensors" not in _tmp and ".gguf" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
             ctrls[17] = _tmp + ".safetensors"
         else:
             ctrls[17] = _tmp
     if 'refiner_model' in metadata:
         _tmp = metadata.get('refiner_model')
-        if ".safetensors" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
+        if ".safetensors" not in _tmp and ".gguf" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
             ctrls[18] = _tmp + ".safetensors"
         else:
             ctrls[18] = _tmp
     elif 'refiner_model_name' in metadata:
         _tmp = metadata.get('refiner_model_name')
-        if ".safetensors" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
+        if ".safetensors" not in _tmp and ".gguf" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
             ctrls[18] = _tmp + ".safetensors"
         else:
             ctrls[18] = _tmp
@@ -3237,7 +3238,6 @@ with (gr.Blocks(
                                                 choices=['None'] + modules.config.model_filenames,
                                                 value=modules.config.default_refiner_model_name, show_label=True)
                 with gr.Row():
-
                     with gr.Accordion(label="-", open=False) as bm_acc:
                         img_bm_thumbnail = grh.Image(label='bm_thumbnail', type='filepath', show_label=False,
                                                      height=300)
@@ -3290,6 +3290,7 @@ with (gr.Blocks(
 
                     new_model_type_filenames = ["None"]
                     for nmsl in new_models_type_selectors_list:
+                        nmsl = nmsl
                         new_model_type_filenames += modules.config.get_model_filenames(modules.config.modelfile_path,
                                                                                        name_filter=nmsl)
 
@@ -3303,7 +3304,7 @@ with (gr.Blocks(
                     if "SDXL" in x:
                         return [gr.update(label=x, choices=new_model_type_filenames, value=_value),
                                 gr.update(visible=True), gr.update(visible=True)]
-                    if "HunyuanDiT" in x or "Flux" in x:
+                    if "HunyuanDiT" in x or "Flux" in x or "Kolors" in x:
                         return [gr.update(label=x, choices=new_model_type_filenames, value=_value),
                                 gr.update(visible=False, value="None"), gr.update(value="ALL_UnChecked")]
                     else:

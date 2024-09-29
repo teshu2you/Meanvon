@@ -6,6 +6,7 @@ import ldm_patched.modules.utils
 import math
 import numpy as np
 
+from backend.diffusion_engine.kolors import Kolors
 from util.printf import printF, MasterName
 
 
@@ -54,7 +55,7 @@ def sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative
            callback=None, disable_pbar=False, seed=None):
 
     from backend.diffusion_engine.flux import Flux
-    if isinstance(model, Flux):
+    if isinstance(model, Flux) or isinstance(model, Kolors):
         model = model.forge_objects.unet
 
     sampler = ldm_patched.modules.samplers.KSampler(model, steps=steps, device=model.load_device, sampler=sampler_name,

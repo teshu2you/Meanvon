@@ -54,7 +54,7 @@ class ForgeDiffusionEngine:
         return 0, 75
 
     def is_webui_legacy_model(self):
-        return self.is_sd1 or self.is_sd2 or self.is_sdxl or self.is_sd3
+        return self.is_sd1 or self.is_sd2 or self.is_sdxl or self.is_sd3 or self.is_kolors
 
     def fix_for_webui_backward_compatibility(self):
         self.tiling_enabled = False
@@ -65,6 +65,7 @@ class ForgeDiffusionEngine:
         self.is_sd2 = False
         self.is_sdxl = False
         self.is_sd3 = False
+        self.is_kolors = False
         return
 
     def save_unet(self, filename):

@@ -4,6 +4,10 @@ import sys
 import backend
 from backend.diffusion_engine.flux import Flux
 import lark
+
+from backend.diffusion_engine.kolors import Kolors
+from backend.patcher.clip import JointTextEncoder
+from backend.patcher_diffusion.kolors.models.tokenization_chatglm import ChatGLMTokenizer
 from ldm_patched.text_encoders.hydit import *
 import modules.core as core
 import os
@@ -120,6 +124,8 @@ def get_model_file_type(name):
         model_file_type = constants.TYPE_HunyuanDiT
     elif "flux" in l_name:
         model_file_type = constants.TYPE_Flux
+    elif "kolors" in l_name:
+        model_file_type = constants.TYPE_Kolors
     else:
         model_file_type = constants.TYPE_NORMAL
     return model_file_type
@@ -163,8 +169,18 @@ def refresh_base_model(name, performance_selection=None):
         return
 
     # model_base = core.StableDiffusionModel()
-    vae_filename = [get_file_from_folder_list(modules.config.default_flux_vae_name, modules.config.path_vae), get_file_from_folder_list(modules.config.default_flux_text_encoder_clip, modules.config.path_text_encoder), get_file_from_folder_list(modules.config.default_flux_text_encoder_t5xxl, modules.config.path_text_encoder)]
-    model_base = core.load_model(filename, model_file_type=get_model_file_type(name), vae_filename=vae_filename)
+    # vae_filename is in valid only when model is Flux or Kolors, other model type use old method
+    model_file_type = get_model_file_type(name)
+    if model_file_type == constants.TYPE_Flux:
+        vae_filename = [get_file_from_folder_list(modules.config.default_flux_vae_name, modules.config.path_vae),
+                    get_file_from_folder_list(modules.config.default_flux_text_encoder_clip, modules.config.path_text_encoder),
+                    get_file_from_folder_list(modules.config.default_flux_text_encoder_t5xxl, modules.config.path_text_encoder)]
+    elif model_file_type == constants.TYPE_Kolors:
+        vae_filename = [get_file_from_folder_list(modules.config.default_kolors_chatglm_name, modules.config.path_llm)]
+    else:
+        vae_filename = []
+
+    model_base = core.load_model(filename, model_file_type=model_file_type, vae_filename=vae_filename)
     printF(name=MasterName.get_master_name(),
            info="[Warning] Base model loaded: {}".format(model_base.filename)).printf()
     return
@@ -321,10 +337,14 @@ def clip_encode_single(clip, text, verbose=False):
         if verbose:
             printF(name=MasterName.get_master_name(), info="[CLIP Cached] = {}".format(text)).printf()
         return cached
-
-    tokens = clip.tokenize(text)
+    if isinstance(clip.tokenizer.clip_l, ChatGLMTokenizer):
+        tokens = clip.tokenizer.clip_l.tokenize(text)
+    else:
+        tokens = clip.tokenize(text)
     if isinstance(clip.cond_stage_model, HyditModel):
         result = clip.encode_from_tokens(tokens, return_pooled=False, return_dict=True)
+    elif isinstance(clip.cond_stage_model, JointTextEncoder):
+        result = clip.text_processing_engine.encode_with_transformers(tokens)
     else:
         result = clip.encode_from_tokens(tokens, return_pooled=True)
 
@@ -455,7 +475,7 @@ def clip_encode(texts, pool_top_k=1, steps=30):
     pooled_acc = 0
     flag = True
 
-    if isinstance(final_model_ori, Flux):
+    if isinstance(final_model_ori, Flux) or isinstance(final_model_ori, Kolors):
         result_ces = final_model_ori.get_learned_conditioning(texts, skip_flag=False)
         cond = result_ces.get("crossattn")
         pooled = result_ces.get("vector", 0)
@@ -716,7 +736,7 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
     else:
         initial_latent = latent
 
-    if isinstance(target_model_ori, Flux):
+    if isinstance(target_model_ori, Flux) or isinstance(target_model_ori, Kolors):
         target_unet = target_model_ori
 
         alphas_cumprod_modifiers = target_unet.forge_objects.unet.model_options.get('alphas_cumprod_modifiers', [])

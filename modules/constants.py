@@ -20,6 +20,7 @@ TYPE_Flux = "flux"
 # extreme_speed disused
 TYPE_EXTREME_SPEED = "extreme_speed"
 TYPE_NORMAL = "normal"
+TYPE_Kolors = "kolors"
 
 # import parameter, used by webui_server.py and work.py
 MIN_SEED = 0

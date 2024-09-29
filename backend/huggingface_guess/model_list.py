@@ -1,3 +1,4 @@
+# Attention !
 import torch
 
 from enum import Enum
@@ -421,6 +422,42 @@ class SV3D_p(SV3D_u):
     }
 
 
+class Kolors(BASE):
+    huggingface_repo = "Kwai-Kolors/Kolors"
+
+    # unet_config = {
+        # 'use_checkpoint': False,
+        # 'image_size': 32,
+        # 'use_spatial_transformer': True,
+        # 'legacy': False,
+        # 'num_classes': 'sequential',
+        # 'adm_in_channels': 5632,
+        # 'in_channels': 4,
+        # 'out_channels': 4,
+        # 'model_channels': 320,
+        # 'num_res_blocks': [2, 2, 2],
+        # 'transformer_depth': [0, 0, 2, 2, 10, 10],
+        # 'transformer_depth_output': [0, 0, 0, 2, 2, 2, 10, 10, 10],
+        # 'channel_mult': [1, 2, 4],
+        # 'transformer_depth_middle': 10,
+        # 'use_linear_in_transformer': True,
+        # 'context_dim': 2048,
+        # 'use_temporal_resblock': False,
+        # 'use_temporal_attention': False
+    # }
+
+    text_encoder_key_prefix = ["text_encoder."]
+    noise_aug_config = {"noise_schedule_config": {"timesteps": 1100, "beta_schedule": "linear", "linear_start": 0.00085, "linear_end": 0.014}, "timestep_dim": 1280}
+
+    def clip_target(self, state_dict={}):
+        return {'clip_l': 'text_encoder'}
+
+    # def process_clip_state_dict(self, state_dict):
+    #     replace_prefix = {}
+    #     replace_prefix["cond_stage_model."] = "clip_l."
+    #     state_dict = utils.state_dict_prefix_replace(state_dict, {k: "transformer" for k in self.text_encoder_key_prefix}, filter_keys=True)
+    #     return state_dict
+
 class Stable_Zero123(BASE):
     unet_config = {
         "context_dim": 768,
@@ -712,6 +749,9 @@ class FluxSchnell(Flux):
     }
 
 
-# models = [Stable_Zero123, SD15_instructpix2pix, SD15, SD20, SD21UnclipL, SD21UnclipH, SDXL_instructpix2pix, SDXLRefiner, SDXL, SSD1B, KOALA_700M, KOALA_1B, Segmind_Vega, SD_X4Upscaler, Stable_Cascade_C, Stable_Cascade_B, SV3D_u, SV3D_p, SD3, StableAudio, AuraFlow, HunyuanDiT, HunyuanDiT1, Flux, FluxSchnell]
-models = [SD15, SD20, SDXLRefiner, SDXL, SD3, AuraFlow, HunyuanDiT, HunyuanDiT1, Flux, FluxSchnell]
+models = [Stable_Zero123, SD15_instructpix2pix, SD15, SD20, SD21UnclipL, SD21UnclipH,
+          SDXL_instructpix2pix, SDXLRefiner, SDXL, SSD1B, KOALA_700M, KOALA_1B, Segmind_Vega,
+          SD_X4Upscaler, Stable_Cascade_C, Stable_Cascade_B, SV3D_u, SV3D_p, SD3,
+          StableAudio, AuraFlow, HunyuanDiT, HunyuanDiT1, Flux, FluxSchnell, Kolors]
+# models = [SD15, SD20, SDXLRefiner, SDXL, SD3, AuraFlow, HunyuanDiT, HunyuanDiT1, Flux, FluxSchnell, Kolors]
 models += [SVD_img2vid]

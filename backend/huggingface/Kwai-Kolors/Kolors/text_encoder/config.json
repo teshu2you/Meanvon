@@ -26,6 +26,7 @@
   "layernorm_epsilon": 1e-05,
   "multi_query_attention": true,
   "multi_query_group_num": 2,
+  "max_position_embeddings": 77,
   "num_attention_heads": 32,
   "num_layers": 28,
   "original_rope": true,
