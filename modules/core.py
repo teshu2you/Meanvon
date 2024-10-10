@@ -150,25 +150,48 @@ class StableDiffusionModel:
                                                                                             self.filename, list(
                                lora_unmatch.keys()))).printf()
 
-            if self.unet_with_lora is not None and len(lora_unet) > 0:
-                loaded_keys = self.unet_with_lora.add_patches(lora_unet, weight)
-                printF(name=MasterName.get_master_name(),
-                       info="Loaded LoRA [{}] for UNet [{}] with {} keys at weight {}.".format(
-                           lora_filename, self.filename, len(loaded_keys), weight)).printf()
-                for item in lora_unet:
-                    if item not in loaded_keys:
-                        printF(name=MasterName.get_master_name(),
-                               info="UNet LoRA key skipped: {}".format(item)).printf()
+            if "flux" not in lora_filename.lower():
+                if self.unet_with_lora is not None and len(lora_unet) > 0:
+                    loaded_keys = self.unet_with_lora.add_patches(lora_unet, weight)
+                    printF(name=MasterName.get_master_name(),
+                           info="Loaded LoRA [{}] for UNet [{}] with {} keys at weight {}.".format(
+                               lora_filename, self.filename, len(loaded_keys), weight)).printf()
+                    for item in lora_unet:
+                        if item not in loaded_keys:
+                            printF(name=MasterName.get_master_name(),
+                                   info="UNet LoRA key skipped: {}".format(item)).printf()
 
-            if self.clip_with_lora is not None and len(lora_clip) > 0:
-                loaded_keys = self.clip_with_lora.add_patches(lora_clip, weight)
-                printF(name=MasterName.get_master_name(),
-                       info="Loaded LoRA [{}] for CLIP [{}] with {} keys at weight {}.".format(
-                           lora_filename, self.filename, len(loaded_keys), weight)).printf()
-                for item in lora_clip:
-                    if item not in loaded_keys:
+                if self.clip_with_lora is not None and len(lora_clip) > 0:
+                    loaded_keys = self.clip_with_lora.add_patches(lora_clip, weight)
+                    printF(name=MasterName.get_master_name(),
+                           info="Loaded LoRA [{}] for CLIP [{}] with {} keys at weight {}.".format(
+                               lora_filename, self.filename, len(loaded_keys), weight)).printf()
+                    for item in lora_clip:
+                        if item not in loaded_keys:
+                            printF(name=MasterName.get_master_name(),
+                                   info="CLIP LoRA key skipped: {}".format(item)).printf()
+            else:
+                model_flag = type(self.unet.model).__name__ if self.unet is not None else 'default'
+
+                if self.unet_with_lora is not None and len(lora_unet) > 0:
+                    loaded_keys = self.unet_with_lora.add_patches(filename=lora_filename, patches=lora_unet, strength_patch=1.0, online_mode=False)
+                    skipped_keys = [item for item in lora_unet if item not in loaded_keys]
+                    if len(skipped_keys) > 12:
                         printF(name=MasterName.get_master_name(),
-                               info="CLIP LoRA key skipped: {}".format(item)).printf()
+                               info="[LORA] Mismatch {} for {}-UNet with {} keys mismatched in {} keys".format(lora_filename, model_flag, len(skipped_keys), len(loaded_keys))).printf()
+                    else:
+                        printF(name=MasterName.get_master_name(),
+                               info="[LORA] Loaded {} for {}-UNet with {}".format(lora_filename,model_flag, len(loaded_keys))).printf()
+
+                if self.clip_with_lora is not None and len(lora_clip) > 0:
+                    loaded_keys = self.clip_with_lora.add_patches(filename=lora_filename, patches=lora_clip, strength_patch=1.0, online_mode=False)
+                    skipped_keys = [item for item in lora_clip if item not in loaded_keys]
+                    if len(skipped_keys) > 12:
+                        printF(name=MasterName.get_master_name(),
+                               info="[LORA] Mismatch {} for {}-CLIP with {} keys mismatched in {} keys".format(lora_filename, model_flag,len(skipped_keys),  len(loaded_keys))).printf()
+                    else:
+                        printF(name=MasterName.get_master_name(),
+                               info="[LORA] Loaded {} for {}-CLIP with {}".format(lora_filename, model_flag, len(loaded_keys))).printf()
 
 
 @torch.no_grad()

@@ -1,0 +1,12 @@
+{
+	"Type": "LORA",
+	"NSFW": "True",
+	"Update_Date":"",
+	"Base": "flux",
+	"Links": "https://www.qpipi.com/73825/",
+	"Version": "v1.0",
+ 	"Tags": "aidmaNSFWunlock",
+	"Usage_Tips": "设置0.5 – 1.0 触发 aidmaNSFWunlock",
+	"Author": "AIDigitalMediaAgency",
+	"ReMark": ""
+}

@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"2024/08/30",
+	"Base": "基础模型F.1",
+	"Links": "https://www.liblib.art/modelinfo/a211b853a58942bbbffaa96e18d85d55?from=search&versionUuid=ef2460a0f36e4fea9940bb785ca7bc60",
+	"Version": "",
+	"Tags": "Girl",
+	"Usage_Tips": "Girl 0.6~0.8",
+	"Author": "与一",
+	"ReMark": "小红书风格的flux-lora模型 自带磨皮效果，少女脸，清纯，可爱，最好使用comfyUIG工作流，后面加一个放大重绘 推荐尺寸：1024*1366 权重0.6~0.8"
+}

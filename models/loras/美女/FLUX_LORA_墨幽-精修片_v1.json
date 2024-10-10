@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"2024/09/06",
+	"Base": "基础模型F.1",
+	"Links": "https://www.liblib.art/modelinfo/2c199028358d46a4884ae3aa521b6d73?from=search&versionUuid=2449f2afec9b47298eca59e0067cee64",
+	"Version": "",
+	"Tags": "This is a clear | high-resolution photo，",
+	"Usage_Tips": "This is a clear  high-resolution photo， 权重：0.7~0.8",
+	"Author": "墨幽",
+	"ReMark": "这是一个影楼精修片风格的风格迁移模型正面tag与 墨幽随拍-F.1、墨幽胶片-F.1、墨幽3D-F.1、墨幽人造人XL 通用，可前往参考例图tag（删除tag中其他的风格描述在开头添加本Lora的触发词）。权重：0.7~0.8其他参数：线上线下均为默认本模型详细参数皆可参考例图或返图区中的参数工作流及tag，本地comfyui使用可直接下载例图导入，本模型下载后需放入comfyui下models\unet文件夹，若缺少其他依赖模型（clip、vae）可前往 Flux-dev/fp8/NF4/GGUF-所需模型文件包 下载 Flux-dev-fp8 版本包并按说明放入指定路径。更多flux工作流可前往 墨幽-FLUX+SDXL-refiner生图矩阵 试用。模型使用  墨幽-GLM-4v-9b本地标签器  打标，有兴趣欢迎前往下载试用。是觉得不错还请多多返图支持，谢谢~鹅群：墨幽炼丹阁-太清阁：858495398墨幽炼丹阁-上清阁：764481772也请多多关注我的小红书和抖音账号：yy469370733"
+}

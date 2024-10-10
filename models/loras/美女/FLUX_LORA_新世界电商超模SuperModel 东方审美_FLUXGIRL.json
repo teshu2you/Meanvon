@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"2024/08/21",
+	"Base": "基础模型F.1",
+	"Links": "https://www.liblib.art/modelinfo/d835a88b2b6c4bbf808c4c05cf4b1391?from=search&versionUuid=a68c3bb75e864bb3a72a7af26dc9f557",
+	"Version": "FLUXGIRL",
+	"Tags": "pl",
+	"Usage_Tips": "推荐权重0.85 CFG 2.5",
+	"Author": "元影AiARTiST",
+	"ReMark": "从模型架构上看，FLUX.1和V3有很多相似之处，都是基于FlowingMatching调度的模型，都通过引入T5来增强prompt的依从性。而比较显著的区别在于：flux模型引入了一种叫DoubleStreamBlock的结构，具体来说在前几层layer中，采用了txt和img embedding独立过各自的transformer块，然后再拼到一起过统一的transformer块。在Liblib在线WEBUI模式使用目前采样方法支持FlowMatchEuler，Embedding兼容SD1.5的，用SDXL的可能会有问题（不绝对）。CFG推荐2.5，大家可以在2.5~3.5之间自行调节。采样步数默认20，可酌情调节🔥 此版本支持Liblib平台在线WEBUI、ComfyUI双模式出图，兼顾速度与质量！FLUX.1在文本控制能力，大画幅生成能力，结构生成能力等取得了很好的效果。"
+}

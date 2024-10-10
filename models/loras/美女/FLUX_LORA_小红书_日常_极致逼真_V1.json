@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"2024/09/21",
+	"Base": "基础模型F.1",
+	"Links": "https://www.liblib.art/modelinfo/d9675e37370e493ab8bf52046827a2b0?from=search&versionUuid=7852ee527ca34d8b940d0749a75e4b67",
+	"Version": "v1",
+	"Tags": "xhs",
+	"Usage_Tips": "xhs 0.6~0.8 推荐权重 0.8 CFG 1",
+	"Author": "AI老X",
+	"ReMark": "小红书真实感风格模型，极度真实，自然日常1024以下直出就已经极度真实，建议配合放大工作流一起使用，效果看图片区的图片  推荐使用:deis+beta使用 采样步数30步以上"
+}

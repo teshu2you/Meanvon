@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"2024/08/30",
+	"Base": "基础模型F.1",
+	"Links": "https://www.liblib.art/modelinfo/f040e8f8526945249ff4f150fc727eb3?from=search&versionUuid=3913ef46f0e749478ebac9a8f1cd03b9",
+	"Version": "v1",
+	"Tags": "",
+	"Usage_Tips": "推荐权重0.3  CFG 7 VAE 无",
+	"Author": "刀忑",
+	"ReMark": "可以给人物降低油光，同时用于提升真实度和细节，更富有电影感的光效，增加画面元素丰富度，直接用于Flux生图或图生图提升细节。建议配合渲染类型词使用（非必要触发词）：写实：flim rendering,CG/建模：octane rendering,UE5,Maya,blender等类似描述词使用。权重：根据生图类型灵活调整，写实人像：0.1-0.5，CG类：0.35-0.75，类似动物毛发细节较多：0.3-0.5 机械类：0.15-0.75"
+}

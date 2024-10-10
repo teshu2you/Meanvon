@@ -237,7 +237,7 @@ def compute_cfg(uncond, cond, cfg_scale, t):
 
     real_eps = uncond + real_cfg * (cond - uncond)
 
-    if cfg_scale > patch_settings[pid].adaptive_cfg:
+    if cfg_scale > mimic_cfg:
         mimicked_eps = uncond + mimic_cfg * (cond - uncond)
         return real_eps * t + mimicked_eps * (1 - t)
     else:
