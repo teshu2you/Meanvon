@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Trained",
+	"NSFW": "True",
+	"Update_Date":"Sep 28, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/477851/duchaiten-pony-real",
+	"Version": "v2.0",
+	"Tags": "base model photorealistic sexy woman game character girls male man realistic",
+	"Usage_Tips": "- Sampling method: DPM++ SDE (slow but makes the image more realistic, with fewer errors, and closer to the prompt)- Schedule type: SGM Uniform (produces images closer to the prompt)- CFG Scale: 9 (fewer errors)- Sampling steps: from 30-40 (starting from step 36 onwards, the image will have more accurate details and fewer small errors. The higher the steps, the better these small details will look. However, the higher the number of steps, the more likely color errors and contrasting color patches will appear.",
+	"Author": "DucHaiten Joined Dec 25, 2022",
+	"ReMark": "The model is trained on pony-no-score, but is aimed at a realistic style.Version 2.0 adds several data updates, with the most important adjustment being the shift from cool to warm colors. The lighting has also been toned down to reduce glare, making it easier to see certain details in the dark. The overall image is slightly darker, creating a more somber atmosphere when needed, but it can still be bright or warm depending on the situation."
+}

@@ -2346,8 +2346,8 @@ with (gr.Blocks(
 
             ip_advanced.change(lambda: None, queue=False, show_progress=False, _js=down_js)
 
-            # current_tab = gr.State(value='uov')
-            current_tab = gr.Textbox(value='uov', visible=False)
+            current_tab = gr.State(value='uov')
+            # current_tab = gr.Textbox(value='uov', visible=False)
             # default_image = gr.State(value=None)
 
             # lambda_img = lambda x: x['image'] if isinstance(x, dict) else x

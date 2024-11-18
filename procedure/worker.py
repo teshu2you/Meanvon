@@ -1113,13 +1113,14 @@ class taskManager:
 
     def download_image_func_models(self, async_task):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> download_image_func_models").printf()
+        printF(name=MasterName.get_master_name(), info="[Parameters] current_tab = {}".format(self.current_tab)).printf()
         if not self.image_factory_checkbox:
             printF(name=MasterName.get_master_name(), info="[Warning] image_factory_checkbox is not ENABLED!").printf()
-        if self.image_factory_checkbox:
+        else:
             if (self.current_tab == 'uov' or (
                     self.current_tab == 'ip' and self.mixing_image_prompt_and_vary_upscale)) \
                     and self.uov_method != modules.flags.disabled and self.uov_input_image is not None:
-                uov_input_image = HWC3(self.uov_input_image)
+                self.uov_input_image = HWC3(self.uov_input_image)
                 if 'vary' in self.uov_method:
                     self.goals.append('vary')
                 elif 'upscale' in self.uov_method:
@@ -1222,6 +1223,8 @@ class taskManager:
                        info="[Parameters] clip_vision_path = {}".format(self.clip_vision_path)).printf()
 
                 self.progressbar(async_task, 1, 'Loading control models ...')
+        printF(name=MasterName.get_master_name(),
+                   info="[Parameters] self.goals = {}".format(self.goals)).printf()
 
     def manage_cns(self, async_task):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> manage_cns").printf()
@@ -1603,74 +1606,74 @@ class taskManager:
                 self.inpaint_strength = 1.0
                 self.inpaint_respective_field = 1.0
 
-                self.denoising_strength = self.inpaint_strength
+            self.denoising_strength = self.inpaint_strength
 
-                inpaint_worker.current_task = inpaint_worker.InpaintWorker(
-                    image=self.inpaint_image,
-                    mask=self.inpaint_mask,
-                    use_fill=self.denoising_strength > 0.99,
-                    k=self.inpaint_respective_field
-                )
+            inpaint_worker.current_task = inpaint_worker.InpaintWorker(
+                image=self.inpaint_image,
+                mask=self.inpaint_mask,
+                use_fill=self.denoising_strength > 0.99,
+                k=self.inpaint_respective_field
+            )
 
-                if self.debugging_inpaint_preprocessor:
-                    self.yield_result(async_task, inpaint_worker.current_task.visualize_mask_processing(),
-                                      do_not_show_finished_images=True)
-                    return
+            if self.debugging_inpaint_preprocessor:
+                self.yield_result(async_task, inpaint_worker.current_task.visualize_mask_processing(),
+                                  do_not_show_finished_images=True)
+                return
 
-                self.progressbar(async_task, 13, 'VAE Inpaint encoding ...')
+            self.progressbar(async_task, 13, 'VAE Inpaint encoding ...')
 
-                inpaint_pixel_fill = modules.core.numpy_to_pytorch(inpaint_worker.current_task.interested_fill)
-                inpaint_pixel_image = modules.core.numpy_to_pytorch(
-                    inpaint_worker.current_task.interested_image)
-                inpaint_pixel_mask = modules.core.numpy_to_pytorch(inpaint_worker.current_task.interested_mask)
+            inpaint_pixel_fill = modules.core.numpy_to_pytorch(inpaint_worker.current_task.interested_fill)
+            inpaint_pixel_image = modules.core.numpy_to_pytorch(
+                inpaint_worker.current_task.interested_image)
+            inpaint_pixel_mask = modules.core.numpy_to_pytorch(inpaint_worker.current_task.interested_mask)
 
-                candidate_vae, candidate_vae_swap = pipeline.get_candidate_vae(
-                    steps=self.steps,
-                    switch=self.switch,
-                    denoise=self.denoising_strength,
-                    refiner_swap_method=self.refiner_swap_method
-                )
+            candidate_vae, candidate_vae_swap = pipeline.get_candidate_vae(
+                steps=self.steps,
+                switch=self.switch,
+                denoise=self.denoising_strength,
+                refiner_swap_method=self.refiner_swap_method
+            )
 
-                latent_inpaint, latent_mask = modules.core.encode_vae_inpaint(
-                    mask=inpaint_pixel_mask,
-                    vae=candidate_vae,
-                    pixels=inpaint_pixel_image)
+            latent_inpaint, latent_mask = modules.core.encode_vae_inpaint(
+                mask=inpaint_pixel_mask,
+                vae=candidate_vae,
+                pixels=inpaint_pixel_image)
 
-                latent_swap = None
-                if candidate_vae_swap is not None:
-                    self.progressbar(async_task, 13, 'VAE SD15 encoding ...')
-                    latent_swap = modules.core.encode_vae(
-                        vae=candidate_vae_swap,
-                        pixels=inpaint_pixel_fill)['samples']
-
-                self.progressbar(async_task, 13, 'VAE encoding ...')
-                latent_fill = modules.core.encode_vae(
-                    vae=candidate_vae,
+            latent_swap = None
+            if candidate_vae_swap is not None:
+                self.progressbar(async_task, 13, 'VAE SD15 encoding ...')
+                latent_swap = modules.core.encode_vae(
+                    vae=candidate_vae_swap,
                     pixels=inpaint_pixel_fill)['samples']
 
-                inpaint_worker.current_task.load_latent(
-                    latent_fill=latent_fill, latent_mask=latent_mask, latent_swap=latent_swap)
+            self.progressbar(async_task, 13, 'VAE encoding ...')
+            latent_fill = modules.core.encode_vae(
+                vae=candidate_vae,
+                pixels=inpaint_pixel_fill)['samples']
 
-                if self.inpaint_parameterized:
-                    pipeline.final_unet = inpaint_worker.current_task.patch(
-                        inpaint_head_model_path=self.inpaint_head_model_path,
-                        inpaint_latent=latent_inpaint,
-                        inpaint_latent_mask=latent_mask,
-                        model=pipeline.final_unet
-                    )
+            inpaint_worker.current_task.load_latent(
+                latent_fill=latent_fill, latent_mask=latent_mask, latent_swap=latent_swap)
 
-                if not self.inpaint_disable_initial_latent:
-                    self.initial_latent = {'samples': latent_fill}
+            if self.inpaint_parameterized:
+                pipeline.final_unet = inpaint_worker.current_task.patch(
+                    inpaint_head_model_path=self.inpaint_head_model_path,
+                    inpaint_latent=latent_inpaint,
+                    inpaint_latent_mask=latent_mask,
+                    model=pipeline.final_unet
+                )
 
-                B, C, H, W = latent_fill.shape
-                height, width = H * 8, W * 8
-                final_height, final_width = inpaint_worker.current_task.image.shape[:2]
-                printF(name=MasterName.get_master_name(),
-                       info="[Parameters] denoising_strength = {}".format(self.denoising_strength)).printf()
-                printF(name=MasterName.get_master_name(),
-                       info="[Parameters] final_width = {}".format(final_width)).printf()
-                printF(name=MasterName.get_master_name(),
-                       info="[Parameters] final_height = {}".format(final_height)).printf()
+            if not self.inpaint_disable_initial_latent:
+                self.initial_latent = {'samples': latent_fill}
+
+            B, C, H, W = latent_fill.shape
+            self.height, self.width = H * 8, W * 8
+            final_height, final_width = inpaint_worker.current_task.image.shape[:2]
+            printF(name=MasterName.get_master_name(),
+                   info="[Parameters] denoising_strength = {}".format(self.denoising_strength)).printf()
+            printF(name=MasterName.get_master_name(),
+                   info="[Parameters] image: final_width = {} , final_height = {} ".format(final_width, final_height)).printf()
+            printF(name=MasterName.get_master_name(),
+                   info="[Parameters] latent: width = {},  height = {}".format(self.width, self.height)).printf()
 
     def check_cn_in_goals(self, async_task):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> check_cn_in_goals").printf()
