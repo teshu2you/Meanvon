@@ -28,13 +28,30 @@ def load_lora(lora, to_load):
     patch_dict, remaining_dict = get_function('load_lora')(lora, to_load)
     return patch_dict, remaining_dict
 
+def inner_str(k, prefix="", suffix=""):
+    return k[len(prefix):-len(suffix)]
 
 def model_lora_keys_clip(model, key_map={}):
-    return get_function('model_lora_keys_clip')(model, key_map)
+    model_keys, key_maps = get_function('model_lora_keys_clip')(model, key_map)
+
+    for model_key in model_keys:
+        if model_key.endswith(".weight"):
+            if model_key.startswith("t5xxl.transformer."):
+                for prefix in ['te1', 'te2', 'te3']:
+                    formatted = inner_str(model_key, "t5xxl.transformer.", ".weight")
+                    formatted = formatted.replace(".", "_")
+                    formatted = f"lora_{prefix}_{formatted}"
+                    key_map[formatted] = model_key
+
+    return key_maps
 
 
 def model_lora_keys_unet(model, key_map={}):
-    return get_function('model_lora_keys_unet')(model, key_map)
+    model_keys, key_maps = get_function('model_lora_keys_unet')(model, key_map)
+
+    # TODO: OFT
+
+    return key_maps
 
 
 @torch.inference_mode()

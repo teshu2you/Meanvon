@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"",
+	"Base": "SDXL 1.0",
+	"Links": "https://www.qpipi.com/87660/",
+	"Version": "v2.0",
+	"Tags": "BASE MODEL NSFW",
+	"Usage_Tips": "DPM++ 2M SDE Heun Exponential，通常为 30 或 60 步，CFG 从 2 到 7，更常见的是 2 到 3.5。",
+	"Author": "Seeker70",
+	"ReMark": "与我的主要模型 Acorn Is Spinning XL V4 一样，我将默认生成分辨率更改为 1024 X 1328。我认为这个变化是手部改进的部分原因，因为我以前的模型在该分辨率下也得到了改进。我厌倦了所有相同的旧色情姿势，因此在这个最初的画廊中，我包含了一些常规姿势以及一些 img2img 内容和一些奇幻主题的色情内容。如果你试图复制我的图片但无法复制，那可能是 img2img 图片之一。享受！！我的首选采样器仍然是 DPM++ 2M SDE Heun Exponential，通常为 30 或 60 步，CFG 从 2 到 7，更常见的是 2 到 3.5。与我以前的版本一样，我制作了一个利用动态提示的随机生成器提示。您可以将种子设置为随机化并运行批次。回去调整那些而不是突出的那些。DPM++ 2M SDE Heun Exponential 是我的首选采样器，但许多采样器都运行良好。我更喜欢使用 40 步或更多，但您也可以在较低的步数下获得良好的效果，至少可以降低到 20 步。从 3 到 9 的 CFG 都运行良好。"
+}

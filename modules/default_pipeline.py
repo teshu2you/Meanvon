@@ -173,8 +173,10 @@ def refresh_base_model(name, performance_selection=None):
     model_file_type = get_model_file_type(name)
     if model_file_type == constants.TYPE_Flux:
         vae_filename = [get_file_from_folder_list(modules.config.default_flux_vae_name, modules.config.path_vae),
-                    get_file_from_folder_list(modules.config.default_flux_text_encoder_clip, modules.config.path_text_encoder),
-                    get_file_from_folder_list(modules.config.default_flux_text_encoder_t5xxl, modules.config.path_text_encoder)]
+                        get_file_from_folder_list(modules.config.default_flux_text_encoder_clip,
+                                                  modules.config.path_text_encoder),
+                        get_file_from_folder_list(modules.config.default_flux_text_encoder_t5xxl,
+                                                  modules.config.path_text_encoder)]
     elif model_file_type == constants.TYPE_Kolors:
         vae_filename = [get_file_from_folder_list(modules.config.default_kolors_chatglm_name, modules.config.path_llm)]
     else:
@@ -337,16 +339,26 @@ def clip_encode_single(clip, text, verbose=False):
         if verbose:
             printF(name=MasterName.get_master_name(), info="[CLIP Cached] = {}".format(text)).printf()
         return cached
-    if isinstance(clip.tokenizer.clip_l, ChatGLMTokenizer):
-        tokens = clip.tokenizer.clip_l.tokenize(text)
-    else:
-        tokens = clip.tokenize(text)
+
+    def tokenize_and_encode(clip, text, return_pooled=True):
+        if isinstance(clip.tokenizer.clip_l, ChatGLMTokenizer):
+            tokens = clip.tokenizer.clip_l.tokenize(text)
+        else:
+            tokens = clip.tokenize(text)
+
+        if isinstance(clip.cond_stage_model, JointTextEncoder):
+            result = clip.text_processing_engine.encode_with_transformers(tokens)
+        else:
+            result = clip.encode_from_tokens(tokens, return_pooled=return_pooled, return_dict=True)
+
+        return result
+
+    # 优化后的代码逻辑
     if isinstance(clip.cond_stage_model, HyditModel):
+        tokens = clip.tokenize(text)
         result = clip.encode_from_tokens(tokens, return_pooled=False, return_dict=True)
-    elif isinstance(clip.cond_stage_model, JointTextEncoder):
-        result = clip.text_processing_engine.encode_with_transformers(tokens)
     else:
-        result = clip.encode_from_tokens(tokens, return_pooled=True)
+        result = tokenize_and_encode(clip, text, return_pooled=True)
 
     clip.fcs_cond_cache[text] = result
     if verbose:
@@ -386,6 +398,7 @@ plain: /([^\\\[\]():|]|\\.)+/
 %import common.SIGNED_NUMBER -> NUMBER
 """)
 
+
 def get_learned_conditioning_prompt_schedules(prompts, base_steps):
     int_offset = 0
     flt_offset = 0
@@ -398,13 +411,13 @@ def get_learned_conditioning_prompt_schedules(prompts, base_steps):
             def scheduled(self, tree):
                 s = tree.children[-2]
                 v = float(s)
-                v = v*steps if v<1 else v
+                v = v * steps if v < 1 else v
                 tree.children[-2] = min(steps, int(v))
                 if tree.children[-2] >= 1:
                     res.append(tree.children[-2])
 
             def alternate(self, tree):
-                res.extend(range(1, steps+1))
+                res.extend(range(1, steps + 1))
 
         CollectSteps().visit(tree)
         return sorted(set(res))
@@ -414,9 +427,11 @@ def get_learned_conditioning_prompt_schedules(prompts, base_steps):
             def scheduled(self, args):
                 before, after, _, when, _ = args
                 yield before or () if step <= when else after
+
             def alternate(self, args):
                 args = ["" if not arg else arg for arg in args]
                 yield args[(step - 1) % len(args)]
+
             def start(self, args):
                 def flatten(x):
                     if isinstance(x, str):
@@ -424,12 +439,16 @@ def get_learned_conditioning_prompt_schedules(prompts, base_steps):
                     else:
                         for gen in x:
                             yield from flatten(gen)
+
                 return ''.join(flatten(args))
+
             def plain(self, args):
                 yield args[0].value
+
             def __default__(self, data, children, meta):
                 for child in children:
                     yield child
+
         return AtStep().transform(tree)
 
     def get_schedule(prompt):
@@ -445,11 +464,13 @@ def get_learned_conditioning_prompt_schedules(prompts, base_steps):
     promptdict = {prompt: get_schedule(prompt) for prompt in set(prompts)}
     return [promptdict[prompt] for prompt in prompts]
 
+
 class SdConditioning(list):
     """
     A list with prompts for stable diffusion's conditioner model.
     Can also specify width and height of created image - SDXL needs it.
     """
+
     def __init__(self, prompts, copy_from=None):
         super().__init__()
         self.extend(prompts)
@@ -501,11 +522,12 @@ def clip_encode(texts, pool_top_k=1, steps=30):
                 pooled_acc += pooled
 
         if flag:
-            return [[torch.cat(cond_list, dim=1),{"pooled_output": pooled_acc}]]
+            return [[torch.cat(cond_list, dim=1), {"pooled_output": pooled_acc}]]
         else:
             return [[torch.cat(cond_list, dim=1),
                      {"pooled_output": pooled_acc, "attention_mask": att_mask, "attention_mask_mt5xl": att_mask_mt5xl,
                       "conditioning_mt5xl": cdt_mt5xl}]]
+
 
 # @torch.no_grad()
 # @torch.inference_mode()
@@ -1018,5 +1040,3 @@ def lightning_process_diffusion(positive_cond, negative_cond, steps, width, heig
     output = pipe(**common_args)
 
     return output.images
-
-

@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Nov 18, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/80473?modelVersionId=1047528",
+	"Version": "v1.1",
+	"Tags": "base model person photorealistic sexy blend hardcore porn pregnant gay penis science fiction lewd",
+	"Usage_Tips": "",
+	"Author": "iamddtla Joined Jan 7, 2023",
+	"ReMark": "1.SDXL-V1.1-VAE是我为了制作SDXL-V1.1-VAE-inpainting的副产品，在此版本中我增加了更多东方元素的模型，色情能力比SDXL-V1稍微弱一点，但是合并模型中包含的主题较广泛，泛用性较高。2.此版本为SDXL模型，模型包含VAE，无需使用VAE。3.可以使用PornMaster-Amateur模型中的reddit和r/的提示词。4.此为sdxl模型，有些pony的lora可以在此模型使用，有些则不行，我也不知道为什么。5.sdxl版本合并中的bigASP-v2 模型使用「score_」作为品质提示字来训练模型。请参考bigASP-v2型号的说明。"
+}

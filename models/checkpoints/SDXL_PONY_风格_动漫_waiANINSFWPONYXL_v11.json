@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"Nov 22, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/404154/wai-ani-nsfw-ponyxl?modelVersionId=1085338",
+	"Version": "v7.0",
+	"Tags": "style anime sexy",
+	"Usage_Tips": "Clip Skip: 2 Steps: 30 CFG scale: 7 Sampler: Euler a/DPM++ 2M Karras ADetailer face_yolov8n/s.pt use can fix eyes",
+	"Author": "WAI0731",
+	"ReMark": "Weight adjustment, balancing the art style All example images(Except the cover) are generated at 1024x1360, without using AD and hires fix. Recommended Setting Positive Prompt score_9, score_8_up, score_7_up,source_anime,Negative Prompt worst quality,bad quality,jpeg artifacts, source_cartoon, 3d, (censor),monochrome,blurry, lowres,watermark, "
+}
