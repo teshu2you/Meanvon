@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Trained",
+	"NSFW": "True",
+	"Update_Date":"Dec 27, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/443821?modelVersionId=1208331",
+	"Version": "v7.0a",
+	"Tags": "base model cute man realistic women pony xl",
+	"Usage_Tips": "Sampling method: DPM++ SDE Karras / DPM++ 2M Karras / Euler a Sampling steps: 30+ Steps Resolution: 896x1152 / 832x1216 CFG: 5 Clip Skip: 2",
+	"Author": "Cyberdelia Joined Dec 7, 2022",
+	"ReMark": "CyberRealistic Pony is the awesome Pony Diffusion with some CyberRealistic elements."
+}

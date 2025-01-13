@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Dec 20, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/226533?modelVersionId=1150354",
+	"Version": "Pony 5.0C",
+	"Tags": "base model photorealistic sexy female chinese hanfu woman girls realistic nsfw sfw",
+	"Usage_Tips": "hanfu",
+	"Author": "JinnGames Joined Dec 8, 2023",
+	"ReMark": "A model with a highly realistic feel, optimized for Asian girls. It performs well with girls from various countries and diverse styles, capturing intricate details of the body.Recommended resolutions: 768, 1024, 1280 for the best visual experience.真实感非常强烈的模型，针对亚洲女孩进行优化。各国女孩和多种风格都不错，身体细节都有。 建议768、1024、1280最佳分辨率。各路大神可以+VX：jinngame ，请备注C站 ，期望共同成长互通有无。这里包括了Flux.1、Pony、XL 等不同模型，各版本有递进和分支关系，请酌情下载不同版本。This collection includes various models such as Flux.1, Pony, and XL, each with progressive updates and branching versions. Please choose and download the version that best suits your needs.Pony 5.0A 是 Pony 4.9 的升级版本，彻底解决了脸部存在卡通画的问题，经过大规模优化，成为专为亚洲人设计的特化版本。早期下载国Pony 5.0A的朋友们可以重新下载这个模型，他已经更新到了最新的版本。Pony 5.0C 是 Pony 5.0A 的稳定升级版本，面部表现更为丰富，无论是东方人还是西方人的面部表现都非常出色。Pony 5.0A is an upgraded version of Pony 4.9, thoroughly resolving the cartoon face issues. After extensive optimization, it has become a specialized version designed specifically for Asians. Friends who downloaded Pony 5.0A early can re-download this model, as it has been updated to the latest version.Pony 5.0C is a stable upgrade of Pony 5.0A, offering a richer facial expression, with outstanding representations for both Eastern and Western facial features."
+}

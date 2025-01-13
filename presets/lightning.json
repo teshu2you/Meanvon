@@ -1,12 +1,12 @@
 {
     "default_model_type":"SDXL",
-    "default_model": "SDXL_Lightning_全能_juggernautXL_v9Rdphoto2Lightning.safetensors",
+    "default_model": "SDXL_Lightning_真实_照片_LEOSAM_HelloWorld_极速版_5.0.safetensors",
     "default_refiner": "None",
     "default_refiner_switch": 0.5,
     "default_loras": [
         [
             true,
-            "sdxl_lightning_8step_lora.safetensors",
+            "None",
             1.0
         ],
         [

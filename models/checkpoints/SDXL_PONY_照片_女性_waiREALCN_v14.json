@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Dec 26, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/469902/wai-realcn?modelVersionId=1204803",
+	"Version": "v14.0",
+	"Tags": "style photorealistic woman realistic",
+	"Usage_Tips": "Recommended Setting Steps: 30 CFG scale: 7 Sampler: Euler a",
+	"Author": "WAI0731",
+	"ReMark": "V14 关于例图, 我使用了1024x1360的大小,都是直接输出没有经过AD跟高修.For the example images V14, I used 1024x1360, generated directly without AD or hires fix. 重新调整了整体色彩,构图,背景.The overall color, composition, and background have been re-adjusted.Positive Prompt: score_9, score_8_up, score_7_up； Negative Prompt:score_6,score_5,score_4,, worst quality, low quality, bad anatomy, bad hands, missing fingers, fewer digits, source_furry, sourcwe_pony, source_cartoon,3d, blurry,"
+}

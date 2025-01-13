@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"Aug 11, 2024",
+	"Base": "SD 1.5",
+	"Links": "https://civitai.work/models/153568/real-dream?modelVersionId=712448",
+	"Version": "15",
+	"Tags": "base model photorealistic photo girls men real photorealim",
+	"Usage_Tips": "",
+	"Author": "sinatra Joined Jan 1, 2023",
+	"ReMark": "Default SD 1.5: Use the DPM++ SDE Karras or DPM++ 2M Karras sampler with only 20 steps for better quality. DPM++ SDE Karras has better quality but is slow.Default SD 1.5: Use the CFG scale between 5 and 9. CFG scale at 5 is recommended. Stable Diffusion default value is 7."
+}

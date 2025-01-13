@@ -1,6 +1,6 @@
 {
     "default_model_type":"SDXL",
-    "default_model": "SDXL_照片_真实_LEOSAM HelloWorld新世界_SDXL真实感大模型_v7.0.safetensors",
+    "default_model": "SDXL_PONY_照片_女性_iniverseMixSFWNSFW_ponyRealGuofengV50C.safetensors",
     "default_refiner": "None",
     "default_refiner_switch": 0.8,
     "default_loras": [

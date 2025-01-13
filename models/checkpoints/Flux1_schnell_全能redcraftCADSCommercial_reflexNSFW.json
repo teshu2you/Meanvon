@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"Dec 4, 2024",
+	"Base": "Flux.1 S",
+	"Links": "https://civitai.work/models/958009?modelVersionId=1126236",
+	"Version": "ReFLEX NSFW",
+	"Tags": "base model photorealistic artistic fantasy realistic originality",
+	"Usage_Tips": "Sampler: Use DPM++ 2M samplers for smooth and consistent outputs.Steps: Aim for 30–50 steps to capture finer details without over-processing.Scheduler: Beta Scheduler remains the best choice for this checkpoint.",
+	"Author": "Danrisi Joined Oct 13, 2023",
+	"ReMark": "是Schnell NF4版本的二次元绘画模型，主打结构稳定与提示词还原准确：↳ RedCraft | 红潮 CADS - REFLEX NSFW high-speed model mixed RED.1 on different Schnell De-distillation FT models  在保证提示词准确的基础上，De-Re-Distilled(DRD) Schnell模型兼顾了速度与质量 而且蒸馏模型具有天然的肢体稳定性与画风稳定性，即便是4bit量化版本效果也很好6~10GB显存占用，4-8步出图，速度飞快（特别适合于画风训练与建筑装修模型） the De-Re-Distilled (DRD) Schnell model balances speed and quality Moreover, the distillation model has natural stability , even the 4-bit quantified 6-10GB of video memory usage, 4-8 steps of image output, fast speed (Especially suitable for artistic style creation and architectural decoration)"
+}

@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"Nov 13, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/439889?modelVersionId=1047139",
+	"Version": "v4",
+	"Tags": "base model anime woman girls animagine pony xl",
+	"Usage_Tips": "I had CLIP skip 2 on every image I had ENSD: 31337 all of them All of them had highres.fix or img2img at higher resolution. I don't use restore faces I use afterdetailer for face details Tiled diffusion for img2img upscaling and sometimes Noise Inversion for some more extra details. 4x-Ultrasharp upscaler",
+	"Author": "Goofy_Ai",
+	"ReMark": "onsite generation : http66s://tensor.art/models/794513755405953653/Prefect-Pony-XL-v4 Added trained Lora Cleaned style Baked in VAE Extra trained data of 15000 steps Better Lora support."
+}
