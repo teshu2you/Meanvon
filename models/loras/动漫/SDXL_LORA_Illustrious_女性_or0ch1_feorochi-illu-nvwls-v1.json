@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Jan 20, 2025",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/1160731/orochi-fire-emblem-fates-sdxl-lora-illustrious",
+	"Version": "v1.0",
+	"Tags": "character anime fire emblem fire emblem fates woman game character",
+	"Usage_Tips": "or0ch1, double bun, purple eyes, purple hair, hair ornament, hoop earrings, gold choker, japanese clothes, white crop top, sleeveless, black beads, detached sleeves, cutout pants, black pants, bridal gauntlets",
+	"Author": "novowels Joined Feb 8, 2023",
+	"ReMark": "Orochi/オロチ (Fire Emblem Fates) SDXL LoRA [Illustrious] Orochi from Fire Emblem Fates. Trained on Illustrious-XL. Tested at 0.8-1.0 strength.Trigger word is 'or0ch1' and 'purple hair, double bun, purple eyes' is required.Add 'hair ornament, hoop earrings, gold choker, japanese clothes, white crop top, sleeveless, black beads, detached sleeves, cutout pants, black pants, bridal gauntlets' for her typical look."
+}

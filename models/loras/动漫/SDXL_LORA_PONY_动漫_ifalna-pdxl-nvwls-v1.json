@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Oct 12, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/845459/ifalna-final-fantasy-vii-sdxl-lora-pony-diffusion",
+	"Version": "v1.0",
+	"Tags": "character anime final fantasy final fantasy vii woman game character video game",
+	"Usage_Tips": "ifalna, brown hair, long hair, parted bangs, braid, green eyes,necklace, red dress, long sleeves, purple sarong, long dress",
+	"Author": "novowels Joined Feb 8, 2023",
+	"ReMark": "Ifalna (or Aerith's mom) from Final Fantasy VII (Remake). Trained on Pony Diffusion V6 XL. Tested at 0.8-1.0 strength.Trigger word is 'ifalna' and 'brown hair, long hair, parted bangs, braid, green eyes' is necessary.Add 'necklace, red dress, long sleeves, purple sarong, long dress' for her typical look.A request. Check out my Discord if you want to chat about video games (or yell at me about requests.)"
+}

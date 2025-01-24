@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Feb 27, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://www.qpipi.com/80357/",
+	"Version": "v2.0",
+	"Tags": "BASE MODEL NSFW",
+	"Usage_Tips": "SDXL/PONY加速器:Hyper-SDXL-12steps-CFG-lora Lora權重:0.8~1 12~14步。取样方法(Sampler)=Euler a、Schedule type: SGM Uniform CFG:4~6",
+	"Author": "iamddtla",
+	"ReMark": "1此版本为SDXL模型，模型包含VAE，无需使用VAE。2.可以使用Master-Amateur模型中的reddit和r/的提示词。3.此为sdxl模型，有些pony的lora可以在此模型使用，有些则不行，我也不知道为什么。"
+}

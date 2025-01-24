@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Dec 31, 2024",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/1088227/psykos-one-punch-man-sdxl-lora-illustrious?modelVersionId=1222091",
+	"Version": "v1.0",
+	"Tags": "anime one-punch man woman",
+	"Usage_Tips": "opmpsy, wavy hair, aqua hair, long hair, aqua eyes, huge breasts, earrings, glasses, turtleneck, white dress, shoulder cutout, bare shoulders, black underbust, gold brooch, black elbow gloves, bridal gauntlets, long dress",
+	"Author": "novowels Joined Feb 8, 2023",
+	"ReMark": "Psykos/サイコス (One-Punch Man) SDXL LoRA [Illustrious] I have a form for requests; check it out if you want to request a character.Psykos from One-Punch Man. Trained on Illustrious-XL. Tested at 0.8-1.0 strength.Trigger word is 'opmpsy' and 'aqua hair, wavy hair, long hair, aqua eyes' is mandatory.Add 'earrings, glasses, turtleneck, white dress, shoulder cutout, bare shoulders, black underbust, gold brooch, black elbow gloves, bridal gauntlets, long dress' for her typical look.Check out my Discord if you want to chat about video games (or yell at me about requests.)"
+}

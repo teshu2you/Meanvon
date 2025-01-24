@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Jan 7, 2025",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/1112690/rinoa-heartilly-final-fantasy-viii-sdxl-lora-illustrious",
+	"Version": "v1.0",
+	"Tags": "character anime final fantasy woman game character video game final fantasy viii",
+	"Usage_Tips": "ffrnaht, black hair, long hair, dark brown eyes,   necklace, light blue cardigan, cleavage, black shirt, sleeveless, blue skirt, shorts under skirt, arm ribbon, arm warmers, black boots  , necklace, white dress, short dress, bare shoulders, halterneck.   angel wings",
+	"Author": "novowels Joined Feb 8, 2023",
+	"ReMark": "Rinoa Heartilly/リノア・ハーティリー (Final Fantasy VIII) SDXL LoRA [Illustrious] Rinoa Heartilly from Final Fantasy VIII. Trained on Illustrious-XL. Tested at 0.8-1.0 strength.Contains her regular appearance and her party dress.Trigger word is 'ffrnaht' and 'black hair, long hair, dark brown eyes' is required.Add 'necklace, light blue cardigan, cleavage, black shirt, sleeveless, blue skirt, shorts under skirt, arm ribbon, arm warmers, black boots for her regular look.Add 'necklace, white dress, short dress, bare shoulders, halterneck' for her dress."
+}

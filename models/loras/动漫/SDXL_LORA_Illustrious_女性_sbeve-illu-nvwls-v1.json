@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Dec 2, 2024",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/998868/eve-stellar-blade-sdxl-lora-illustrious",
+	"Version": "v1.0",
+	"Tags": "character anime woman game character video game stellar blade",
+	"Usage_Tips": "defEve, black hair, brown eyes, long ponytail, necktie, green and white bodysuit, sleeveless, fingerless gloves, white gloves, medium breasts, altEve, black hair, brown eyes, long ponytail, brown bodysuit, shiny clothes",
+	"Author": "novowels Joined Feb 8, 2023",
+	"ReMark": "EVE/이브 (Stellar Blade) SDXL LoRA [Illustrious] EVE from Stellar Blade. Trained on Illustrious-XL. Tested at 0.8-1.0 strength.Contains her default appearance and her skin suit.Add 'defEve, black hair, brown eyes, long ponytail, necktie, green and white bodysuit, sleeveless, fingerless gloves, white gloves' for her default look.Add 'altEve, black hair, brown eyes, long ponytail, brown bodysuit, shiny clothes' for her skin suit."
+}

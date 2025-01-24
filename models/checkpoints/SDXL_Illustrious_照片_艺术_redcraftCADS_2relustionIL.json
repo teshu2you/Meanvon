@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"Jan 16, 2025",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/958009?modelVersionId=1290115",
+	"Version": "v2",
+	"Tags": "base model photorealistic artistic fantasy realistic originality",
+	"Usage_Tips": "CFG 5 Deis | EulerA | SGM Uniform",
+	"Author": "METAFILM_Ai Joined Feb 17, 2023",
+	"ReMark": "RETRORelustion2 光辉发布 1/16 基于 RETROSD / FLUX Reveal / EDGE4k 打造东亚复古真实系 Illustrious FT RETRO！重返SD时代的光辉岁月！Returning to the glorious years of SD !CFG 5 Deis | EulerA | SGM Uniform采样步数 25-30 为最佳，可以搭配 Hyper/DMD2/TDD 等加速器 设计分辨率为 Hi-RES 2M ( 200W像素 )，高分辨率启用UNET缩放 Thanks so much to everyone for all your support!"
+}

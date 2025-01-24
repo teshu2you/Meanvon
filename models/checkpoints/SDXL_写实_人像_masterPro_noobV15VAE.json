@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Feb 27, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://www.qpipi.com/95491/",
+	"Version": "v1.5",
+	"Tags": "BASE MODEL NSFW",
+	"Usage_Tips": "SDXL/PONY加速器:Hyper-SDXL-12steps-CFG-lora Lora權重:0.8~1 12~14步。取样方法(Sampler)=Euler a、Schedule type: SGM Uniform CFG:4~6",
+	"Author": "iamddtla",
+	"ReMark": "V1.5版本比PornMaster-Pro-noob-V1具有更好的手和脚、更好的背景，生成1216*832的图片时，速度提升2~3秒钟。已知问题:某些种子可能导致生成的图片变成纯白色，只需替换种子即可解决。此版本可以在写实风格与动漫风格之间切换。cosplay角色使面孔更真实的方法：将角色的权重降低，frieren → (frieren:0.8) 模型中已包含VAE。可使用写实风格或动漫风格的lora。可使用sdxl和Illustrious的lora。也可以使用部分的”pony”lora。此模型为illustriousXL版本，模型中已包含VAE。基于 illustrious-xl v0.1 photo,realistic,DSLR anime masterpiece,best quality,newest,absurdres,highres,amazing quality,very aesthetic"
+}

@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"Dec 20, 2024",
+	"Base": "Illustrious",
+	"Links": "https://www.qpipi.com/97967/",
+	"Version": "v6.0",
+	"Tags": "",
+	"Usage_Tips": "Euler A, CFG 4.5, Steps 30,",
+	"Author": "pAInCREAT0R",
+	"ReMark": "THRILLustrious 是我尝试将 Illustrious 基础训练成更现实的美学。挑战在于在不牺牲基本模型的基本灵活性和概念的情况下不断添加真实感方面。这对于 Illustrious 说有点困难，因为基本模型中的许多概念的核心是艺术/动漫。所以这是一场持续的战斗，训练现实主义，然后将概念合并回来，重复……出于这个原因，您可能会注意到 BETA 版本看起来稍微更真实一些 – 但以更大的概念牺牲为代价。于 v6.0 THRILLEX 版本V6 为模型带来了进一步的训练和优化。查看 Showcase 图片，了解有关提示和设置的提示。"
+}

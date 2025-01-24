@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Dec 7, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/1013738/nerisunellis-kyonyuu-fantasy-sdxl-lora-pony-diffusion",
+	"Version": "v1.0",
+	"Tags": "character anime woman game character video game kyonyuu fantasy",
+	"Usage_Tips": "kfnerisu, green hair, long hair, brown eyes, large breasts, hairband, neck ring, dancer outfit, white bandeau, underboob, sideboob, midriff, pelvic curtain, white thighhighs, see-through",
+	"Author": "novowels Joined Feb 8, 2023",
+	"ReMark": "Nerisu/Nellis/ネリス (Kyonyuu Fantasy) SDXL LoRA [Pony Diffusion] Nerisu (or Nellis) from Kyonyuu Fantasy. Trained on Pony Diffusion V6 XL. Tested at 0.8-1.0 strength.Trigger word is 'kfNerisu' and 'green hair, long hair, brown eyes' is mandatory.Add 'hairband, neck ring, dancer outfit, white bandeau, underboob, sideboob, midriff, pelvic curtain, white thighhighs, see-through' for her typical look."
+}

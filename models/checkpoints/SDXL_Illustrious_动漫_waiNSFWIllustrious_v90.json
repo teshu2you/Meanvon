@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"Jan 15, 2025",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/827184/wai-nsfw-illustrious-sdxl?modelVersionId=1283437",
+	"Version": "v9.0",
+	"Tags": "base model anime sexy hentai",
+	"Usage_Tips": "Hires upscale: 1.5, Hires steps: 20, Hires upscaler: R-ESRGAN 4x+ Anime6B,Denoising strength: 0.5. Recommended settings: Steps: 30 CFG scale: 5-7 Sampler: Euler a",
+	"Author": "WAI0731 Joined Dec 23, 2022",
+	"ReMark": "v9 Increased body stability and accuracy. Adjusted the composition logic. Added training with some new materials.more better pony lora support.All example images are generated at 1024x1360,and Hires upscale: 1.5, Hires steps: 20, Hires upscaler: R-ESRGAN 4x+ Anime6B,Denoising strength: 0.5"
+}
