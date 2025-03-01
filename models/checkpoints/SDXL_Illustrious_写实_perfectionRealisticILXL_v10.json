@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"",
+	"Base": "Illustrious",
+	"Links": "https://www.qpipi.com/111246/",
+	"Version": "v1.0",
+	"Tags": "",
+	"Usage_Tips": "推荐设置 步数：30 + 8 个高档步数 CFG 刻度：4 采样器：DPM++ SDE （dpmpp_sde）调度器：Beta",
+	"Author": "Uramesh",
+	"ReMark": "欢迎来到 Perfection Realistic！这是一个 Illustrious XL 合并，其中包含一堆手工选择的检查点和 LoRA，以提高基本模型的逼真能力。图片[1]_Perfection Realistic ILXL Illustrious XL AI绘图模型"
+}

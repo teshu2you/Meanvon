@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Trained",
+	"NSFW": "True",
+	"Update_Date":"",
+	"Base": "Illustrious",
+	"Links": "https://www.qpipi.com/95497/",
+	"Version": "v4",
+	"Tags": "base model anime nsfw",
+	"Usage_Tips": "",
+	"Author": "iamddtla",
+	"ReMark": "提升整体品质，使用取样方法-Euler a，16步骤即可产生高品质图片。已包含VAE，无需使用VAE."
+}

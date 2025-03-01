@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Trained",
+	"NSFW": "True",
+	"Update_Date":"Feb 22, 2025",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/140272/hassaku-xl-illustrious?modelVersionId=1411148",
+	"Version": "v2",
+	"Tags": "base model anime woman hentai characters nsfw",
+	"Usage_Tips": "",
+	"Author": "iamddtla",
+	"ReMark": "Hassaku aims to a model with a distictive anime look, capable to do great sfw and nsfw art.V1 use illustrious-xl as base, versions from 0.2M up are trainined with quality prompts like masterpiece or worst quality. Recommended prompts in negative are ‘worst quality, bad quality’ and masterpiece in positiv. There is also my pony xl hentai variant.My Discord for everything related to anime models and art. You can support me on my patreon.My models: hassaku, sudachi(flat 2d), koji(2d), yuzu(light semirealistic), grapefruit(old hentai model)Supporters:Thanks to my supporters Riyu, SETI and Kodokuna on my patreon!You can support me on my patreon, where you can get other models of me and early access to hassaku versions.Model is trained with images with minimal disruptive features like floating texts, logos, speak bubbles and signatures as possible. If such features appearing in a image, please use prompt ‘signature’ as negative.Excluded metadata and franchise tags, don't use them. meta data -> something like highres, franchise tags like 're:zero kara hajimeru isekai seikatsu' are pruned on characters like ‘rem_(re:zero)’"
+}

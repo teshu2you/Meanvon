@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"unkonw",
+	"Base": "Illustrious",
+	"Links": "https://www.qpipi.com/110445/",
+	"Version": "v3.0",
+	"Tags": "",
+	"Usage_Tips": "",
+	"Author": "DivingSuit",
+	"ReMark": "Diving-Illustrious Anime 每个版本都可以准确生成特写和全身。NSFW 还可以。推荐设置（1） VAE：sdxl_VAE 采样方式：Euler a 或 Restart 或 DPM++ 2M 或 DPM++ SDE Schedule type：Karras  尺寸：896 × 1152 （您可以在这里根据自己的喜好设置） 步数：30 ADetailer：face_yolov8s.pt 推荐设置（2）VAE：sdxl_VAE.safetensors 采样方式：Euler a 或 Restart 或 DPM++ 2M 或 DPM++ SDE Schedule type：SGM Uniform 尺寸：896 × 1152 （您可以在这里根据自己的喜好设置） 步骤：15 ADetailer：face_yolov8s.pt"
+}
