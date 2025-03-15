@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Trained",
+	"NSFW": "True",
+	"Update_Date":"Mar 2, 2025",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/443821?modelVersionId=1478064",
+	"Version": "v8.5",
+ 	"Tags": "base model cute man realistic women pony xl",
+	"Usage_Tips": "Sampling method: DPM++ SDE Karras / DPM++ 2M Karras / Euler a Sampling steps: 30+ Steps Resolution: 896x1152 / 832x1216 CFG: 5 Clip Skip: 2",
+	"Author": "Cyberdelia Joined Dec 7, 2022",
+	"ReMark": "CyberRealistic Pony is the awesome Pony Diffusion with some CyberRealistic elements. Positive Prompt: New: CyberRealistic Positive score_9, score_8_up, score_7_up, (SUBJECT), Negative Prompt examples: score_6, score_5, score_4, (worst quality:1.2), (low quality:1.2), (normal quality:1.2), lowres, bad anatomy, bad hands, signature, watermarks, ugly, imperfect eyes, skewed eyes, unnatural face, unnatural body, error, extra limb, missing limbs ；score_6, score_5, score_4, simplified, abstract, unrealistic, impressionistic, low resolution, lowres, bad anatomy, bad hands, missing fingers, worst quality, low quality, normal quality, cartoon, anime, drawing, sketch, illustration, artificial, poor quality"
+}
