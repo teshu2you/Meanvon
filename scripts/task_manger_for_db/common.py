@@ -11,7 +11,12 @@ class Common:
 
     def __init__(self):
         self.real_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-        self.task_db = os.path.join(self.real_path, "db", "task.db")
+        self.task_db = os.path.join(self.real_path, "../db", "task.db")
+
+        if not os.path.exists(self.task_db):
+            print(f"Database file {self.task_db} does not exist.")
+            return
+
         self.conn = sqlite3.connect(self.task_db)
         self.data_storage = {}
 

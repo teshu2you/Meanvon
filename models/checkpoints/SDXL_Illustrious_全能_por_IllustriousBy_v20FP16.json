@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"Mar 18, 2025",
+	"Base": "Illustrious",
+	"Links": "https://www.qpipi.com/116518/",
+	"Version": "v2",
+	"Tags": "base model anime porn cosplay danbooru hentai realistic illustrious pornmaster",
+	"Usage_Tips": "DPM++ SDE DPM++ 2M 电子细分误差 每分钟转换量++ 2S a DPM2 一 每分钟 3M * Euler A",
+	"Author": "Stable_Yogi",
+	"ReMark": "Por_Illustrious_By_Stable_Yogi 介绍我最新的 NSFW 检查点，它基于令人难以置信的 Illustrious XL，感谢社区奉献精神和专业知识。这个模型可能是最多样化的模型……尽管它说它专注于NSFW，但它在其他方面表现出色，而且非常出色。到目前为止，还没有看到具有如此逼真外观和广泛知识的更好选择。v2.0 版本这在细节、照明、皮肤细节和其他一些秘密修复方面更好。最佳设置：步骤：以 27 到 36 为目标以获得平衡的结果。CFG 量表：4 到 5 的范围效果最好。剪辑跳过：设置为 1 以获得理想的输出。分辨率：以任何 SDXL 分辨率生成图像 附注事项：要获得流畅和干净的美感，请尝试使用 Euler A 采样器。要获得更清晰、更详细的输出，请使用基于 SDE 的采样器，如 DPM++ SDE 或 DPM++ 2M SDE。"
+}

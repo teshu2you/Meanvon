@@ -25,7 +25,6 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import logging
 from transformers.generation.logits_process import LogitsProcessor
 from transformers.generation.utils import LogitsProcessorList, StoppingCriteriaList, GenerationConfig, ModelOutput
-from triton.language import dtype
 
 try:
     from .configuration_chatglm import ChatGLMConfig

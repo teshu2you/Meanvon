@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"",
+	"Base": "SDXL 1.0",
+	"Links": "https://www.qpipi.com/80357/",
+	"Version": "Asian_v1_vae",
+	"Tags": "BASE MODEL NSFW",
+	"Usage_Tips": "Lora權重:0.8~1 12~14步。取样方法(Sampler)=Euler a、Schedule type: SGM Uniform CFG:4~6",
+	"Author": "iamddtla",
+	"ReMark": "如果不要生成亚洲人的面孔，将”asian,chinese,korean,japanese”放入负面提示词中。此模型包含VAE，无需使用VAE。可搭配亚洲女性面孔美化器、胶片摄影、”更好的果体”一起使用。对提示词的权重敏感，如果图片出现错误，需降低权重。有用的提示辅助词：masterpiece, best quality, high quality Raw format,ultrahigh-res ulzzang face reddit, unsplash, flickr, onlyfans, reddit, fansly, instagram, photo taken with iPhone；r/gonewild, r/gonewild18, r/nsfw, r/nsfwcosplay, r/realgirls, r/cumsluts, r/legalteens, r/collegesluts, r/asiansgonewild, r/pussy, r/milf, r/adorableporn, r/nude_selfie, r/pawg, r/boobs, r/celebnsfw, r/bigasses, r/juicyasians, r/latinas, r/godpussy, r/amateur, r/xsmallgirls, r/18_19, r/workgonewild, r/palegirls, r/paag, r/ass, r/asstastic, r/asshole, r/assholegonewild, r/upskirt, r/toocuteforporn, r/tinytits, r/altgonewild, r/traps, r/femboys, r/gwcouples, r/cutelittlebutts, r/girlswithglasses, r/petitegonewild"
+}

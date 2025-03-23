@@ -1,15 +1,14 @@
 import ctypes
 import traceback
 
-from workshop import Api
 import time
 import os
 from multiprocessing import Process, Manager
 import hashlib
 import modules
+from procedure.worker import taskManager
 
-
-class Middle(Api):
+class Middle(taskManager):
     """
     """
 

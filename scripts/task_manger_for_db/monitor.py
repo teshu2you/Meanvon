@@ -2,22 +2,24 @@ import ctypes
 import datetime
 import traceback
 import json
-from workshop import Api
 import time
 import os
-import modules
 import sqlite3
 from common import Common
+from procedure.worker import taskManager
 
 
-class Middle(Common, Api):
+class Middle(Common):
     """
     """
 
-    def __init__(self):
+    def __init__(self, table_name="Task"):
         super().__init__()
-        Api.__init__(self)
-        self.table_name = "Task"
+        self.pid = None
+        self.execution_start_time = None
+        self.async_tasks = []
+        self.table_name = table_name
+        self.task_manager = taskManager()
 
     def query_all(self):
         return self.query(table=self.table_name, data={"*": ""})
@@ -167,6 +169,17 @@ class Middle(Common, Api):
             _dict_vals_new.append(jj)
 
         _dict = dict(zip(_dict_keys, _dict_vals_new))
+        _dict.update({"guidance_scale": _dict["cfg"]})
+
+        if "custom_switch" in _dict:
+            _dict.update({"refiner_switch": _dict["custom_switch"]})
+
+        if "refiner_switch" in _dict:
+            if _dict["refiner_switch"] is None:
+                _dict.update({"refiner_switch": 1.0})
+
+        _dict.update({"pid": os.getpid()})
+
         print(_dict)
         return _dict
 
@@ -174,6 +187,8 @@ class Middle(Common, Api):
         blank_1 = "<WorkShop>"
         blank_2 = " " * 20
         if first_run:
+            import modules.default_pipeline
+            import modules.config
             modules.default_pipeline.refresh_everything(
                 refiner_model_name=modules.config.default_refiner_model_name,
                 base_model_name=modules.config.default_base_model_name,
@@ -183,12 +198,13 @@ class Middle(Common, Api):
 
         num = 0
         while True:
-            self.async_tasks = self.query_all()
-            total_num = len(self.async_tasks)
+            tasks_records = self.query_all()
+            # print(tasks_records)
+            total_num = len(tasks_records)
             print(f'{blank_1}\n{blank_2} total_num:{total_num} vs num:{num}...')
             if total_num != num:
                 num = 0
-                for kk in self.async_tasks:
+                for kk in tasks_records:
                     num += 1
                     print(f'{blank_1}\n{blank_2} {kk}...')
                     if kk[1] != self.STATUS.VALID:
@@ -198,35 +214,52 @@ class Middle(Common, Api):
                     self.execution_start_time = time.perf_counter()
                     try:
                         def import_config_key():
-                            self.get_config_key(config=self.make_dict(task_item=kk))
+                            current_config = self.make_dict(task_item=kk)
+                            self.task_manager.get_config_key(config=current_config)
+                            self.guidance_scale = current_config['cfg_scale']
+                            self.refiner_switch = current_config['refiner_switch']
 
                         n = 1
-                        for x in [import_config_key,
-                                  self.pre_process,
-                                  self.download_image_func_models,
-                                  self.encode_prompts,
-                                  self.manage_cns,
-                                  self.get_advanced_parameters,
-                                  self.check_vary_in_goals,
-                                  self.check_upscale_in_goals,
-                                  self.check_inpaint_in_goals,
-                                  self.check_cn_in_goals,
-                                  self.generate_images,
-                                  self.post_process
-                                  ]:
-                            print('-' * 200)
-                            start_time = time.perf_counter()
-                            print(f'Step {n}: {x.__name__}')
-                            x()
-                            cost_time = time.perf_counter() - start_time
-                            print(
-                                f'\n                          Cost Time: <<<<<<<<<<<<<< {cost_time:.2f} seconds >>>>>>>>>>>>>>>>>')
-                            n += 1
+                        current_task = self.task_manager.AsyncTask
+                        current_task.last_stop = False
+                        current_task.processing = False
+                        current_task.yields = []
+                        current_task.results = []
+                        import_config_key()
+
+                        steps = [
+                            self.task_manager.pre_process(current_task),
+                            self.task_manager.download_image_func_models(current_task),
+                            self.task_manager.encode_prompts(current_task),
+                            self.task_manager.manage_cns(current_task),
+                            self.task_manager.get_advanced_parameters(current_task),
+                            self.task_manager.check_vary_in_goals(current_task),
+                            self.task_manager.check_upscale_in_goals(current_task),
+                            self.task_manager.check_inpaint_in_goals(current_task),
+                            self.task_manager.check_cn_in_goals(current_task),
+                            self.task_manager.generate_images(current_task),
+                            self.task_manager.post_process(current_task)
+                        ]
+
+                        for i, x in enumerate(steps):
+                            step_name = f'step_{i + 1}'
+                            if callable(x):
+                                print('-' * 200)
+                                start_time = time.perf_counter()
+                                print(f'Step {n}: {x.__name__}')
+                                x()
+                                cost_time = time.perf_counter() - start_time
+                                print(
+                                    f'\n                          Cost Time: <<<<<<<<<<<<<< {cost_time:.2f} seconds >>>>>>>>>>>>>>>>>')
+                                n += 1
+                            else:
+                                print(f'Step {n}: {step_name} returned None or is not callable')
+                                n += 1
                         self.update_one(data={kk[0]: ["task_status", self.STATUS.INVALID]})
                     except:
                         traceback.print_exc()
                     finally:
-                        self.build_image_wall(kk)
+                        self.task_manager.build_image_wall(current_task)
                         modules.default_pipeline.prepare_text_encoder(async_call=True)
             else:
                 now = datetime.datetime.now()
@@ -236,6 +269,6 @@ class Middle(Common, Api):
 
 if __name__ == '__main__':
     m = Middle()
-    print(m.query_all())
+    # print(m.query_all())
     # m.delete_all()
     m.process()

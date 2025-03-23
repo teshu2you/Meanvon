@@ -659,6 +659,7 @@ class taskManager:
 
     def get_config_key(self, config):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> get_config_key").printf()
+        self.pid = config.get("pid", os.getpid())
         self.prompt = config.get("prompt")
         self.negative_prompt = config.get("negative_prompt")
         self.style_selections = config.get("style_selections")
@@ -900,8 +901,10 @@ class taskManager:
         printF(name=MasterName.get_master_name(),
                info="[Parameters] use_expansion: {}".format(self.use_expansion)).printf()
 
-        assert self.performance_selection in [Performance.SPEED, Performance.QUALITY, Performance.LCM,
-                                              Performance.TURBO, Performance.Lightning, Performance.HYPER_SD, Performance.Custom]
+        printF(name=MasterName.get_master_name(),
+               info="[Parameters] performance_selection: {}".format(self.performance_selection)).printf()
+
+        # assert self.performance_selection in [Performance.SPEED, Performance.QUALITY, Performance.LCM,Performance.TURBO, Performance.Lightning, Performance.HYPER_SD, Performance.Custom]
 
         self.fixed_steps = Performance(self.performance_selection)
 
@@ -1054,6 +1057,9 @@ class taskManager:
             self.controlnet_softness,
             self.adaptive_cfg
         )
+
+        printF(name=MasterName.get_master_name(),
+               info="[Parameters] pid = {} | patch_settings = {}".format(self.pid, modules.patch.patch_settings[self.pid].__dict__)).printf()
 
         self.guidance_scale = float(self.guidance_scale)
         printF(name=MasterName.get_master_name(),

@@ -4,7 +4,7 @@
 	"Update_Date":"",
 	"Base": "Illustrious",
 	"Links": "https://www.qpipi.com/111246/",
-	"Version": "v1.0",
+	"Version": "v1.1",
 	"Tags": "",
 	"Usage_Tips": "推荐设置 步数：30 + 8 个高档步数 CFG 刻度：4 采样器：DPM++ SDE （dpmpp_sde）调度器：Beta",
 	"Author": "Uramesh",
