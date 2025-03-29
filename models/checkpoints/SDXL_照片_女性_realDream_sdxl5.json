@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Mar 15, 2025",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/153568?modelVersionId=1536022",
+	"Version": "5",
+ 	"Tags": "base model photorealistic photo girls men real",
+	"Usage_Tips": "Pony SDXL: Use the ‘Euler a’ or ‘DPM++ SDE Karras’ sampler with 20-30 steps for better quality.",
+	"Author": "sinatra Joined Jan 1, 2023",
+	"ReMark": "On my Patreon I am sharing beta versions of the models I develop. Most of them are shared in the free section, but consider joining my Patreon as a contributor if you like the project and would like to help me acquire more computing power. The Patreon price is the cheapest the platform allows. Currently my computer does not have the full capacity to work with Flux and with more sophisticated models that will come in the future. Also my country is protectionist in the economy and charges a lot of taxes on computers and hardware parts"
+}
