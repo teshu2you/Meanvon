@@ -1,0 +1,427 @@
+// inpaint_canvas 热键和画布控制 - Gradio 6 兼容版
+(function() {
+    // 确保 waitForElm 存在（如果 viewer.js 未加载，则自己定义）
+    if (typeof waitForElm === 'undefined') {
+        window.waitForElm = function(selector) {
+            return new Promise(resolve => {
+                const existing = document.querySelector(selector);
+                if (existing) {
+                    resolve(existing);
+                    return;
+                }
+                const observer = new MutationObserver(() => {
+                    const el = document.querySelector(selector);
+                    if (el) {
+                        resolve(el);
+                        observer.disconnect();
+                    }
+                });
+                observer.observe(document.body, { childList: true, subtree: true });
+            });
+        };
+    }
+
+    // 辅助函数：检测元素是否有水平滚动条
+    function hasHorizontalScrollbar(element) {
+        return element.scrollWidth > element.clientWidth;
+    }
+
+    // 辅助函数：判断修饰键
+    function isModifierKey(event, key) {
+        switch (key) {
+            case "Ctrl": return event.ctrlKey;
+            case "Shift": return event.shiftKey;
+            case "Alt": return event.altKey;
+            default: return false;
+        }
+    }
+
+    // 创建热键配置（从默认值创建，可扩展为从 opts 读取）
+    function createHotkeyConfig(defaultHotkeysConfig) {
+        const result = {};
+        for (const key in defaultHotkeysConfig) {
+            result[key] = defaultHotkeysConfig[key];
+        }
+        return result;
+    }
+
+    const defaultHotkeysConfig = {
+        canvas_hotkey_zoom: "Shift",
+        canvas_hotkey_adjust: "Ctrl",
+        canvas_zoom_undo_extra_key: "Ctrl",
+        canvas_zoom_hotkey_undo: "KeyZ",
+        canvas_hotkey_reset: "KeyR",
+        canvas_hotkey_fullscreen: "KeyS",
+        canvas_hotkey_move: "KeyF",
+        canvas_show_tooltip: true,
+        canvas_auto_expand: true,
+        canvas_blur_prompt: true,
+    };
+
+    const hotkeysConfig = createHotkeyConfig(defaultHotkeysConfig);
+
+    let isMoving = false;
+    let activeElement = null;
+    const elemData = {};
+
+    function applyZoomAndPan(elemId) {
+        const targetElement = document.querySelector(elemId);
+        if (!targetElement) {
+            console.warn(`applyZoomAndPan: element ${elemId} not found`);
+            return;
+        }
+
+        targetElement.style.transformOrigin = "0 0";
+
+        elemData[elemId] = {
+            zoom: 1,
+            panX: 0,
+            panY: 0
+        };
+
+        let fullScreenMode = false;
+
+        // 创建提示工具
+        function createTooltip() {
+            const toolTipElemnt = targetElement.querySelector(".image-container");
+            if (!toolTipElemnt) return;
+            const tooltip = document.createElement("div");
+            tooltip.className = "canvas-tooltip";
+
+            const info = document.createElement("i");
+            info.className = "canvas-tooltip-info";
+            info.textContent = "";
+
+            const tooltipContent = document.createElement("div");
+            tooltipContent.className = "canvas-tooltip-content";
+
+            const hotkeysInfo = [
+                { configKey: "canvas_hotkey_zoom", action: "Zoom canvas", keySuffix: " + wheel" },
+                { configKey: "canvas_hotkey_adjust", action: "Adjust brush size", keySuffix: " + wheel" },
+                { configKey: "canvas_zoom_hotkey_undo", action: "Undo last action", keyPrefix: `${hotkeysConfig.canvas_zoom_undo_extra_key} + ` },
+                { configKey: "canvas_hotkey_reset", action: "Reset zoom" },
+                { configKey: "canvas_hotkey_fullscreen", action: "Fullscreen mode" },
+                { configKey: "canvas_hotkey_move", action: "Move canvas" }
+            ];
+
+            const hotkeys = hotkeysInfo.map(info => {
+                const configValue = hotkeysConfig[info.configKey];
+                let key = configValue.slice(-1);
+                if (info.keySuffix) key = `${configValue}${info.keySuffix}`;
+                if (info.keyPrefix && info.keyPrefix !== "None + ") key = `${info.keyPrefix}${configValue[3]}`;
+                return { key, action: info.action };
+            });
+
+            hotkeys.forEach(hotkey => {
+                const p = document.createElement("p");
+                p.innerHTML = `<b>${hotkey.key}</b> - ${hotkey.action}`;
+                tooltipContent.appendChild(p);
+            });
+
+            tooltip.append(info, tooltipContent);
+            toolTipElemnt.appendChild(tooltip);
+        }
+
+        if (hotkeysConfig.canvas_show_tooltip) createTooltip();
+
+        function resetZoom() {
+            elemData[elemId] = {
+                zoomLevel: 1,
+                panX: 0,
+                panY: 0
+            };
+            targetElement.style.overflow = "hidden";
+            targetElement.isZoomed = false;
+            targetElement.style.transform = `scale(${elemData[elemId].zoomLevel}) translate(${elemData[elemId].panX}px, ${elemData[elemId].panY}px)`;
+
+            const canvas = document.querySelector(`${elemId} canvas[key="interface"]`);
+            toggleOverlap("off");
+            fullScreenMode = false;
+
+            const closeBtn = targetElement.querySelector("button[aria-label='Remove Image']");
+            if (closeBtn) closeBtn.addEventListener("click", resetZoom);
+
+            if (canvas) {
+                const parentElement = targetElement.closest('[id^="component-"]');
+                if (canvas && parseFloat(canvas.style.width) > parentElement.offsetWidth &&
+                    parseFloat(targetElement.style.width) > parentElement.offsetWidth) {
+                    fitToElement();
+                    return;
+                }
+            }
+            targetElement.style.width = "";
+        }
+
+        function toggleOverlap(forced = "") {
+            const zIndex1 = "0", zIndex2 = "998";
+            targetElement.style.zIndex = targetElement.style.zIndex !== zIndex2 ? zIndex2 : zIndex1;
+            if (forced === "off") targetElement.style.zIndex = zIndex1;
+            else if (forced === "on") targetElement.style.zIndex = zIndex2;
+        }
+
+        function adjustBrushSize(elemId, deltaY, withoutValue = false, percentage = 5) {
+            const input = document.querySelector(`${elemId} input[aria-label='Brush radius']`) ||
+                          document.querySelector(`${elemId} button[aria-label="Use brush"]`);
+            if (input) {
+                input.click();
+                if (!withoutValue) {
+                    const maxValue = parseFloat(input.getAttribute("max")) || 100;
+                    const changeAmount = maxValue * (percentage / 100);
+                    const newValue = parseFloat(input.value) + (deltaY > 0 ? -changeAmount : changeAmount);
+                    input.value = Math.min(Math.max(newValue, 0), maxValue);
+                    input.dispatchEvent(new Event("change"));
+                }
+            }
+        }
+
+        const fileInput = document.querySelector(`${elemId} input[type="file"][accept="image/*"]`);
+        if (fileInput) fileInput.addEventListener("click", resetZoom);
+
+        function updateZoom(newZoomLevel, mouseX, mouseY) {
+            newZoomLevel = Math.max(0.1, Math.min(newZoomLevel, 15));
+            elemData[elemId].panX += mouseX - (mouseX * newZoomLevel) / elemData[elemId].zoomLevel;
+            elemData[elemId].panY += mouseY - (mouseY * newZoomLevel) / elemData[elemId].zoomLevel;
+            targetElement.style.transformOrigin = "0 0";
+            targetElement.style.transform = `translate(${elemData[elemId].panX}px, ${elemData[elemId].panY}px) scale(${newZoomLevel})`;
+            targetElement.style.overflow = "visible";
+            toggleOverlap("on");
+            return newZoomLevel;
+        }
+
+        function changeZoomLevel(operation, e) {
+            if (isModifierKey(e, hotkeysConfig.canvas_hotkey_zoom)) {
+                e.preventDefault();
+                let delta = 0.2;
+                if (elemData[elemId].zoomLevel > 7) delta = 0.9;
+                else if (elemData[elemId].zoomLevel > 2) delta = 0.6;
+                const zoomPosX = e.clientX;
+                const zoomPosY = e.clientY;
+                fullScreenMode = false;
+                elemData[elemId].zoomLevel = updateZoom(
+                    elemData[elemId].zoomLevel + (operation === "+" ? delta : -delta),
+                    zoomPosX - targetElement.getBoundingClientRect().left,
+                    zoomPosY - targetElement.getBoundingClientRect().top
+                );
+                targetElement.isZoomed = true;
+            }
+        }
+
+        function fitToElement() {
+            targetElement.style.transform = `translate(0px, 0px) scale(1)`;
+            let parentElement = targetElement.closest('[id^="component-"]');
+            const elementWidth = targetElement.offsetWidth;
+            const elementHeight = targetElement.offsetHeight;
+            const screenWidth = parentElement.clientWidth - 24;
+            const screenHeight = parentElement.clientHeight;
+            const scale = Math.min(screenWidth / elementWidth, screenHeight / elementHeight);
+            const offsetX = 0, offsetY = 0;
+            targetElement.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+            elemData[elemId].zoomLevel = scale;
+            elemData[elemId].panX = offsetX;
+            elemData[elemId].panY = offsetY;
+            fullScreenMode = false;
+            toggleOverlap("off");
+        }
+
+        function undoLastAction(e) {
+            let isCtrlPressed = isModifierKey(e, hotkeysConfig.canvas_zoom_undo_extra_key);
+            const isAuxButton = e.button >= 3;
+            if (isAuxButton) isCtrlPressed = true;
+            else if (!isModifierKey(e, hotkeysConfig.canvas_zoom_undo_extra_key)) return;
+
+            const undoBtn = document.querySelector(`${activeElement} button[aria-label="Undo"]`);
+            if (isCtrlPressed && undoBtn) {
+                e.preventDefault();
+                undoBtn.click();
+            }
+        }
+
+        function fitToScreen() {
+            const canvas = document.querySelector(`${elemId} canvas[key="interface"]`);
+            if (!canvas) return;
+            targetElement.style.width = (canvas.offsetWidth + 2) + "px";
+            targetElement.style.overflow = "visible";
+            if (fullScreenMode) {
+                resetZoom();
+                fullScreenMode = false;
+                return;
+            }
+            targetElement.style.transform = `translate(0px, 0px) scale(1)`;
+            const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+            const elementWidth = targetElement.offsetWidth;
+            const elementHeight = targetElement.offsetHeight;
+            const screenWidth = window.innerWidth - scrollbarWidth;
+            const screenHeight = window.innerHeight;
+            const elementRect = targetElement.getBoundingClientRect();
+            const elementY = elementRect.y;
+            const elementX = elementRect.x;
+            const scale = Math.min(screenWidth / elementWidth, screenHeight / elementHeight);
+            const computedStyle = window.getComputedStyle(targetElement);
+            const transformOrigin = computedStyle.transformOrigin;
+            const [originX, originY] = transformOrigin.split(" ");
+            const originXValue = parseFloat(originX);
+            const originYValue = parseFloat(originY);
+            const offsetX = (screenWidth - elementWidth * scale) / 2 - elementX - originXValue * (1 - scale);
+            const offsetY = (screenHeight - elementHeight * scale) / 2 - elementY - originYValue * (1 - scale);
+            targetElement.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+            elemData[elemId].zoomLevel = scale;
+            elemData[elemId].panX = offsetX;
+            elemData[elemId].panY = offsetY;
+            fullScreenMode = true;
+            toggleOverlap("on");
+        }
+
+        function handleKeyDown(event) {
+            if ((event.ctrlKey && event.code === 'KeyV') || (event.ctrlKey && event.code === 'KeyC') || event.code === "F5") return;
+            if (!hotkeysConfig.canvas_blur_prompt) {
+                if (event.target.nodeName === 'TEXTAREA' || event.target.nodeName === 'INPUT') return;
+            }
+            const hotkeyActions = {
+                [hotkeysConfig.canvas_hotkey_reset]: resetZoom,
+                [hotkeysConfig.canvas_hotkey_overlap]: toggleOverlap,
+                [hotkeysConfig.canvas_hotkey_fullscreen]: fitToScreen,
+                [hotkeysConfig.canvas_zoom_hotkey_undo]: undoLastAction,
+            };
+            const action = hotkeyActions[event.code];
+            if (action) {
+                event.preventDefault();
+                action(event);
+            }
+            if (isModifierKey(event, hotkeysConfig.canvas_hotkey_zoom) ||
+                isModifierKey(event, hotkeysConfig.canvas_hotkey_adjust)) {
+                event.preventDefault();
+            }
+        }
+
+        let mouseX, mouseY;
+        function getMousePosition(e) {
+            mouseX = e.offsetX;
+            mouseY = e.offsetY;
+        }
+
+        targetElement.isExpanded = false;
+        function autoExpand() {
+            const canvas = document.querySelector(`${elemId} canvas[key="interface"]`);
+            if (canvas) {
+                if (hasHorizontalScrollbar(targetElement) && targetElement.isExpanded === false) {
+                    targetElement.style.visibility = "hidden";
+                    setTimeout(() => {
+                        fitToScreen();
+                        resetZoom();
+                        targetElement.style.visibility = "visible";
+                        targetElement.isExpanded = true;
+                    }, 10);
+                }
+            }
+        }
+
+        targetElement.addEventListener("mousemove", getMousePosition);
+        targetElement.addEventListener("auxclick", undoLastAction);
+
+        const observer = new MutationObserver((mutationsList) => {
+            for (let mutation of mutationsList) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'style' &&
+                    mutation.target.tagName.toLowerCase() === 'canvas') {
+                    targetElement.isExpanded = false;
+                    setTimeout(resetZoom, 10);
+                }
+            }
+        });
+
+        if (hotkeysConfig.canvas_auto_expand) {
+            targetElement.addEventListener("mousemove", autoExpand);
+            observer.observe(targetElement, { attributes: true, childList: true, subtree: true });
+        }
+
+        let isKeyDownHandlerAttached = false;
+        function handleMouseMove() {
+            if (!isKeyDownHandlerAttached) {
+                document.addEventListener("keydown", handleKeyDown);
+                isKeyDownHandlerAttached = true;
+                activeElement = elemId;
+            }
+        }
+        function handleMouseLeave() {
+            if (isKeyDownHandlerAttached) {
+                document.removeEventListener("keydown", handleKeyDown);
+                isKeyDownHandlerAttached = false;
+                activeElement = null;
+            }
+        }
+        targetElement.addEventListener("mousemove", handleMouseMove);
+        targetElement.addEventListener("mouseleave", handleMouseLeave);
+
+        targetElement.addEventListener("wheel", e => {
+            const operation = e.deltaY > 0 ? "-" : "+";
+            changeZoomLevel(operation, e);
+            if (isModifierKey(e, hotkeysConfig.canvas_hotkey_adjust)) {
+                e.preventDefault();
+                adjustBrushSize(elemId, e.deltaY);
+            }
+        });
+
+        function handleMoveKeyDown(e) {
+            if ((e.ctrlKey && e.code === 'KeyV') || (e.ctrlKey && e.code === 'KeyC') || e.code === "F5") return;
+            if (!hotkeysConfig.canvas_blur_prompt) {
+                if (e.target.nodeName === 'TEXTAREA' || e.target.nodeName === 'INPUT') return;
+            }
+            if (e.code === hotkeysConfig.canvas_hotkey_move) {
+                if (!e.ctrlKey && !e.metaKey && isKeyDownHandlerAttached) {
+                    e.preventDefault();
+                    document.activeElement.blur();
+                    isMoving = true;
+                }
+            }
+        }
+        function handleMoveKeyUp(e) {
+            if (e.code === hotkeysConfig.canvas_hotkey_move) isMoving = false;
+        }
+        document.addEventListener("keydown", handleMoveKeyDown);
+        document.addEventListener("keyup", handleMoveKeyUp);
+
+        function updatePanPosition(movementX, movementY) {
+            let panSpeed = 2;
+            if (elemData[elemId].zoomLevel > 8) panSpeed = 3.5;
+            elemData[elemId].panX += movementX * panSpeed;
+            elemData[elemId].panY += movementY * panSpeed;
+            requestAnimationFrame(() => {
+                targetElement.style.transform = `translate(${elemData[elemId].panX}px, ${elemData[elemId].panY}px) scale(${elemData[elemId].zoomLevel})`;
+                toggleOverlap("on");
+            });
+        }
+        function handleMoveByKey(e) {
+            if (isMoving && elemId === activeElement) {
+                updatePanPosition(e.movementX, e.movementY);
+                targetElement.style.pointerEvents = "none";
+                targetElement.style.overflow = "visible";
+            } else {
+                targetElement.style.pointerEvents = "auto";
+            }
+        }
+        window.onblur = () => { isMoving = false; };
+        document.addEventListener("mousemove", handleMoveByKey);
+
+        function checkForOutBox() {
+            const parentElement = targetElement.closest('[id^="component-"]');
+            if (parentElement.offsetWidth < targetElement.offsetWidth && !targetElement.isExpanded) {
+                resetZoom();
+                targetElement.isExpanded = true;
+            }
+            if (parentElement.offsetWidth < targetElement.offsetWidth && elemData[elemId].zoomLevel == 1) resetZoom();
+            if (parentElement.offsetWidth < targetElement.offsetWidth && targetElement.offsetWidth * elemData[elemId].zoomLevel > parentElement.offsetWidth && elemData[elemId].zoomLevel < 1 && !targetElement.isZoomed) resetZoom();
+        }
+        targetElement.addEventListener("mousemove", checkForOutBox);
+
+        window.addEventListener('resize', () => {
+            resetZoom();
+            targetElement.isExpanded = false;
+            targetElement.isZoomed = false;
+        });
+    }
+
+    // 等待 #inpaint_canvas 出现后应用功能
+    waitForElm("#inpaint_canvas").then(() => {
+        console.log("Inpaint canvas ready, applying hotkeys & zoom/pan");
+        applyZoomAndPan("#inpaint_canvas");
+    }).catch(err => console.warn("Failed to apply inpaint canvas hotkeys:", err));
+})();

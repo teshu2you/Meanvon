@@ -1,13 +1,18 @@
 # based on https://github.com/AUTOMATIC1111/stable-diffusion-webui/blob/v1.6.0/modules/ui_gradio_extensions.py
 
 import os
+_USE_CUSTOM_TEMPLATE = False  # 临时禁用
+
 import gradio as gr
 from adapter import args_manager
 
 from modules.localization import localization_js
 
-
-GradioTemplateResponseOriginal = gr.routes.templates.TemplateResponse
+if _USE_CUSTOM_TEMPLATE:
+    GradioTemplateResponseOriginal = gr.routes.templates.TemplateResponse
+else:
+    from starlette.templating import TemplateResponse
+    GradioTemplateResponseOriginal = TemplateResponse
 
 modules_path = os.path.dirname(os.path.realpath(__file__))
 script_path = os.path.dirname(modules_path)
