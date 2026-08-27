@@ -1,6 +1,6 @@
 import cv2
 from PIL import Image
-from moviepy.editor import ImageSequenceClip
+from moviepy import ImageSequenceClip
 import imageio
 import os
 import numpy as np

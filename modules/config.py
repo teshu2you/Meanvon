@@ -153,7 +153,7 @@ def try_load_deprecated_user_path_config():
         replace_config('fooocus_expansion_path', 'path_fooocus_expansion')
         replace_config('temp_outputs_path', 'path_outputs')
 
-        if deprecated_config_dict.get("default_model", None) == 'JuggernautXL_X_X_RunDiffusion.safetensors':
+        if deprecated_config_dict.get("default_model", None) == 'JuggernautXL_ragnarokBy.safetensors':
             os.replace('user_path_config.txt', 'user_path_config-deprecated.txt')
             print('Config updated successfully in silence. '
                   'A backup of previous config is written to "user_path_config-deprecated.txt".')
@@ -452,7 +452,7 @@ default_model_type = "SDXL"
 
 default_base_model_name = default_model = get_config_item_or_set_default(
     key='default_model',
-    default_value='JuggernautXL_X_X_RunDiffusion.safetensors',
+    default_value='JuggernautXL_ragnarokBy.safetensors',
     validator=lambda x: isinstance(x, str)
 )
 
@@ -718,7 +718,7 @@ def add_ratio(x):
     a, b = x.replace('*', ' ').split(' ')[:2]
     a, b = int(a), int(b)
     g = math.gcd(a, b)
-    return f'{a}×{b} <span style="color: grey;"> \U00002223 {a // g}:{b // g}</span>'
+    return f'{a}×{b} \U00002223 {a // g}:{b // g}'
 
 
 default_aspect_ratio = add_ratio(default_aspect_ratio)

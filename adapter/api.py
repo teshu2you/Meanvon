@@ -79,9 +79,9 @@ def call_worker(req: Text2ImgRequest, accept: str) -> Response | AsyncJobRespons
 
     task_type = get_task_type(req)
     params = req_to_params(req)
-    async_task = worker_queue.add_task(task_type, params, req.webhook_url)
+    queue_task = worker_queue.add_task(task_type, params, req.webhook_url)
 
-    if async_task is None:
+    if queue_task is None:
         # add to worker queue failed
         failure_results = [ImageGenerationResult(im=None, seed='', finish_reason=GenerationFinishReason.queue_is_full)]
 
@@ -100,10 +100,10 @@ def call_worker(req: Text2ImgRequest, accept: str) -> Response | AsyncJobRespons
 
     if req.async_process:
         # return async response directly
-        return generate_async_output(async_task)
+        return generate_async_output(queue_task)
 
     # blocking get generation result
-    results = blocking_get_task_result(async_task.job_id)
+    results = blocking_get_task_result(queue_task.job_id)
 
     if streaming_output:
         return generate_streaming_output(results)

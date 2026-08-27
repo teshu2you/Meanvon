@@ -192,8 +192,8 @@ class taskManager:
         self.prompt = "1girl"
         self.negative_prompt = "nsfw"
         self.style_selections = []
-        self.performance_selection = Performance.SPEED,
-        self.aspect_ratios_selection = "1024×1024 (1:1)",
+        self.performance_selection = Performance.SPEED
+        self.aspect_ratios_selection = "1024×1024 (1:1)"
         self.image_number = 1
         self.image_seed = 0
         self.sharpness = 2.0
@@ -246,6 +246,7 @@ class taskManager:
                          'CPDS': ['none', 0.6, 0.5]}
         self.input_gallery = []
         self.revision_gallery = []
+        self.output_gallery = []                              # 新增：以前缺少此属性
         self.keep_input_names = False
         self.default_model_type = "SDXL"
 
@@ -487,9 +488,13 @@ class taskManager:
             self.save_metadata_to_images = args.pop()
             self.metadata_scheme = flags.MetadataScheme(args.pop())
 
-            self.input_gallery = args.pop()
-            self.revision_gallery = args.pop()
+            self.input_gallery = args.pop() or []             # 关键修复
+            self.revision_gallery = args.pop() or []          # 关键修复
             self.keep_input_names = args.pop()
+            
+            
+            self.input_gallery_size = len(self.input_gallery) # 立即计算
+            self.revision_gallery_size = len(self.revision_gallery)
 
             if self.performance_selection in [Performance(Performance.Custom)]:
                 self.steps = self.custom_steps
@@ -514,7 +519,7 @@ class taskManager:
                 self.api_first_run_flag = False
                 return
 
-            if queue_task.req_param is None:
+            if queue_task is None or queue_task.req_param is None:
                 return
 
             self.init_param(obj=queue_task)
@@ -573,6 +578,7 @@ class taskManager:
                                self.direct_return)).printf()
                     continue
                 start_time = time.perf_counter()
+                print(f"{x} -- async_task -- {async_task.__dict__}")
                 x(async_task=async_task)
                 cost_time = time.perf_counter() - start_time
                 print(
@@ -630,7 +636,7 @@ class taskManager:
         elif self.request_source == "api":
             results = []
             for i, im in enumerate(imgs):
-                print("im:{im}")
+                print(f"im:{im}")    # 原为 print("im:{im}")
                 seed = -1 if len(self.tasks) == 0 else self.tasks[i]['task_seed']
                 # img_filename = save_output_file(img=im, extension=self.save_extension)
                 results.append(
@@ -734,8 +740,8 @@ class taskManager:
         self.loras_raw = config.get("loras_raw")
         self.freeu_b1 = config.get("freeu_b1")
         self.freeu_b2 = config.get("freeu_b2")
-        self.freeu_s1 = config.get("freeu_b3")
-        self.freeu_s2 = config.get("freeu_b")
+        self.freeu_s1 = config.get("freeu_s1")    # 原为 freeu_b3
+        self.freeu_s2 = config.get("freeu_s2")    # 原为 freeu_b
 
         self.raw_style_selections = config.get("raw_style_selections")
         self.use_expansion = config.get("use_expansion")
@@ -906,7 +912,7 @@ class taskManager:
 
         # assert self.performance_selection in [Performance.SPEED, Performance.QUALITY, Performance.LCM,Performance.TURBO, Performance.Lightning, Performance.HYPER_SD, Performance.Custom]
 
-        self.fixed_steps = Performance(self.performance_selection)
+        # self.fixed_steps = Performance(self.performance_selection)
 
         if self.performance_selection == Performance.SPEED:
             self.fixed_steps = constants.STEPS_SPEED
@@ -1234,29 +1240,38 @@ class taskManager:
 
     def manage_cns(self, async_task):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> manage_cns").printf()
-        if isinstance(self.input_gallery, list):
-            self.input_gallery_size = len(self.input_gallery)
-        else:
-            self.input_gallery_size = 0
+
+        # ===== 关键修复：确保所有 gallery 都是列表 =====
+        if not hasattr(self, 'output_gallery'):
+            self.output_gallery = []
+        self.input_gallery = self.input_gallery or []
+        self.revision_gallery = self.revision_gallery or []
+        self.output_gallery = self.output_gallery or []
+
+        # 计算尺寸前先保证非 None
+        self.input_gallery_size = len(self.input_gallery)
+        self.revision_gallery_size = len(self.revision_gallery)
+
         if self.input_gallery_size == 0:
             self.img2img_mode = False
             self.input_image_path = None
             self.control_lora_canny = False
             self.control_lora_depth = False
 
-        self.revision_gallery_size = len(self.revision_gallery)
-
         if self.revision_gallery_size == 0:
             self.revision_mode = False
+
         # Load or unload CNs
         printF(name=MasterName.get_master_name(),
                info="[Parameters] controlnet_canny_path = {}".format(self.controlnet_canny_path)).printf()
         printF(name=MasterName.get_master_name(),
                info="[Parameters] controlnet_cpds_path = {}".format(self.controlnet_cpds_path)).printf()
+
         pipeline.refresh_controlnets([self.controlnet_canny_path, self.controlnet_cpds_path])
         ip_adapter.load_ip_adapter(self.clip_vision_path, self.ip_negative_path, self.ip_adapter_path)
         ip_adapter.load_ip_adapter(self.clip_vision_path, self.ip_negative_path, self.ip_adapter_face_path)
-
+        
+        
     def get_advanced_parameters(self, async_task):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> get_advanced_parameters").printf()
         printF(name=MasterName.get_master_name(),
@@ -1457,6 +1472,9 @@ class taskManager:
             self.progressbar(async_task, 13, 'Image processing ...')
 
         if 'vary' in self.goals:
+            if self.uov_input_image is None:
+                self.goals.remove('vary')
+                return
             if 'subtle' in self.uov_method:
                 self.denoising_strength = 0.5
             if 'strong' in self.uov_method:
@@ -1499,6 +1517,9 @@ class taskManager:
     def check_upscale_in_goals(self, async_task):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> check_upscale_in_goals").printf()
         if 'upscale' in self.goals:
+            if self.uov_input_image is None:
+                self.goals.remove('upscale')
+                return
             H, W, C = self.uov_input_image.shape
             self.progressbar(async_task, 13, f'Upscaling image from {str((H, W))} ...')
 
@@ -1821,7 +1842,9 @@ class taskManager:
         print(f"self.tasks: {self.tasks}")
         for current_task_id, task in enumerate(self.tasks):
             execution_start_time = time.perf_counter()
-            if self.img2img_mode or self.control_lora_canny or self.control_lora_depth:
+
+            if (self.img2img_mode or self.control_lora_canny or self.control_lora_depth) \
+                    and self.input_gallery_size > 0:
                 input_gallery_entry = self.input_gallery[current_task_id % self.input_gallery_size]
                 self.input_image_path = input_gallery_entry['name']
                 self.input_image_filename = None if self.input_image_path is None else os.path.basename(
@@ -1830,6 +1853,7 @@ class taskManager:
                 self.input_image_path = None
                 self.input_image_filename = None
                 self.keep_input_names = None
+                
             if self.img2img_mode:
                 self.start_step = round(self.steps * self.img2img_start_step)
                 self.denoise = self.img2img_denoise
@@ -2141,7 +2165,7 @@ def task_schedule_loop(request_source="api"):
                     continue
 
                 if not async_tasks:
-                    current_task = task_manager.AsyncTask
+                    current_task = task_manager.AsyncTask(args=[])  # 原为 AsyncTask 没有括号
                     current_task.last_stop = False
                     current_task.processing = False
                     current_task.yields = []

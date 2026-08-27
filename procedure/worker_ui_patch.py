@@ -57,6 +57,7 @@ def worker_ui():
                                        req_param=igp,
                                        in_queue_millis=int(round(time.time() * 1000)))
                 task_manager.process_generate(current_task, worker_queue, queue_worker)
+                print(f"current_task: {current_task.__dict__}")
                 if current_task:
                     task_manager.build_image_wall(current_task)
                 current_task.yields.append(['finish', current_task.results])

@@ -1,8 +1,10 @@
 from enum import Enum
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
+
 import numpy as np
-from modules.flags import Performance
+
 from modules import config
+from modules.flags import Performance
 
 default_inpaint_engine_version = 'v2.6'
 
@@ -88,7 +90,7 @@ class ImageGenerationParams(object):
                  base_model_name: str = default_base_model_name,
                  refiner_model_name: str = "None",
                  refiner_switch: float = 0.8,
-                 loras: List[any] = [[True, 'None', 1.0], [True, 'None', 1.0], [True, 'None', 1.0],
+                 loras: List[Any] = [[True, 'None', 1.0], [True, 'None', 1.0], [True, 'None', 1.0],
                                                         [True, 'None', 1.0], [True, 'None', 1.0]],
                  uov_input_image: np.ndarray | None = None,
                  uov_method: str = "Disabled",
@@ -101,7 +103,7 @@ class ImageGenerationParams(object):
                  inpaint_input_image: Dict[str, np.ndarray] | None = None,
                  inpaint_additional_prompt: str | None = None,
                  image_prompts: List[Tuple[np.ndarray, float, float, str]] = [],
-                 advanced_params: List[any] | None = None,
+                 advanced_params: List[Any] | None = None,
                  save_extension: str = "png",
                  require_base64: bool = False):
         self.prompt = prompt

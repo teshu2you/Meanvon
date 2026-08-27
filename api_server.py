@@ -38,7 +38,7 @@ re_requirement = re.compile(r"\s*([-_a-zA-Z0-9]+)\s*(?:==\s*([-+_.a-zA-Z0-9]+))?
 
 fooocus_name = 'Fooocus'
 meanvon_name = 'MeanVon'
-requirements_file = "requirements_versions.txt"
+requirements_file = "requirements.txt"
 
 modules_path = os.path.dirname(os.path.realpath(__file__))
 script_path = modules_path

@@ -1,18 +1,13 @@
 # based on https://github.com/AUTOMATIC1111/stable-diffusion-webui/blob/v1.6.0/modules/ui_gradio_extensions.py
 
 import os
-_USE_CUSTOM_TEMPLATE = False  # 临时禁用
-
 import gradio as gr
 from adapter import args_manager
 
 from modules.localization import localization_js
 
-if _USE_CUSTOM_TEMPLATE:
-    GradioTemplateResponseOriginal = gr.routes.templates.TemplateResponse
-else:
-    from starlette.templating import TemplateResponse
-    GradioTemplateResponseOriginal = TemplateResponse
+
+GradioTemplateResponseOriginal = gr.routes.templates.TemplateResponse
 
 modules_path = os.path.dirname(os.path.realpath(__file__))
 script_path = os.path.dirname(modules_path)
@@ -28,26 +23,26 @@ def webpath(fn):
 
 
 def javascript_html():
-    script_js_path = webpath('javascript/script.js')
-    context_menus_js_path = webpath('javascript/contextMenus.js')
-    localization_js_path = webpath('javascript/localization.js')
-    zoom_js_path = webpath('javascript/zoom.js')
-    edit_attention_js_path = webpath('javascript/edit-attention.js')
-    viewer_js_path = webpath('javascript/viewer.js')
-    image_viewer_js_path = webpath('javascript/imageviewer.js')
+    script_js_path = webpath('static/script.js')
+    context_menus_js_path = webpath('static/contextMenus.js')
+    localization_js_path = webpath('static/localization.js')
+    zoom_js_path = webpath('static/zoom.js')
+    edit_attention_js_path = webpath('static/edit-attention.js')
+    viewer_js_path = webpath('static/viewer.js')
+    image_viewer_js_path = webpath('static/imageviewer.js')
     samples_path = webpath(os.path.abspath('./sdxl_styles/samples/fooocus_v2.jpg'))
-    head = f'<script type="text/javascript">{localization_js(args_manager.args.language)}</script>\n'
-    head += f'<script type="text/javascript" src="{script_js_path}"></script>\n'
-    head += f'<script type="text/javascript" src="{context_menus_js_path}"></script>\n'
-    head += f'<script type="text/javascript" src="{localization_js_path}"></script>\n'
-    head += f'<script type="text/javascript" src="{zoom_js_path}"></script>\n'
-    head += f'<script type="text/javascript" src="{edit_attention_js_path}"></script>\n'
-    head += f'<script type="text/javascript" src="{viewer_js_path}"></script>\n'
-    head += f'<script type="text/javascript" src="{image_viewer_js_path}"></script>\n'
+    head = f'<script type="text/static">{localization_js(args_manager.args.language)}</script>\n'
+    head += f'<script type="text/static" src="{script_js_path}"></script>\n'
+    head += f'<script type="text/static" src="{context_menus_js_path}"></script>\n'
+    head += f'<script type="text/static" src="{localization_js_path}"></script>\n'
+    head += f'<script type="text/static" src="{zoom_js_path}"></script>\n'
+    head += f'<script type="text/static" src="{edit_attention_js_path}"></script>\n'
+    head += f'<script type="text/static" src="{viewer_js_path}"></script>\n'
+    head += f'<script type="text/static" src="{image_viewer_js_path}"></script>\n'
     head += f'<meta name="samples-path" content="{samples_path}"></meta>\n'
 
     if args_manager.args.theme:
-        head += f'<script type="text/javascript">set_theme(\"{args_manager.args.theme}\");</script>\n'
+        head += f'<script type="text/static">set_theme(\"{args_manager.args.theme}\");</script>\n'
 
     return head
 

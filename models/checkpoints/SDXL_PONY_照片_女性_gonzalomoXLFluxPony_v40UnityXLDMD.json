@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"",
+	"Base": "Pony",
+	"Links": "https://www.qpipi.com/129741/",
+	"Version": "v4.0",
+	"Tags": "base model photorealistic sexy female chinese hanfu woman girls realistic nsfw sfw",
+	"Usage_Tips": "采样器：LCM 调度器：Karras、Exponential 或 Beta 步骤： 8-12 CFG：1.0-1.3 Clip Skip：1 允许更大的模拟效果，但会降低 NSFW 功能。Clip Skip：2+ 减少/消除模拟效果，但允许更多 NSFW",
+	"Author": "GBRX",
+	"ReMark": "v4.0 Unity DMD 版本 在混音中添加了一些 Analog Madness 和 Epic Realism，并且在经过一些调整后非常喜欢结果，所以希望您也喜欢它。V3.0 似乎非常受欢迎，所以我的主要目标是不搞砸它的功能，只提供一个替代版本。"
+}

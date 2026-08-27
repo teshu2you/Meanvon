@@ -1,26 +1,27 @@
-from fastapi import Form, UploadFile
-from fastapi.params import File
-from fastapi.exceptions import RequestValidationError
+from enum import Enum
+from typing import List, Tuple
 
+from fastapi import Form, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.params import File
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 # from pydantic import TypeAdapter
 from pydantic_core import InitErrorDetails
 
-from typing import List, Tuple
-from enum import Enum
-
-from .parameters import (GenerationFinishReason,
-                         default_styles,
-                         default_base_model_name,
-                         default_refiner_model_name,
-                         default_refiner_switch,
-                         default_loras,
-                         default_cfg_scale,
-                         default_prompt_negative,
-                         default_aspect_ratio,
-                         default_sampler,
-                         default_scheduler)
-
+from .parameters import (
+    GenerationFinishReason,
+    default_aspect_ratio,
+    default_base_model_name,
+    default_cfg_scale,
+    default_loras,
+    default_prompt_negative,
+    default_refiner_model_name,
+    default_refiner_switch,
+    default_sampler,
+    default_scheduler,
+    default_styles,
+)
 from .task_queue import TaskType
 
 

@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Mar 15, 2025",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/1356598/shoulder-to-shoulderil?modelVersionId=1532445",
+	"Version": "v1.0",
+	"Tags": "concept pose shoulder grabbing breasts shoulder-to-shoulder arm around the shoulder",
+	"Usage_Tips": "shoulder-to-shoulder, arm around the shoulder,grabbing another's breast,cheek-to-cheek,",
+	"Author": "KULty Joined Jan 31, 2023",
+	"ReMark": "shoulder-to-shoulder lora got frustrated because the prompt kept disobeying, so I made it.It assists in the motion of wrapping an arm around the shoulder.weight: 0.6~0.8 prompts : shoulder-to-shoulder, arm around the shoulder +grabbing another's breast,+cheek-to-cheek, +etc."
+}

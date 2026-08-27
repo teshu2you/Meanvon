@@ -67,5 +67,4 @@ user_path_config-deprecated.txt
 /.coverage*
 /auth.json
 .DS_Store
-!/models/llamacpp/Llama3-8B-Chinese-Chat.q6_k.gguf
 /task_configs

@@ -2,9 +2,8 @@ import uuid
 import time
 import requests
 import numpy as np
-
 from enum import Enum
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 from util.file import delete_output_file, get_file_serve_url
 from util.image import narray_to_base64img
@@ -181,7 +180,7 @@ class TaskOutputs:
     def __init__(self, task: QueueTask):
         self.task = task
 
-    def append(self, args: List[any]):
+    def append(self, args: List[Any]) -> None:
         self.outputs.append(args)
         if len(args) >= 2:
             if args[0] == 'preview' and isinstance(args[1], Tuple) and len(args[1]) >= 2:

@@ -109,7 +109,7 @@ progress::after {
 }
 
 .app.svelte-1kyws56.svelte-1kyws56 {
-    max-width: 90%;
+    max-width: 99%;
 }
 .aspect_ratios label {
     width: 140px !important;

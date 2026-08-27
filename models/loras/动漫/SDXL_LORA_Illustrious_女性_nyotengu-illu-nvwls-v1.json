@@ -1,0 +1,12 @@
+{
+	"Type": "LoRA",
+	"NSFW": "True",
+	"Update_Date":"Jan 7, 2025",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/1387142/nyotengu-dead-or-alive-sdxl-lora-or-2-outfits-illustrious?modelVersionId=1567620",
+	"Version": "v1.0",
+	"Tags": "character anime woman game character video game dead or alive",
+	"Usage_Tips": "d0anyo, black hair, blunt bangs, sidelocks, purple eyes, mole under mouth, lips, twintails, big breasts, tokin hat, hair sticks, pom pom \(clothes\), hair tubes, bare shoulders, black kimono, cleavage, yellow obi, detached sleeves, wide sleeves, white bridal gauntlets, thigh strap, socks, tengu-geta, d0anyo, black hair, blunt bangs, sidelocks, purple eyes, mole under mouth, lips, hime cut, long hair, big breasts, black choker, o-ring bikini, black bikini, fishnets, fingerless gloves, black gloves, garter straps, crotch zipper ",
+	"Author": "novowels Joined Feb 8, 2023",
+	"ReMark": "I have a form for requests; check it out if you want to request a character.Nyotengu from Dead or Alive. Trained on Illustrious-XL v0.1. Tested at 0.8-1.0 strength.Contains her regular appearance and her Azur Lane swimsuit.Add 'd0anyo, black hair, blunt bangs, sidelocks, purple eyes, mole under mouth, lips, twintails, tokin hat, hair sticks, pom pom \(clothes\), hair tubes, bare shoulders, black kimono, cleavage, yellow obi, detached sleeves, wide sleeves, white bridal gauntlets, thigh strap, socks, tengu-geta' for her typical look.Add 'd0anyo, black hair, blunt bangs, sidelocks, purple eyes, mole under mouth, lips, hime cut, long hair, big breasts, black choker, o-ring bikini, black bikini, fishnets, fingerless gloves, black gloves, garter straps, crotch zipper' for her Azur Lane swimsuit.'Black wings' adds her wings.Replace 'twintails, tokin hat, hair sticks, pom pom \(clothes\), hair tubes' with 'hime cut, long hair' for her hime cut hairstyle without the twin topknots."
+}

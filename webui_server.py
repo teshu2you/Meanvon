@@ -1,8 +1,13 @@
 import ssl
 from util.printf import printF, MasterName
 from config.webuiConfig import *
-
+from util.printf import MasterName, printF
+import random
 ssl._create_default_https_context = ssl._create_unverified_context
+import ast
+import json
+import copy
+import socket
 import warnings
 import shared
 import modules.config
@@ -28,9 +33,7 @@ from modules.util import get_current_log_path, get_previous_log_path, is_json
 from modules.ui_gradio_extensions import reload_javascript
 from modules.auth import auth_enabled, check_auth
 import ast
-from extensions.sadtalker.src.gradio_demo import SadTalker
 from resources import *
-from resources.musicgen_mel import modellist_musicgen_mel, initiate_stop_musicgen_mel, music_musicgen_mel
 import socket
 from procedure.worker_ui_patch import task_manager
 from adapter.task_queue import QueueTask, TaskQueue
@@ -45,6 +48,54 @@ GALLERY_ID_INPUT = 0
 GALLERY_ID_REVISION = 1
 GALLERY_ID_OUTPUT = 2
 
+# 检查 viewer_* 函数是否存在，如果不存在则使用默认行为
+switch_js = """
+(x) => {
+    try {
+        if(x){
+            if(typeof viewer_to_bottom === 'function') {
+                viewer_to_bottom(100);
+                viewer_to_bottom(500);
+            } else {
+                // 默认滚动到底部
+                setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 100);
+            }
+        } else {
+            if(typeof viewer_to_top === 'function') {
+                viewer_to_top();
+            } else {
+                // 默认滚动到顶部
+                window.scrollTo(0, 0);
+            }
+        }
+    } catch(e) {
+        console.warn('viewer function error:', e);
+        // 降级处理
+        if(x) {
+            window.scrollTo(0, document.body.scrollHeight);
+        } else {
+            window.scrollTo(0, 0);
+        }
+    }
+    return x;
+}
+"""
+
+down_js = """
+() => {
+    try {
+        if(typeof viewer_to_bottom === 'function') {
+            viewer_to_bottom();
+        } else {
+            // 默认滚动到底部
+            setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 100);
+        }
+    } catch(e) {
+        console.warn('viewer_to_bottom error:', e);
+        window.scrollTo(0, document.body.scrollHeight);
+    }
+}
+"""
 
 def local_ip():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -78,6 +129,7 @@ sys.stdout = Logger(logfile_bug)
 def get_task(*args):
     args = list(args)
     args.pop(0)
+    print(">>> after pop, args count:", len(args))
     return task_manager.AsyncTask(args=args)
 
 
@@ -111,52 +163,83 @@ def generate_clicked(task: task_manager.AsyncTask):
 
     while not finished:
         time.sleep(0.01)
+        # print(f"task.yields --------- 111: {task.yields}")
         if len(task.yields) > 0:
+            # print(f"task.yields ---------- 222: {task.yields}")
             flag, product = task.yields.pop(0)
-            # [progress_html, progress_window, progress_gallery, gallery
-            # progress_gallery   gallery=output_gallery , both in gallery_tabs, gallery_tabs in gallery_holder
-            # progress_html, progress_window, remain_images_progress, gallery_holder, output_gallery, progress_gallery, finish_image_viewer, metadata_viewer, gallery_tabs
-            if flag == 'preview':
+
+            if flag == "preview":
                 # help bad internet connection by skipping duplicated preview
                 if len(task.yields) > 0:  # if we have the next item
-                    if task.yields[0][0] == 'preview':  # if the next item is also a preview
-                        # print('Skipped one preview for better internet connection.')
+                    if (
+                        task.yields[0][0] == "preview"
+                    ):  # if the next item is also a preview
                         continue
                 percentage, title, image, img_pp, img_rr = product
-                yield gr.update(visible=True, value=modules.html.make_progress_html(percentage, title)), \
-                    gr.update(visible=True, value=image) if image is not None else gr.update(), \
-                    gr.update(visible=True,
-                              value="No." + str(img_pp) + " processing...           |           " + str(
-                                  img_rr) + "  image(s) pending!"), \
-                    gr.update(visible=False), \
-                    gr.update(), \
-                    gr.update(), \
-                    gr.update(open=True), \
-                    gr.update(), \
-                    gr.update()
-            if flag == 'metadatas':
-                yield gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(
-                    value=product), gr.update(selected=GALLERY_ID_OUTPUT)
-            if flag == 'results':
-                yield gr.update(visible=True), \
-                    gr.update(visible=True), \
-                    gr.update(visible=True, value="Partially done"), \
-                    gr.update(visible=False), \
-                    gr.update(), \
-                    gr.update(visible=True, value=product) if product is not None else gr.update(visible=False), \
-                    gr.update(open=True), \
-                    gr.update(), \
-                    gr.update(selected=GALLERY_ID_OUTPUT)
-            if flag == 'finish':
-                yield gr.update(visible=False), \
-                    gr.update(visible=False), \
-                    gr.update(visible=True, value="All done"), \
-                    gr.update(visible=True), \
-                    gr.update(value=product), \
-                    gr.update(value=product), \
-                    gr.update(open=False), \
-                    gr.update(), \
-                    gr.update(selected=GALLERY_ID_OUTPUT)
+                yield (
+                    gr.update(
+                        visible=True,
+                        value=modules.html.make_progress_html(percentage, title),
+                    ),
+                    gr.update(visible=True, value=image)
+                    if image is not None
+                    else gr.update(),
+                    gr.update(
+                        visible=True,
+                        value="No."
+                        + str(img_pp)
+                        + " processing...           |           "
+                        + str(img_rr)
+                        + "  image(s) pending!",
+                    ),
+                    gr.update(visible=False),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(open=True),
+                    gr.update(),
+                    gr.update(),
+                )
+
+            elif flag == "metadatas":  # 改为 elif
+                yield (
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(value=product),
+                    gr.update(selected=GALLERY_ID_OUTPUT),
+                )
+
+            elif flag == "results":  # 改为 elif
+                yield (
+                    gr.update(visible=True),
+                    gr.update(visible=True),
+                    gr.update(visible=True, value="Partially done"),
+                    gr.update(visible=False),
+                    gr.update(),
+                    gr.update(visible=True, value=product)
+                    if product is not None
+                    else gr.update(visible=False),
+                    gr.update(open=True),
+                    gr.update(),
+                    gr.update(selected=GALLERY_ID_OUTPUT),
+                )
+
+            elif flag == "finish":  # 改为 elif，并添加 continue
+                yield (
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=True, value="All done"),
+                    gr.update(visible=True),
+                    gr.update(value=product),
+                    gr.update(value=product),
+                    gr.update(open=False),
+                    gr.update(),
+                    gr.update(selected=GALLERY_ID_OUTPUT),
+                )
                 finished = True
 
                 # delete Fooocus temp images, only keep gradio temp images
@@ -164,9 +247,10 @@ def generate_clicked(task: task_manager.AsyncTask):
                     for filepath in product:
                         if isinstance(filepath, str) and os.path.exists(filepath):
                             os.remove(filepath)
+                continue  # 添加 continue，避免后续代码继续执行
 
     execution_time = time.perf_counter() - execution_start_time
-    print(f'Total time: {execution_time:.2f} seconds')
+    print(f"Total time: {execution_time:.2f} seconds")
     return
 
 
@@ -175,12 +259,56 @@ def metadata_to_ctrls(metadata, ctrls):
     if not isinstance(metadata, Mapping):
         return ctrls
 
+    def _to_float(value, default=None):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _to_int(value, default=None):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+    def _to_bool(value, default=False):
+        if isinstance(value, str):
+            return value.strip().lower() in ("true", "1", "yes", "on")
+        return bool(value) if value is not None else default
+
+    def _clamp(value, low, high, default=None):
+        value = _to_float(value, default)
+        if value is None:
+            return default
+        return max(low, min(high, value))
+
+    def _clamp_int(value, low, high, default=None):
+        value = _to_int(value, default)
+        if value is None:
+            return default
+        return max(low, min(high, value))
+
+    def _to_list(value, default=None):
+        if value is None:
+            return default
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            try:
+                return ast.literal_eval(value)
+            except Exception:
+                try:
+                    return json.loads(value)
+                except Exception:
+                    return default
+        return default
+
     if 'prompt' in metadata:
         ctrls[2] = metadata.get('prompt')
     if 'negative_prompt' in metadata:
         ctrls[3] = metadata.get('negative_prompt')
     if 'styles' in metadata:
-        ctrls[4] = ast.literal_eval(metadata.get('styles'))
+        ctrls[4] = _to_list(metadata.get('styles'), ctrls[4])
     elif 'style' in metadata:
         ctrls[4] = migrate_style_from_v1(metadata.get('style'))
     if 'performance' in metadata:
@@ -189,13 +317,13 @@ def metadata_to_ctrls(metadata, ctrls):
         ctrls[6] = get_resolution_new_string(metadata.get('width'), metadata.get('height'))
     elif 'resolution' in metadata:
         ctrls[6] = metadata.get('resolution')
-    # image_number
     if 'image_number' in metadata:
-        ctrls[7] = metadata.get('image_number')
+        ctrls[7] = _clamp_int(metadata.get('image_number'),
+                              1, modules.config.default_max_image_number, ctrls[7])
     if 'seed' in metadata:
         ctrls[8] = metadata.get('seed')
     if 'sharpness' in metadata:
-        ctrls[9] = metadata.get('sharpness')
+        ctrls[9] = _clamp(metadata.get('sharpness'), 0, 30, ctrls[9])
     # ctrls[10] switch_sampler skip
     if 'sampler_name' in metadata:
         ctrls[11] = metadata.get('sampler_name')
@@ -204,19 +332,18 @@ def metadata_to_ctrls(metadata, ctrls):
     if 'scheduler' in metadata:
         ctrls[12] = metadata.get('scheduler')
     if 'steps' in metadata:
-        ctrls[13] = int(metadata.get('steps'))
-        ctrls[14] = int(metadata.get('steps'))
+        ctrls[13] = _clamp_int(metadata.get('steps'), 1, 200, ctrls[13])
+        ctrls[14] = ctrls[13]
     if 'switch' in metadata:
-        ctrls[15] = round(metadata.get('switch') / metadata.get('steps'), 2)
-        # if ctrls[12] != round(constants.SWITCH_SPEED / constants.STEPS_SPEED, 2):
-        #     ctrls[3] = 'Custom'
+        _steps = _to_float(metadata.get('steps'), 1.0) or 1.0
+        _switch = _to_float(metadata.get('switch'), ctrls[15])
+        if _switch is not None:
+            ctrls[15] = _clamp(round(_switch / _steps, 2), 0.2, 1.0, ctrls[15])
     if 'cfg' in metadata:
-        ctrls[16] = metadata.get('cfg')
-
+        ctrls[16] = _clamp(metadata.get('cfg'), 1, 30, ctrls[16])
     if 'guidance_scale' in metadata:
-        ctrls[16] = metadata.get('guidance_scale')
+        ctrls[16] = _clamp(metadata.get('guidance_scale'), 1, 30, ctrls[16])
 
-    # ".safetensors" by default.
     if 'base_model' in metadata:
         _tmp = metadata.get('base_model')
         if ".safetensors" not in _tmp and ".gguf" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
@@ -242,15 +369,14 @@ def metadata_to_ctrls(metadata, ctrls):
         else:
             ctrls[18] = _tmp
     if 'base_clip_skip' in metadata:
-        ctrls[19] = metadata.get('base_clip_skip')
+        ctrls[19] = _clamp_int(metadata.get('base_clip_skip'), -10, -1, ctrls[19])
     if 'refiner_clip_skip' in metadata:
-        ctrls[20] = metadata.get('refiner_clip_skip')
+        ctrls[20] = _clamp_int(metadata.get('refiner_clip_skip'), -10, -1, ctrls[20])
     if 'refiner_switch' in metadata:
-        ctrls[21] = metadata.get('refiner_switch')
+        ctrls[21] = _clamp(metadata.get('refiner_switch'), 0.1, 1.0, ctrls[21])
 
     lora_begin_idx = 22
     lora_num = 5
-
     for lrn in range(lora_num):
         index = 'lora_combined_' + str(lrn + 1)
         if index in metadata:
@@ -261,21 +387,25 @@ def metadata_to_ctrls(metadata, ctrls):
                 ctrls[lora_begin_idx + 1] = _tmp + ".safetensors"
             else:
                 ctrls[lora_begin_idx + 1] = _tmp
-            ctrls[lora_begin_idx + 2] = kv[1].strip()
+            if len(kv) > 1:
+                ctrls[lora_begin_idx + 2] = _clamp(
+                    kv[1].strip(),
+                    modules.config.default_loras_min_weight,
+                    modules.config.default_loras_max_weight,
+                    1.0
+                )
+            else:
+                ctrls[lora_begin_idx + 2] = 1
         else:
             ctrls[lora_begin_idx] = False
             ctrls[lora_begin_idx + 1] = "None"
             ctrls[lora_begin_idx + 2] = 1
         lora_begin_idx += 3
 
-    # if there are more than 5 loras, ignore them. (can not be seen on webui)
-    #  'lora_combined_1': 'Primary\\SDXL_LORA_(Movie Still)_JuggerCineXL2.safetensors : 0.42', 'lora_combined_2': 'Primary\\SDXL_LORA_控制_add-detail-xl增加细节.safetensors : 0.69', 'lora_combined_3': 'Primary\\SDXL_LORA_艺术_more_art-full_v1.safetensors : 0.76',
-
-    # seed_random 无需设置 , not all parameters should be set here, just use above.
-    if 'model_type_selector' in metadata:
+    if 'model_type_selector' in metadata and len(ctrls) > 122:
         ctrls[122] = metadata.get('model_type_selector')
-    if 'seed_random' in metadata:
-        ctrls[123] = not metadata.get('seed_random')
+    if 'seed_random' in metadata and len(ctrls) > 123:
+        ctrls[123] = _to_bool(metadata.get('seed_random'), ctrls[123])
 
     printF(name=MasterName.get_master_name(),
            info="[Parameters] AFTER--> ctrls: {} - {}".format(len(ctrls), ctrls)).printf()
@@ -368,6 +498,17 @@ def output_to_revision_handler(gallery):
 
 
 app = FastAPI()
+#
+# from fastapi.staticfiles import StaticFiles
+# import os
+#
+# # 确保 static 文件夹存在
+# static_dir = os.path.join(os.path.dirname(__file__), "static")
+# os.makedirs(static_dir, exist_ok=True)
+#
+# # 挂载静态文件路由（注意：必须在 mount_gradio_app 之前或之后？通常之前即可）
+# app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 settings = default_settings
 reload_javascript()
 
@@ -375,50 +516,6 @@ title = f'MeanVon {main_version}'
 
 if isinstance(adapter.args_manager.args.preset, str):
     title += ' ' + adapter.args_manager.args.preset
-
-
-def change_model_type_llamacpp(model_llamacpp):
-    try:
-        test_model = model_list_llamacpp[model_llamacpp]
-    except KeyError as ke:
-        test_model = None
-    if (test_model != None):
-        return prompt_template_llamacpp.update(
-            value=model_list_llamacpp[model_llamacpp][1]), system_template_llamacpp.update(
-            value=model_list_llamacpp[model_llamacpp][2]), quantization_llamacpp.update(value="")
-    else:
-        return prompt_template_llamacpp.update(value="{prompt}"), system_template_llamacpp.update(
-            value=""), quantization_llamacpp.update(value="")
-
-
-def change_prompt_template_llamacpp(prompt_template):
-    return prompt_template_llamacpp.update(
-        value=prompt_template_list_llamacpp[prompt_template][0]), system_template_llamacpp.update(
-        value=prompt_template_list_llamacpp[prompt_template][1])
-
-
-## Functions specific to llamacpp
-def show_download_llamacpp():
-    return btn_download_file_llamacpp.update(visible=False), download_file_llamacpp.update(visible=True)
-
-
-def hide_download_llamacpp():
-    return btn_download_file_llamacpp.update(visible=True), download_file_llamacpp.update(visible=False)
-
-
-def change_model_type_llamacpp(model_llamacpp):
-    try:
-        test_model = model_list_llamacpp[model_llamacpp]
-    except KeyError as ke:
-        test_model = None
-    if (test_model != None):
-        return prompt_template_llamacpp.update(
-            value=model_list_llamacpp[model_llamacpp][1]), system_template_llamacpp.update(
-            value=model_list_llamacpp[model_llamacpp][2]), quantization_llamacpp.update(value="")
-    else:
-        return prompt_template_llamacpp.update(value="{prompt}"), system_template_llamacpp.update(
-            value=""), quantization_llamacpp.update(value="")
-
 
 def read_ini_nllb(module):
     content = read_ini(module)
@@ -435,16 +532,70 @@ def dump_default_english_config():
     from modules.localization import dump_english_config
     dump_english_config(grh.all_components)
 
+with gr.Blocks(
+    title=title,
+    theme=gr.themes.Soft(
+        primary_hue=gr.themes.colors.rose,
+        secondary_hue=gr.themes.colors.lime,
+        neutral_hue=gr.themes.colors.indigo,
+        font=["Microsoft YaHei", "微软雅黑", "PingFang SC", "Segoe UI", "sans-serif"]
+    ).set(
+        body_background_fill="linear-gradient(white 1px, transparent 0), linear-gradient(90deg, white 1px, transparent 0)"
+    ),
+    css=modules.html.css + """
+    /* ===== 只修复宽度自适应，不破坏内部布局 ===== */
 
-with (gr.Blocks(
-        title=title,
-        theme=gr.themes.Soft(primary_hue=gr.themes.colors.rose,
-                             secondary_hue=gr.themes.colors.lime,
-                             neutral_hue=gr.themes.colors.indigo
-                             ).set(
-            body_background_fill="linear-gradient(white 1px, transparent 0), linear-gradient(90deg, white 1px, transparent 0)"),
-        css=modules.html.css) as shared.gradio_root):
-    currentTask = gr.State(task_manager.AsyncTask(args=[]))
+    /* 1. 最外层容器铺满 */
+    .gradio-container,
+    .gradio-container-5-50-0-dev0 {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;      /* 不要用 min-width: 100% */
+        margin: 0 auto !important;
+        padding: 0 16px !important;
+        border-radius: 0 !important;
+    }
+
+    /* 2. 内部真正包内容的层级（app -> wrap -> contain）全部放开 max-width */
+    .gradio-container main.app,
+    .gradio-container .wrap,
+    .gradio-container .contain {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    /* 3. 只让 contain 里的直接 Row 做正常 flex 布局，不要用 100% 硬压 */
+    .gradio-container .contain > .block,
+    .gradio-container .contain > .form,
+    .gradio-container .contain > .group,
+    .gradio-container .contain > .row {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    /* ===== 全局字体：微软雅黑等标准互联网字体 ===== */
+    body,
+    .gradio-container {
+        font-family: 'Microsoft YaHei', '微软雅黑', 'PingFang SC', 'Segoe UI', sans-serif !important;
+    }
+    """
+) as shared.gradio_root:
+
+    currentTask = gr.State(None)
+
+    def init_task():
+        """在事件中初始化任务"""
+        # 检查是否已初始化
+        task = currentTask.value
+        if task is None:
+            task = task_manager.AsyncTask(args=[])
+            return task
+        return task
+
+    # 在页面加载时初始化
+    shared.gradio_root.load(init_task, None, currentTask)
+
     with gr.Row():
         with gr.Column():
             with gr.Row():
@@ -472,670 +623,11 @@ with (gr.Blocks(
                                                     elem_classes='min_check')
 
 
-            ## Functions specific to AnimateLCM
-            def read_ini_animatediff_lcm(module):
-                # model_animatediff_lcm.value = readcfg_animatediff_lcm[0]
-                # adapter_animatediff_lcm.value = readcfg_animatediff_lcm[1]
-                # lora_animatediff_lcm.value = readcfg_animatediff_lcm[2]
-                # num_inference_step_animatediff_lcm.value = readcfg_animatediff_lcm[3]
-                # sampler_animatediff_lcm.value = readcfg_animatediff_lcm[4]
-                # guidance_scale_animatediff_lcm.value = readcfg_animatediff_lcm[5]
-                # seed_animatediff_lcm.value = readcfg_animatediff_lcm[6]
-                # num_frames_animatediff_lcm.value = readcfg_animatediff_lcm[7]
-                # width_animatediff_lcm.value = readcfg_animatediff_lcm[8]
-                # height_animatediff_lcm.value = readcfg_animatediff_lcm[9]
-                # num_videos_per_prompt_animatediff_lcm.value = readcfg_animatediff_lcm[10]
-                # num_prompt_animatediff_lcm.value = readcfg_animatediff_lcm[11]
-                # use_gfpgan_animatediff_lcm.value = readcfg_animatediff_lcm[12]
-                # tkme_animatediff_lcm.value = readcfg_animatediff_lcm[13]
-
-                content = read_ini(module)
-                return str(content[0]), str(content[1]), str(content[2]), int(content[3]), str(content[4]), float(
-                    content[5]), int(content[6]), int(
-                    content[7]), int(content[8]), int(content[9]), int(content[10]), int(content[11]), bool(
-                    int(content[12])), float(content[13])
-
-
-            def read_ini_animatediff_lightning(module):
-                content = read_ini(module)
-                return str(content[0]), str(content[1]), int(content[2]), str(content[3]), float(
-                    content[4]), int(content[5]), int(
-                    content[6]), int(content[7]), int(content[8]), int(content[9]), int(content[10]), bool(
-                    int(content[11])), float(content[12])
-
-
-            ## Functions specific to MusicGen Melody
-            def read_ini_musicgen_mel(module):
-                content = read_ini(module)
-                return str(content[0]), int(content[1]), float(content[2]), int(content[3]), bool(
-                    int(content[4])), float(content[5]), int(content[6]), int(content[7])
-
-
-            def change_source_type_musicgen_mel(source_type_musicgen_mel):
-                if source_type_musicgen_mel == "audio":
-                    return source_audio_musicgen_mel.update(source="upload")
-                elif source_type_musicgen_mel == "micro":
-                    return source_audio_musicgen_mel.update(source="microphone")
-
-
-            ## Functions specific to Bark
-            def read_ini_bark(module):
-                content = read_ini(module)
-                return str(content[0]), str(content[1])
-
-
-            def read_ini_llava(module):
-                content = read_ini(module)
-                return str(content[0]), int(content[1]), int(content[2]), bool(int(content[3])), int(
-                    content[4]), float(
-                    content[5]), float(content[6]), float(content[7]), int(content[8]), str(content[9])
-
-
-            def show_download_llava():
-                return btn_download_file_llava.update(visible=False), download_file_llava.update(visible=True)
-
-
-            def hide_download_llava():
-                return btn_download_file_llava.update(visible=True), download_file_llava.update(visible=False)
-
-
-            def change_model_type_animatediff_lcm(model_animatediff_lcm):
-                if (model_animatediff_lcm == "stabilityai/sdxl-turbo"):
-                    return sampler_animatediff_lcm.update(
-                        value="LCM"), width_animatediff_lcm.update(), height_animatediff_lcm.update(), num_inference_step_animatediff_lcm.update(
-                        value=2), guidance_scale_animatediff_lcm.update(
-                        value=0.0), negative_prompt_animatediff_lcm.update(interactive=False)
-                elif ("XL" in model_animatediff_lcm.upper()) or (model_animatediff_lcm == "segmind/SSD-1B") or (
-                        model_animatediff_lcm == "dataautogpt3/OpenDalleV1.1"):
-                    return sampler_animatediff_lcm.update(
-                        value="LCM"), width_animatediff_lcm.update(), height_animatediff_lcm.update(), num_inference_step_animatediff_lcm.update(
-                        value=10), guidance_scale_animatediff_lcm.update(
-                        value=7.5), negative_prompt_animatediff_lcm.update(interactive=True)
-                elif (model_animatediff_lcm == "segmind/Segmind-Vega"):
-                    return sampler_animatediff_lcm.update(
-                        value="LCM"), width_animatediff_lcm.update(), height_animatediff_lcm.update(), num_inference_step_animatediff_lcm.update(
-                        value=10), guidance_scale_animatediff_lcm.update(
-                        value=9.0), negative_prompt_animatediff_lcm.update(interactive=True)
-                else:
-                    return sampler_animatediff_lcm.update(
-                        value="LCM"), width_animatediff_lcm.update(), height_animatediff_lcm.update(), num_inference_step_animatediff_lcm.update(
-                        value=10), guidance_scale_animatediff_lcm.update(), negative_prompt_animatediff_lcm.update(
-                        interactive=True)
-
-
-            def change_output_type_animatediff_lcm(output_type_animatediff_lcm):
-                if output_type_animatediff_lcm == "mp4":
-                    return out_animatediff_lcm.update(visible=True), gif_out_animatediff_lcm.update(
-                        visible=False), btn_animatediff_lcm.update(visible=True), btn_animatediff_lcm_gif.update(
-                        visible=False)
-                elif output_type_animatediff_lcm == "gif":
-                    return out_animatediff_lcm.update(visible=False), gif_out_animatediff_lcm.update(
-                        visible=True), btn_animatediff_lcm.update(visible=False), btn_animatediff_lcm_gif.update(
-                        visible=True)
-
-
-            def change_model_type_animatediff_lightning(model_animatediff_lightning):
-                if (model_animatediff_lightning == "stabilityai/sdxl-turbo"):
-                    return sampler_animatediff_lightning.update(
-                        value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
-                        value=2), guidance_scale_animatediff_lightning.update(
-                        value=0.0), negative_prompt_animatediff_lightning.update(interactive=False)
-                elif ("XL" in model_animatediff_lightning.upper()) or (
-                        model_animatediff_lightning == "segmind/SSD-1B") or (
-                        model_animatediff_lightning == "dataautogpt3/OpenDalleV1.1"):
-                    return sampler_animatediff_lightning.update(
-                        value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
-                        value=10), guidance_scale_animatediff_lightning.update(
-                        value=7.5), negative_prompt_animatediff_lightning.update(interactive=True)
-                elif (model_animatediff_lightning == "segmind/Segmind-Vega"):
-                    return sampler_animatediff_lightning.update(
-                        value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
-                        value=10), guidance_scale_animatediff_lightning.update(
-                        value=9.0), negative_prompt_animatediff_lightning.update(interactive=True)
-                else:
-                    return sampler_animatediff_lightning.update(
-                        value="Euler"), width_animatediff_lightning.update(), height_animatediff_lightning.update(), num_inference_step_animatediff_lightning.update(
-                        value=10), guidance_scale_animatediff_lightning.update(), negative_prompt_animatediff_lightning.update(
-                        interactive=True)
-
-
-            def change_output_type_txt2prompt(output_type_txt2prompt):
-                if output_type_txt2prompt == "ChatGPT":
-                    return model_txt2prompt.update(value=model_list_txt2prompt[1]), max_tokens_txt2prompt.update(
-                        value=128)
-                elif output_type_txt2prompt == "SD":
-                    return model_txt2prompt.update(value=model_list_txt2prompt[0]), max_tokens_txt2prompt.update(
-                        value=70)
-
-
-            with gr.Row(visible=False) as text_input_panel:
+            with gr.Accordion(visible=False) as text_input_panel:
                 with gr.Tabs():
-                    with gr.TabItem(f"Chatbot Llama-cpp (gguf) 📝", id=11) as tab_llamacpp:
-                        with gr.Accordion(f"About", open=False):
-                            with gr.Box():
-                                gr.HTML(
-                                    f"""
-                                                    <h1 style='text-align: left;'>{about_infos}</h1>
-                                                    <b>{about_module}</b>{tab_llamacpp}</br>
-                                                    <b>{about_function}</b>{tab_llamacpp_about_desc} <a href='https://github.com/abetlen/llama-cpp-python' target='_blank'>llama-cpp-python</a></br>
-                                                    <b>{about_inputs}</b>{about_input_text}</br>
-                                                    <b>{about_outputs}</b>{about_output_text}</br>
-                                                    <b>{about_modelpage}</b>
-                                                    <a href='https://hf-mirror.com/zhouzr/Llama3-8B-Chinese-Chat-GGUF' target='_blank'>zhouzr/Llama3-8B-Chinese-Chat-GGUF</a>, 
-                                                    <a href='https://huggingface.co/NousResearch/Meta-Llama-3-8B-Instruct-GGUF' target='_blank'>NousResearch/Meta-Llama-3-8B-Instruct-GGUF</a>, 
-                                                    <a href='https://huggingface.co/Orenguteng/Llama-3-8B-Lexi-Uncensored-GGUF' target='_blank'>Orenguteng/Llama-3-8B-Lexi-Uncensored-GGUF</a>, 
-                                                    <a href='https://huggingface.co/bartowski/gemma-2-9b-it-GGUF' target='_blank'>bartowski/gemma-2-9b-it-GGUF</a>, 
-                                                    <a href='https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF' target='_blank'>bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF</a>, 
-                                                    <a href='https://huggingface.co/NousResearch/Hermes-2-Theta-Llama-3-8B-GGUF' target='_blank'>NousResearch/Hermes-2-Theta-Llama-3-8B-GGUF</a>, 
-                                                    <a href='https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf' target='_blank'>microsoft/Phi-3-mini-4k-instruct-gguf</a>, 
-                                                    <a href='https://huggingface.co/bartowski/openchat-3.6-8b-20240522-GGUF' target='_blank'>bartowski/openchat-3.6-8b-20240522-GGUF</a>, 
-                                                    <a href='https://huggingface.co/LoneStriker/Starling-LM-7B-beta-GGUF' target='_blank'>LoneStriker/Starling-LM-7B-beta-GGUF</a>, 
-                                                    <a href='https://huggingface.co/NousResearch/Hermes-2-Pro-Mistral-7B-GGUF' target='_blank'>NousResearch/Hermes-2-Pro-Mistral-7B-GGUF</a>, 
-                                                    <a href='https://huggingface.co/Lewdiculous/Kunoichi-DPO-v2-7B-GGUF-Imatrix' target='_blank'>Lewdiculous/Kunoichi-DPO-v2-7B-GGUF-Imatrix</a>, 
-                                                    <a href='https://huggingface.co/dranger003/MambaHermes-3B-GGUF' target='_blank'>dranger003/MambaHermes-3B-GGUF</a>, 
-                                                    <a href='https://huggingface.co/bartowski/gemma-1.1-7b-it-GGUF' target='_blank'>bartowski/gemma-1.1-7b-it-GGUF</a>, 
-                                                    <a href='https://huggingface.co/bartowski/gemma-1.1-2b-it-GGUF' target='_blank'>bartowski/gemma-1.1-2b-it-GGUF</a>, 
-                                                    <a href='https://huggingface.co/mlabonne/AlphaMonarch-7B-GGUF' target='_blank'>mlabonne/AlphaMonarch-7B-GGUF</a>, 
-                                                    <a href='https://huggingface.co/mlabonne/NeuralBeagle14-7B-GGUF' target='_blank'>mlabonne/NeuralBeagle14-7B-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/SOLAR-10.7B-Instruct-v1.0-GGUF' target='_blank'>TheBloke/SOLAR-10.7B-Instruct-v1.0-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF' target='_blank'>TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/phi-2-GGUF' target='_blank'>TheBloke/phi-2-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/Mixtral_7Bx2_MoE-GGUF' target='_blank'>TheBloke/Mixtral_7Bx2_MoE-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/mixtralnt-4x7b-test-GGUF' target='_blank'>TheBloke/mixtralnt-4x7b-test-GGUF</a>, 
-                                                    <a href='https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF' target='_blank'>bartowski/Mistral-7B-Instruct-v0.3-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/MetaMath-Cybertron-Starling-GGUF' target='_blank'>TheBloke/MetaMath-Cybertron-Starling-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/una-cybertron-7B-v2-GGUF' target='_blank'>TheBloke/una-cybertron-7B-v2-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/Starling-LM-7B-alpha-GGUF' target='_blank'>TheBloke/Starling-LM-7B-alpha-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/neural-chat-7B-v3-2-GGUF' target='_blank'>TheBloke/neural-chat-7B-v3-2-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/CollectiveCognition-v1.1-Mistral-7B-GGUF' target='_blank'>TheBloke/CollectiveCognition-v1.1-Mistral-7B-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/zephyr-7B-beta-GGUF' target='_blank'>TheBloke/zephyr-7B-beta-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/Yarn-Mistral-7B-128k-GGUF' target='_blank'>TheBloke/Yarn-Mistral-7B-128k-GGUF</a>, 
-                                                    <a href='https://huggingface.co/TheBloke/CodeLlama-13B-Instruct-GGUF' target='_blank'>TheBloke/CodeLlama-13B-Instruct-GGUF</a></br>
-                                                    """
-                                    #                                <a href='https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF' target='_blank'>TheBloke/Mistral-7B-Instruct-v0.2-GGUF</a>,
-                                )
-                            with gr.Box():
-                                gr.HTML(
-                                    f"""
-                                                    <h1 style='text-align: left;'>{about_help}</h1>
-                                                    <div style='text-align: justified'>
-                                                    <b>{about_usage}</b></br>
-                                                    {tab_llamacpp_about_instruct}
-                                                    </br>
-                                                    <b>{about_models}</b></br>
-                                                    - {tab_llamacpp_about_models_inst1}</br>
-                                                    - {tab_llamacpp_about_models_inst2}
-                                                    </div>
-                                                    """
-                                )
-                        with gr.Accordion(factory_settings, open=False):
-                            with gr.Row():
-                                with gr.Column():
-                                    model_llamacpp = gr.Dropdown(choices=list(model_list_llamacpp.keys()),
-                                                                 value=list(model_list_llamacpp.keys())[0],
-                                                                 label=model_label, allow_custom_value=True,
-                                                                 info=tab_llamacpp_model_info)
-                                with gr.Column():
-                                    quantization_llamacpp = gr.Textbox(value="",
-                                                                       label=tab_llamacpp_quantization_label,
-                                                                       info=tab_llamacpp_quantization_info)
-                                with gr.Column():
-                                    max_tokens_llamacpp = gr.Slider(0, 524288, step=16, value=1024,
-                                                                    label=maxtoken_label,
-                                                                    info=maxtoken_info)
-                                with gr.Column():
-                                    seed_llamacpp = gr.Slider(0, 10000000000, step=1, value=1337,
-                                                              label=seed_label, info=seed_info)
-                            with gr.Row():
-                                with gr.Column():
-                                    stream_llamacpp = gr.Checkbox(value=False, label=stream_label,
-                                                                  info=stream_info, interactive=False)
-                                with gr.Column():
-                                    n_ctx_llamacpp = gr.Slider(0, 131072, step=128, value=8192,
-                                                               label=ctx_label, info=ctx_info)
-                                with gr.Column():
-                                    repeat_penalty_llamacpp = gr.Slider(0.0, 10.0, step=0.1, value=1.1,
-                                                                        label=penalty_label,
-                                                                        info=penalty_info)
-                            with gr.Row():
-                                with gr.Column():
-                                    temperature_llamacpp = gr.Slider(0.0, 10.0, step=0.1, value=0.8,
-                                                                     label=temperature_label,
-                                                                     info=temperature_info)
-                                with gr.Column():
-                                    top_p_llamacpp = gr.Slider(0.0, 10.0, step=0.05, value=0.95,
-                                                               label=top_p_label,
-                                                               info=top_p_info)
-                                with gr.Column():
-                                    top_k_llamacpp = gr.Slider(0, 500, step=1, value=40, label=top_k_label,
-                                                               info=top_k_info)
-                            with gr.Row():
-                                with gr.Column():
-                                    force_prompt_template_llamacpp = gr.Dropdown(
-                                        choices=list(prompt_template_list_llamacpp.keys()),
-                                        value=list(prompt_template_list_llamacpp.keys())[0],
-                                        label=tab_llamacpp_force_prompt_label,
-                                        info=tab_llamacpp_force_prompt_info)
-                                with gr.Column():
-                                    gr.Number(visible=False)
-                                with gr.Column():
-                                    gr.Number(visible=False)
-                            with gr.Row():
-                                with gr.Column():
-                                    prompt_template_llamacpp = gr.Textbox(label=prompt_template_label,
-                                                                          value=
-                                                                          model_list_llamacpp[model_llamacpp.value][1],
-                                                                          lines=4, max_lines=4, show_copy_button=True,
-                                                                          info=prompt_template_info)
-                            with gr.Row():
-                                with gr.Column():
-                                    system_template_llamacpp = gr.Textbox(label=system_template_label,
-                                                                          value=
-                                                                          model_list_llamacpp[model_llamacpp.value][2],
-                                                                          lines=4, max_lines=4, show_copy_button=True,
-                                                                          info=system_template_info)
-                                    model_llamacpp.change(fn=change_model_type_llamacpp, inputs=model_llamacpp,
-                                                          outputs=[prompt_template_llamacpp, system_template_llamacpp,
-                                                                   quantization_llamacpp])
-                                    force_prompt_template_llamacpp.change(fn=change_prompt_template_llamacpp,
-                                                                          inputs=force_prompt_template_llamacpp,
-                                                                          outputs=[prompt_template_llamacpp,
-                                                                                   system_template_llamacpp])
-                            with gr.Row():
-                                with gr.Column():
-                                    save_ini_btn_llamacpp = gr.Button(f"{save_settings} 💾")
-                                with gr.Column():
-                                    module_name_llamacpp = gr.Textbox(value="llamacpp", visible=False,
-                                                                      interactive=False)
-                                    del_ini_btn_llamacpp = gr.Button(f"{delete_settings} 🗑️",
-                                                                     interactive=True if test_ini_exist(
-                                                                         module_name_llamacpp.value) else False)
-                                    save_ini_btn_llamacpp.click(
-                                        fn=write_ini_llamacpp,
-                                        inputs=[
-                                            module_name_llamacpp,
-                                            model_llamacpp,
-                                            quantization_llamacpp,
-                                            max_tokens_llamacpp,
-                                            seed_llamacpp,
-                                            stream_llamacpp,
-                                            n_ctx_llamacpp,
-                                            repeat_penalty_llamacpp,
-                                            temperature_llamacpp,
-                                            top_p_llamacpp,
-                                            top_k_llamacpp,
-                                            force_prompt_template_llamacpp,
-                                            prompt_template_llamacpp,
-                                            system_template_llamacpp,
-                                        ]
-                                    )
-                                    save_ini_btn_llamacpp.click(fn=lambda: gr.Info(save_settings_msg))
-                                    save_ini_btn_llamacpp.click(
-                                        fn=lambda: del_ini_btn_llamacpp.update(interactive=True),
-                                        outputs=del_ini_btn_llamacpp)
-                                    del_ini_btn_llamacpp.click(fn=lambda: del_ini(module_name_llamacpp.value))
-                                    del_ini_btn_llamacpp.click(fn=lambda: gr.Info(delete_settings_msg))
-                                    del_ini_btn_llamacpp.click(
-                                        fn=lambda: del_ini_btn_llamacpp.update(interactive=False),
-                                        outputs=del_ini_btn_llamacpp)
-                            if test_ini_exist(module_name_llamacpp.value):
-                                with open(f".ini/{module_name_llamacpp.value}.ini", "r", encoding="utf-8") as fichier:
-                                    exec(fichier.read())
-                        with gr.Row():
-                            history_llamacpp = gr.Chatbot(
-                                label=chatbot_history,
-                                height=400,
-                                autoscroll=True,
-                                show_copy_button=True,
-                                interactive=True,
-                                bubble_full_width=False,
-                                avatar_images=("./background/robot.jpg", "./background/me.jpg"),
-                            )
-                            last_reply_llamacpp = gr.Textbox(value="", visible=False)
-                        with gr.Row():
-                            prompt_llamacpp = gr.Textbox(label=chatbot_prompt_label, lines=1, max_lines=3,
-                                                         show_copy_button=True,
-                                                         placeholder=chatbot_prompt_placeholder,
-                                                         autofocus=True)
-                            hidden_prompt_llamacpp = gr.Textbox(value="", visible=False)
-                            last_reply_llamacpp.change(fn=lambda x: x, inputs=hidden_prompt_llamacpp,
-                                                       outputs=prompt_llamacpp)
-                        with gr.Row():
-                            with gr.Column():
-                                btn_llamacpp = gr.Button(f"{generate} 🚀", variant="primary")
-                            with gr.Column():
-                                btn_llamacpp_continue = gr.Button(f"{factory_continue} ➕")
-                            with gr.Column():
-                                btn_llamacpp_clear_output = gr.ClearButton(components=[history_llamacpp],
-                                                                           value=f"{clear_outputs} 🧹")
-                            with gr.Column():
-                                btn_download_file_llamacpp = gr.ClearButton(value=f"{download_chat} 💾",
-                                                                            visible=True)
-                                download_file_llamacpp = gr.File(label=f"{download_chat}",
-                                                                 value=blankfile_common, height=30, interactive=False,
-                                                                 visible=False)
-                                download_file_llamacpp_hidden = gr.Textbox(value=blankfile_common, interactive=False,
-                                                                           visible=False)
-                                btn_download_file_llamacpp.click(fn=show_download_llamacpp,
-                                                                 outputs=[btn_download_file_llamacpp,
-                                                                          download_file_llamacpp])
-                                download_file_llamacpp_hidden.change(fn=lambda x: x,
-                                                                     inputs=download_file_llamacpp_hidden,
-                                                                     outputs=download_file_llamacpp)
-                            btn_llamacpp.click(
-                                fn=text_llamacpp,
-                                inputs=[
-                                    model_llamacpp,
-                                    quantization_llamacpp,
-                                    max_tokens_llamacpp,
-                                    seed_llamacpp,
-                                    stream_llamacpp,
-                                    n_ctx_llamacpp,
-                                    repeat_penalty_llamacpp,
-                                    temperature_llamacpp,
-                                    top_p_llamacpp,
-                                    top_k_llamacpp,
-                                    prompt_llamacpp,
-                                    history_llamacpp,
-                                    prompt_template_llamacpp,
-                                    system_template_llamacpp,
-                                ],
-                                outputs=[
-                                    history_llamacpp,
-                                    last_reply_llamacpp,
-                                    download_file_llamacpp_hidden,
-                                ],
-                                show_progress="full",
-                            )
-                            btn_llamacpp.click(fn=hide_download_llamacpp,
-                                               outputs=[btn_download_file_llamacpp, download_file_llamacpp])
-                            prompt_llamacpp.submit(
-                                fn=text_llamacpp,
-                                inputs=[
-                                    model_llamacpp,
-                                    quantization_llamacpp,
-                                    max_tokens_llamacpp,
-                                    seed_llamacpp,
-                                    stream_llamacpp,
-                                    n_ctx_llamacpp,
-                                    repeat_penalty_llamacpp,
-                                    temperature_llamacpp,
-                                    top_p_llamacpp,
-                                    top_k_llamacpp,
-                                    prompt_llamacpp,
-                                    history_llamacpp,
-                                    prompt_template_llamacpp,
-                                    system_template_llamacpp,
-                                ],
-                                outputs=[
-                                    history_llamacpp,
-                                    last_reply_llamacpp,
-                                    download_file_llamacpp_hidden,
-                                ],
-                                show_progress="full",
-                            )
-                            prompt_llamacpp.submit(fn=hide_download_llamacpp,
-                                                   outputs=[btn_download_file_llamacpp, download_file_llamacpp])
-                            btn_llamacpp_continue.click(
-                                fn=text_llamacpp_continue,
-                                inputs=[
-                                    model_llamacpp,
-                                    quantization_llamacpp,
-                                    max_tokens_llamacpp,
-                                    seed_llamacpp,
-                                    stream_llamacpp,
-                                    n_ctx_llamacpp,
-                                    repeat_penalty_llamacpp,
-                                    temperature_llamacpp,
-                                    top_p_llamacpp,
-                                    top_k_llamacpp,
-                                    history_llamacpp,
-                                ],
-                                outputs=[
-                                    history_llamacpp,
-                                    last_reply_llamacpp,
-                                    download_file_llamacpp_hidden,
-                                ],
-                                show_progress="full",
-                            )
-                            btn_llamacpp_continue.click(fn=hide_download_llamacpp,
-                                                        outputs=[btn_download_file_llamacpp, download_file_llamacpp])
-
-                    with gr.TabItem("Llava 1.5 (gguf) 👁️", id=12) as tab_llava:
+                    with gr.Tab("nllb translation 👥", id=15) as tab_nllb:
                         with gr.Accordion("About", open=False):
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Informations</h1>
-                                    <b>Module : </b>Llava 1.5 (gguf)</br>
-                                    <b>Function : </b>Interrogate a chatbot about an input image using <a href='https://github.com/abetlen/llama-cpp-python' target='_blank'>llama-cpp-python</a>, <a href='https://llava-vl.github.io/' target='_blank'>Llava 1.5</a> and <a href='https://github.com/SkunkworksAI/BakLLaVA' target='_blank'>BakLLaVA</a></br>
-                                    <b>Input(s) : </b>Input image, Input text</br>
-                                    <b>Output(s) : </b>Output text</br>
-                                    <b>HF models pages : </b>
-                                    <a href='https://huggingface.co/mys/ggml_bakllava-1' target='_blank'>mys/ggml_bakllava-1</a>, 
-                                    <a href='https://huggingface.co/mys/ggml_llava-v1.5-7b' target='_blank'>mys/ggml_llava-v1.5-7b</a>, 
-                                    <a href='https://huggingface.co/mys/ggml_llava-v1.5-13b' target='_blank'>mys/ggml_llava-v1.5-13b</a>
-                               </br>
-                                    """
-                                )
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Help</h1>
-                                    <div style='text-align: justified'>
-                                    <b>Usage :</b></br>
-                                    - Upload or import an <b>Input image</b></br>
-                                    - Type your request in the <b>Input</b> textbox field</br>
-                                    - (optional) modify settings to use another model, change context size or modify maximum number of tokens generated.</br>
-                                    - Click the <b>Generate</b> button to generate a response to your input, using the chatbot history to keep a context.</br>
-                                    - Click the <b>Continue</b> button to complete the last reply.
-                                    </br>
-                                    <b>Models :</b></br>
-                                    - You could place llama-cpp compatible .gguf models in the directory ./models/llava. Restart to see them in the models list.
-                                    </div>
-                                    """
-                                )
-                        with gr.Accordion("Settings", open=False):
-                            with gr.Row():
-                                with gr.Column():
-                                    model_llava = gr.Dropdown(choices=model_list_llava, value=model_list_llava[0],
-                                                              label="Model",
-                                                              info="Choose model to use for inference")
-                                with gr.Column():
-                                    max_tokens_llava = gr.Slider(0, 131072, step=16, value=512, label="Max tokens",
-                                                                 info="Maximum number of tokens to generate")
-                                with gr.Column():
-                                    seed_llava = gr.Slider(0, 10000000000, step=1, value=1337,
-                                                           label="Seed(0 for random)",
-                                                           info="Seed to use for generation.")
-                            with gr.Row():
-                                with gr.Column():
-                                    stream_llava = gr.Checkbox(value=False, label="Stream", info="Stream results",
-                                                               interactive=False)
-                                with gr.Column():
-                                    n_ctx_llava = gr.Slider(0, 131072, step=128, value=8192, label="n_ctx",
-                                                            info="Maximum context size")
-                                with gr.Column():
-                                    repeat_penalty_llava = gr.Slider(0.0, 10.0, step=0.1, value=1.1,
-                                                                     label="Repeat penalty",
-                                                                     info="The penalty to apply to repeated tokens")
-                            with gr.Row():
-                                with gr.Column():
-                                    temperature_llava = gr.Slider(0.0, 10.0, step=0.1, value=0.8,
-                                                                  label="Temperature",
-                                                                  info="Temperature to use for sampling")
-                                with gr.Column():
-                                    top_p_llava = gr.Slider(0.0, 10.0, step=0.05, value=0.95, label="top_p",
-                                                            info="The top-p value to use for sampling")
-                                with gr.Column():
-                                    top_k_llava = gr.Slider(0, 500, step=1, value=40, label="top_k",
-                                                            info="The top-k value to use for sampling")
-                            with gr.Row():
-                                with gr.Column():
-                                    prompt_template_llava = gr.Textbox(label="Prompt template", value="{prompt}",
-                                                                       lines=4, max_lines=4,
-                                                                       info="Place your custom prompt template here. Keep the {prompt} tag, that will be replaced by your prompt.")
-                            with gr.Row():
-                                with gr.Column():
-                                    save_ini_btn_llava = gr.Button("Save custom defaults settings 💾")
-                                with gr.Column():
-                                    module_name_llava = gr.Textbox(value="llava", visible=False, interactive=False)
-                                    del_ini_btn_llava = gr.Button("Delete custom defaults settings 🗑️",
-                                                                  interactive=True if test_cfg_exist(
-                                                                      module_name_llava.value) else False)
-                                    save_ini_btn_llava.click(
-                                        fn=write_ini,
-                                        inputs=[
-                                            module_name_llava,
-                                            model_llava,
-                                            max_tokens_llava,
-                                            seed_llava,
-                                            stream_llava,
-                                            n_ctx_llava,
-                                            repeat_penalty_llava,
-                                            temperature_llava,
-                                            top_p_llava,
-                                            top_k_llava,
-                                            prompt_template_llava,
-                                        ]
-                                    )
-                                    save_ini_btn_llava.click(fn=lambda: gr.Info('Settings saved'))
-                                    save_ini_btn_llava.click(fn=lambda: del_ini_btn_llava.update(interactive=True),
-                                                             outputs=del_ini_btn_llava)
-                                    del_ini_btn_llava.click(fn=lambda: del_ini(module_name_llava.value))
-                                    del_ini_btn_llava.click(fn=lambda: gr.Info('Settings deleted'))
-                                    del_ini_btn_llava.click(fn=lambda: del_ini_btn_llava.update(interactive=False),
-                                                            outputs=del_ini_btn_llava)
-                            if test_cfg_exist(module_name_llava.value):
-                                readcfg_llava = read_ini_llava(module_name_llava.value)
-                                model_llava.value = readcfg_llava[0]
-                                max_tokens_llava.value = readcfg_llava[1]
-                                seed_llava.value = readcfg_llava[2]
-                                stream_llava.value = readcfg_llava[3]
-                                n_ctx_llava.value = readcfg_llava[4]
-                                repeat_penalty_llava.value = readcfg_llava[5]
-                                temperature_llava.value = readcfg_llava[6]
-                                top_p_llava.value = readcfg_llava[7]
-                                top_k_llava.value = readcfg_llava[8]
-                                prompt_template_llava.value = readcfg_llava[9]
-                        with gr.Row():
-                            with gr.Column(scale=1):
-                                img_llava = gr.Image(label="Input image", type="filepath", height=400)
-                            with gr.Column(scale=3):
-                                history_llava = gr.Chatbot(
-                                    label="Chatbot history",
-                                    height=400,
-                                    autoscroll=True,
-                                    show_copy_button=True,
-                                    interactive=True,
-                                    bubble_full_width=False,
-                                    avatar_images=("./background/avatar.png", "./background/matt.png"),
-                                )
-                                last_reply_llava = gr.Textbox(value="", visible=False)
-                        with gr.Row():
-                            prompt_llava = gr.Textbox(label="Input", lines=1, max_lines=3,
-                                                      placeholder="Type your request here ...", autofocus=True)
-                            hidden_prompt_llava = gr.Textbox(value="", visible=False)
-                        with gr.Row():
-                            btn_llava = gr.Button("Generate 🚀", variant="primary")
-                            btn_llava_clear_input = gr.ClearButton(components=[img_llava, prompt_llava],
-                                                                   value="Clear inputs 🧹")
-                            btn_llava_continue = gr.Button("Continue ➕", visible=False)
-                            btn_llava_clear_output = gr.ClearButton(components=[history_llava],
-                                                                    value="Clear outputs 🧹")
-                            btn_download_file_llava = gr.ClearButton(value="Download full conversation 💾",
-                                                                     visible=True)
-                            download_file_llava = gr.File(label="Download full conversation",
-                                                          value=blankfile_common, height=30, interactive=False,
-                                                          visible=False)
-                            download_file_llava_hidden = gr.Textbox(value=blankfile_common, interactive=False,
-                                                                    visible=False)
-                            btn_download_file_llava.click(fn=show_download_llava,
-                                                          outputs=[btn_download_file_llava, download_file_llava])
-                            download_file_llava_hidden.change(fn=lambda x: x, inputs=download_file_llava_hidden,
-                                                              outputs=download_file_llava)
-                            btn_llava.click(
-                                fn=text_llava,
-                                inputs=[
-                                    model_llava,
-                                    max_tokens_llava,
-                                    seed_llava,
-                                    stream_llava,
-                                    n_ctx_llava,
-                                    repeat_penalty_llava,
-                                    temperature_llava,
-                                    top_p_llava,
-                                    top_k_llava,
-                                    img_llava,
-                                    prompt_llava,
-                                    history_llava,
-                                    prompt_template_llava,
-                                ],
-                                outputs=[
-                                    history_llava,
-                                    last_reply_llava,
-                                    download_file_llava_hidden,
-                                ],
-                                show_progress="full",
-                            )
-                            btn_llava.click(fn=hide_download_llava,
-                                            outputs=[btn_download_file_llava, download_file_llava])
-                            prompt_llava.submit(
-                                fn=text_llava,
-                                inputs=[
-                                    model_llava,
-                                    max_tokens_llava,
-                                    seed_llava,
-                                    stream_llava,
-                                    n_ctx_llava,
-                                    repeat_penalty_llava,
-                                    temperature_llava,
-                                    top_p_llava,
-                                    top_k_llava,
-                                    img_llava,
-                                    prompt_llava,
-                                    history_llava,
-                                    prompt_template_llava,
-                                ],
-                                outputs=[
-                                    history_llava,
-                                    last_reply_llava,
-                                    download_file_llava_hidden,
-                                ],
-                                show_progress="full",
-                            )
-                            prompt_llava.submit(fn=hide_download_llava,
-                                                outputs=[btn_download_file_llava, download_file_llava])
-                            btn_llava_continue.click(
-                                fn=text_llava_continue,
-                                inputs=[
-                                    model_llava,
-                                    max_tokens_llava,
-                                    seed_llava,
-                                    stream_llava,
-                                    n_ctx_llava,
-                                    repeat_penalty_llava,
-                                    temperature_llava,
-                                    top_p_llava,
-                                    top_k_llava,
-                                    img_llava,
-                                    history_llava,
-                                ],
-                                outputs=[
-                                    history_llava,
-                                    last_reply_llava,
-                                    download_file_llava_hidden,
-                                ],
-                                show_progress="full",
-                            )
-                            btn_llava_continue.click(fn=hide_download_llava,
-                                                     outputs=[btn_download_file_llava, download_file_llava])
-                            btn_llava.click(fn=lambda x: x, inputs=hidden_prompt_llava, outputs=prompt_llava)
-                            prompt_llava.submit(fn=lambda x: x, inputs=hidden_prompt_llava, outputs=prompt_llava)
-
-                    with gr.TabItem("nllb translation 👥", id=15) as tab_nllb:
-                        with gr.Accordion("About", open=False):
-                            with gr.Box():
+                            with gr.Group():
                                 gr.HTML(
                                     """
                                     <h1 style='text-align: left'; text-decoration: underline;>Informations</h1>
@@ -1148,7 +640,7 @@ with (gr.Blocks(
                                     </br>
                                     """
                                 )
-                            with gr.Box():
+                            with gr.Group():
                                 gr.HTML(
                                     """
                                     <h1 style='text-align: left'; text-decoration: underline;>Help</h1>
@@ -1189,11 +681,11 @@ with (gr.Blocks(
                                         ]
                                     )
                                     save_ini_btn_nllb.click(fn=lambda: gr.Info('Settings saved'))
-                                    save_ini_btn_nllb.click(fn=lambda: del_ini_btn_nllb.update(interactive=True),
+                                    save_ini_btn_nllb.click(fn=lambda: gr.update(interactive=True),
                                                             outputs=del_ini_btn_nllb)
                                     del_ini_btn_nllb.click(fn=lambda: del_ini(module_name_nllb.value))
                                     del_ini_btn_nllb.click(fn=lambda: gr.Info('Settings deleted'))
-                                    del_ini_btn_nllb.click(fn=lambda: del_ini_btn_nllb.update(interactive=False),
+                                    del_ini_btn_nllb.click(fn=lambda: gr.update(interactive=False),
                                                            outputs=del_ini_btn_nllb)
                             if test_cfg_exist(module_name_nllb.value):
                                 readcfg_nllb = read_ini_nllb(module_name_nllb.value)
@@ -1216,8 +708,8 @@ with (gr.Blocks(
                                                                        label="Output language",
                                                                        info="Select output language")
                                 with gr.Row():
-                                    out_nllb = gr.Textbox(label="Output text", lines=9, max_lines=9,
-                                                          show_copy_button=True, interactive=False)
+                                    out_nllb = gr.Textbox(label="Output text", lines=9, max_lines=9)
+
                         with gr.Row():
                             with gr.Column():
                                 btn_nllb = gr.Button("Generate 🚀", variant="primary")
@@ -1240,146 +732,14 @@ with (gr.Blocks(
                                 show_progress="full",
                             )
 
-                    if ram_size() >= 16:
-                        titletab_txt2prompt = "Prompt generator 📝"
-                    else:
-                        titletab_txt2prompt = "Prompt generator ⛔"
-
-                    with gr.TabItem(titletab_txt2prompt, id=16) as tab_txt2prompt:
-                        with gr.Accordion("About", open=False):
-                            with gr.Box(css=".gradio-container {background-color: red}"):
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Informations</h1>
-                                    <b>Module : </b>Prompt generator</br>
-                                    <b>Function : </b>Create complex prompt from a simple instruction.</br>
-                                    <b>Input(s) : </b>Prompt</br>
-                                    <b>Output(s) : </b>Enhanced output prompt</br>
-                                    <b>HF model page : </b>
-                                    <a href='https://huggingface.co/PulsarAI/prompt-generator' target='_blank'>PulsarAI/prompt-generator</a>, 
-                                    <a href='https://huggingface.co/RamAnanth1/distilgpt2-sd-prompts' target='_blank'>RamAnanth1/distilgpt2-sd-prompts</a>, 
-                                    </br>
-                                    """
-                                )
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Help</h1>
-                                    <div style='text-align: justified'>
-                                    <b>Usage :</b></br>
-                                    - Define a <b>prompt</b></br>
-                                    - Choose the type of output to produce : ChatGPT will produce a persona for the chatbot from your input, SD will generate a prompt usable for image and video modules</br>
-                                    - Click the <b>Generate</b> button</br>
-                                    - After generation, output is displayed in the <b>Output text</b> field. Send them to the desired module (chatbot or media modules).
-                                    </div>
-                                    """
-                                )
-                        with gr.Accordion("Settings", open=True):
-                            with gr.Row():
-                                with gr.Column():
-                                    model_txt2prompt = gr.Dropdown(choices=model_list_txt2prompt,
-                                                                   value=model_list_txt2prompt[0], label="Model",
-                                                                   info="Choose model to use for inference")
-                                with gr.Column():
-                                    max_tokens_txt2prompt = gr.Slider(0, 2048, step=1, value=128,
-                                                                      label="Max tokens",
-                                                                      info="Maximum number of tokens in output")
-                                with gr.Column():
-                                    repetition_penalty_txt2prompt = gr.Slider(0.0, 10.0, step=0.01, value=1.05,
-                                                                              label="Repetition penalty",
-                                                                              info="The penalty to apply to repeated tokens")
-                            with gr.Row():
-                                with gr.Column():
-                                    seed_txt2prompt = gr.Slider(0, 4294967295, step=1, value=0,
-                                                                label="Seed(0 for random)",
-                                                                info="Seed to use for generation. Permit reproducibility")
-                                with gr.Column():
-                                    num_prompt_txt2prompt = gr.Slider(1, 64, step=1, value=1, label="Batch size",
-                                                                      info="Number of prompts to generate")
-                            with gr.Row():
-                                with gr.Column():
-                                    save_ini_btn_txt2prompt = gr.Button("Save custom defaults settings 💾")
-                                with gr.Column():
-                                    module_name_txt2prompt = gr.Textbox(value="txt2prompt", visible=False,
-                                                                        interactive=False)
-                                    del_ini_btn_txt2prompt = gr.Button("Delete custom defaults settings 🗑️",
-                                                                       interactive=True if test_cfg_exist(
-                                                                           module_name_txt2prompt.value) else False)
-                                    save_ini_btn_txt2prompt.click(
-                                        fn=write_ini,
-                                        inputs=[
-                                            module_name_txt2prompt,
-                                            model_txt2prompt,
-                                            max_tokens_txt2prompt,
-                                            repetition_penalty_txt2prompt,
-                                            seed_txt2prompt,
-                                            num_prompt_txt2prompt,
-                                        ]
-                                    )
-                                    save_ini_btn_txt2prompt.click(fn=lambda: gr.Info('Settings saved'))
-                                    save_ini_btn_txt2prompt.click(
-                                        fn=lambda: del_ini_btn_txt2prompt.update(interactive=True),
-                                        outputs=del_ini_btn_txt2prompt)
-                                    del_ini_btn_txt2prompt.click(fn=lambda: del_ini(module_name_txt2prompt.value))
-                                    del_ini_btn_txt2prompt.click(fn=lambda: gr.Info('Settings deleted'))
-                                    del_ini_btn_txt2prompt.click(
-                                        fn=lambda: del_ini_btn_txt2prompt.update(interactive=False),
-                                        outputs=del_ini_btn_txt2prompt)
-                            if test_cfg_exist(module_name_txt2prompt.value):
-                                readcfg_txt2prompt = read_ini_txt2prompt(module_name_txt2prompt.value)
-                                model_txt2prompt.value = readcfg_txt2prompt[0]
-                                max_tokens_txt2prompt.value = readcfg_txt2prompt[1]
-                                repetition_penalty_txt2prompt.value = readcfg_txt2prompt[2]
-                                seed_txt2prompt.value = readcfg_txt2prompt[3]
-                                num_prompt_txt2prompt.value = readcfg_txt2prompt[4]
-                        with gr.Row():
-                            with gr.Column():
-                                with gr.Row():
-                                    prompt_txt2prompt = gr.Textbox(label="Prompt", lines=9, max_lines=9,
-                                                                   placeholder="a doctor")
-                                with gr.Row():
-                                    output_type_txt2prompt = gr.Radio(choices=["ChatGPT", "SD"], value="SD",
-                                                                      label="Output type",
-                                                                      info="Choose type of prompt to generate")
-                                    output_type_txt2prompt.change(fn=change_output_type_txt2prompt,
-                                                                  inputs=output_type_txt2prompt,
-                                                                  outputs=[model_txt2prompt, max_tokens_txt2prompt])
-                            with gr.Column():
-                                with gr.Row():
-                                    out_txt2prompt = gr.Textbox(label="Output prompt", lines=16, max_lines=16,
-                                                                show_copy_button=True, interactive=False)
-                        with gr.Row():
-                            with gr.Column():
-                                btn_txt2prompt = gr.Button("Generate 🚀", variant="primary")
-                            with gr.Column():
-                                btn_txt2prompt_clear_input = gr.ClearButton(components=[prompt_txt2prompt],
-                                                                            value="Clear inputs 🧹")
-                            with gr.Column():
-                                btn_txt2prompt_clear_output = gr.ClearButton(components=[out_txt2prompt],
-                                                                             value="Clear outputs 🧹")
-                            btn_txt2prompt.click(
-                                fn=text_txt2prompt,
-                                inputs=[
-                                    model_txt2prompt,
-                                    max_tokens_txt2prompt,
-                                    repetition_penalty_txt2prompt,
-                                    seed_txt2prompt,
-                                    num_prompt_txt2prompt,
-                                    prompt_txt2prompt,
-                                    output_type_txt2prompt,
-                                ],
-                                outputs=out_txt2prompt,
-                                show_progress="full",
-                            )
-
             with gr.Row(elem_classes='advanced_check_row'):
                 image_factory_checkbox = gr.Checkbox(label='Image-Factory', value=False, container=True,
                                                      info="| text-to-img | img-to-img |",
                                                      elem_classes='min_check')
                 # image_factory_advanced_checkbox = gr.Checkbox(label='Configuration', value=modules.config.default_image_factory_advanced_checkbox, container=True, elem_classes='min_check')
-            with gr.Row(visible=False) as image_input_panel:
+            with gr.Accordion(visible=False) as image_input_panel:
                 with gr.Tabs():
-                    with gr.TabItem(label='Image 2 Image') as uov_tab:
+                    with gr.Tab(label='Image 2 Image') as uov_tab:
                         with gr.Row():
                             img2img_mode = gr.Checkbox(label='Image Gallery', value=settings['img2img_mode'])
                         with gr.Row(visible=False) as image_2_image_panel:
@@ -1453,10 +813,9 @@ with (gr.Blocks(
                             load_revision_images_button = gr.UploadButton(label='Load Image(s) to Revision',
                                                                           file_count='multiple', file_types=["image"],
                                                                           elem_classes='type_small_row', min_width=0)
-                            output_to_input_button = gr.Button(label='Output to Input', value='Output to Input',
+                            output_to_input_button = gr.Button(value='Output to Input',
                                                                elem_classes='type_small_row', min_width=0)
-                            output_to_revision_button = gr.Button(label='Output to Revision',
-                                                                  value='Output to Revision',
+                            output_to_revision_button = gr.Button(value='Output to Revision',
                                                                   elem_classes='type_small_row', min_width=0)
 
                         img2img_ctrls = [img2img_mode, img2img_start_step, img2img_denoise, img2img_scale,
@@ -1523,7 +882,7 @@ with (gr.Blocks(
                                                           outputs=[depth_start, depth_stop, depth_strength])
 
 
-                    with gr.TabItem(label='Upscale or Variation') as uov_tab:
+                    with gr.Tab(label='Upscale or Variation') as uov_tab:
                         with gr.Row():
                             with gr.Column():
                                 uov_input_image = grh.Image(label='Drag above image to here', source='upload',
@@ -1533,7 +892,7 @@ with (gr.Blocks(
                                                       value=flags.disabled)
                                 gr.HTML(
                                     '<a href="https://github.com/lllyasviel/Fooocus/discussions/390" target="_blank">\U0001F4D4 Document</a>')
-                    with gr.TabItem(label='ControlNet') as ip_tab:
+                    with gr.Tab(label='ControlNet') as ip_tab:
                         ip_advanced = gr.Checkbox(label='Advanced', value=False, container=False)
                         gr.HTML(
                             '* \"Image Prompt\" <a href="https://github.com/lllyasviel/Fooocus/discussions/557" target="_blank">\U0001F4D4 Document</a>')
@@ -1573,17 +932,39 @@ with (gr.Blocks(
                                         ip_types.append(ip_type)
                                         ip_ctrls.append(ip_type)
 
-                                        ip_type.change(lambda x: flags.default_parameters[x], inputs=[ip_type],
-                                                       outputs=[ip_stop, ip_weight], queue=False,
-                                                       show_progress=False)
+                                        ip_type.change(
+                                            lambda x: list(
+                                                flags.default_parameters[x]
+                                            ),  # 或 [flags.default_parameters[x][0], flags.default_parameters[x][1]]
+                                            inputs=[ip_type],
+                                            outputs=[ip_stop, ip_weight],
+                                            queue=False,
+                                            show_progress=False,
+                                        )
+
                                     ip_ad_cols.append(ad_col)
 
-
                         def ip_advance_checked(x):
-                            return [gr.update(visible=x)] * len(ip_ad_cols) + \
-                                [flags.default_ip] * len(ip_types) + \
-                                [flags.default_parameters[flags.default_ip][0]] * len(ip_stops) + \
-                                [flags.default_parameters[flags.default_ip][1]] * len(ip_weights)
+                            return (
+                                [gr.update(visible=x)] * len(ip_ad_cols)
+                                + [gr.update(value=flags.default_ip)] * len(ip_types)
+                                + [
+                                    gr.update(
+                                        value=flags.default_parameters[
+                                            flags.default_ip
+                                        ][0]
+                                    )
+                                ]
+                                * len(ip_stops)
+                                + [
+                                    gr.update(
+                                        value=flags.default_parameters[
+                                            flags.default_ip
+                                        ][1]
+                                    )
+                                ]
+                                * len(ip_weights)
+                            )
 
 
                         ip_advanced.change(ip_advance_checked, inputs=ip_advanced,
@@ -1655,9 +1036,6 @@ with (gr.Blocks(
                         metadata_input_image.upload(trigger_metadata_preview, inputs=metadata_input_image,
                                                     outputs=metadata_json, queue=False, show_progress=True)
 
-            switch_js = "(x) => {if(x){viewer_to_bottom(100);viewer_to_bottom(500);}else{viewer_to_top();} return x;}"
-            down_js = "() => {viewer_to_bottom();}"
-
 
             def is_model_imported(model_name):
                 # print(f"sys.modules: {sys.modules}")
@@ -1666,12 +1044,11 @@ with (gr.Blocks(
 
             with gr.Row(elem_classes='advanced_check_row'):
                 video_factory_checkbox = gr.Checkbox(label='Video-Factory', value=False, container=True,
-                                                     info="| text-to-vid | img-to-vid |",
+                                                     info="| img-to-vid |",
                                                      elem_classes='min_check')
                 # video_factory_advanced_checkbox = gr.Checkbox(label='Configuration', value=modules.config.default_video_factory_advanced_checkbox, container=True, elem_classes='min_check')
 
-            with gr.Row(visible=False) as video_input_panel:
-                # from modules.model_setting import num_frames, num_steps
+            with gr.Accordion(visible=False) as video_input_panel:
                 from modules.config import svd_config
 
                 version = svd_config.get("version")
@@ -1683,8 +1060,8 @@ with (gr.Blocks(
                         titletab_tab_svd = "Stable Video Diffusion 📼"
                     else:
                         titletab_tab_svd = "Stable Video Diffusion ⛔"
-                    with gr.TabItem(titletab_tab_svd, id=151) as tab_svd:
-                        with gr.Blocks(title='Stable Video Diffusion WebUI', css='css/style.css') as demo:
+                    with gr.Tab(titletab_tab_svd, id=151) as tab_svd:
+                        with gr.Group():   # 不能嵌套 gr.Blocks
                             with gr.Row():
                                 image = gr.Image(label="input image", type="filepath", elem_id='img-box')
                                 video_out = gr.Video(label="generated video", elem_id='video-box')
@@ -1699,7 +1076,7 @@ with (gr.Blocks(
                                                              value=svd_config.get(version).get("num_frames"))
                                         n_steps = gr.Number(precision=0, label="number of steps",
                                                             value=svd_config.get(version).get("num_steps"))
-                                        seed = gr.Text(value="random", label="seed (integer or 'random')", )
+                                        seed = gr.Textbox(value="random", label="seed (integer or 'random')")
                                     with gr.Row():
                                         decoding_t = gr.Number(precision=0,
                                                                label="number of frames decoded at a time",
@@ -1711,11 +1088,15 @@ with (gr.Blocks(
                                     with gr.Row():
                                         cond_aug = gr.Number(label="condition augmentation factor", value=0.02)
 
-                            examples = [["sdxl_styles_samples/Fooocus V2.png"]]
+                            examples = [[
+                                "sdxl_styles_samples/Fooocus V2.png",
+                                False, True,
+                                svd_config.get(version).get("num_frames"),
+                                svd_config.get(version).get("num_steps"),
+                                "random", 1, default_fps, 127, 0.02
+                            ]]
                             inputs = [image, model_load_flag, resize_image, n_frames, n_steps, seed, decoding_t,
-                                      fps_id,
-                                      motion_bucket_id,
-                                      cond_aug]
+                                      fps_id, motion_bucket_id, cond_aug]
                             outputs = [video_out]
 
                             free_cuda_mem()
@@ -1724,627 +1105,8 @@ with (gr.Blocks(
 
                             btn.click(infer, inputs=inputs, outputs=outputs)
                             gr.Examples(examples=examples, inputs=inputs, outputs=outputs, fn=infer)
-                    if ram_size() >= 16:
-                        titletab_tab_sad_talker = "SadTalker 📼"
-                    else:
-                        titletab_tab_sad_talker = "SadTalker ⛔"
-                    with gr.TabItem(titletab_tab_sad_talker, id=152) as tab_sad_talker:
-                        gr.Markdown("<div align='center'> <h3> 😭 SadTalker: Learning Realistic 3D Motion Coefficients for Stylized Audio-Driven Single Image Talking Face Animation (CVPR 2023) </span> </h3> \
-                                                    <a style='font-size:11px;' href='https://arxiv.org/abs/2211.12194'>Arxiv</a> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; \
-                                                    <a style='font-size:11px;' href='https://sadtalker.github.io'>Homepage</a>  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; \
-                                                     <a style='font-size:11px;' href='https://github.com/Winfredy/SadTalker'> Github </div>")
 
-                        with gr.Row():
-                            source_image = gr.Image(label="Upload image", source="upload", type="filepath",
-                                                    elem_id="img2img_image").style(width=512)
-
-                            driven_audio = gr.Audio(label="Upload audio OR TTS", source="upload", type="filepath")
-
-                            if sys.platform != 'win32':
-                                from extensions.sadtalker.src.utils.text2speech import TTSTalker
-
-                                tts_talker = TTSTalker()
-                                with gr.Column(variant='panel'):
-                                    input_text = gr.Textbox(label="Generating audio from text", lines=5,
-                                                            placeholder="please enter some text here, we genreate the audio from text using @Coqui.ai TTS.")
-                                    tts = gr.Button('Generate audio', elem_id="sadtalker_audio_generate",
-                                                    variant='primary')
-                                    tts.click(fn=tts_talker.test, inputs=[input_text], outputs=[driven_audio])
-
-                        with gr.Row():
-                            with gr.Column(variant='panel'):
-                                gr.Markdown(
-                                    "Need help? please visit our [best practice page](https://github.com/OpenTalker/SadTalker/blob/main/docs/best_practice.md) for more detials")
-                                # width = gr.Slider(minimum=64, elem_id="img2img_width", maximum=2048, step=8, label="Manually Crop Width", value=512) # img2img_width
-                                # height = gr.Slider(minimum=64, elem_id="img2img_height", maximum=2048, step=8, label="Manually Crop Height", value=512) # img2img_width
-                                result_dir = gr.Textbox(label="Video Save Path", lines=1, max_lines=2,
-                                                        value=modules.config.path_videos_sadtalker_outputs,
-                                                        info="video output path")
-                                pose_style = gr.Slider(minimum=0, maximum=46, step=1, label="Pose style",
-                                                       value=0)  #
-                                size_of_image = gr.Radio([256, 512], value=256, label='Face Model Resolution',
-                                                         info="use 256/512 model?")  #
-                                preprocess_type = gr.Radio(['crop', 'resize', 'full', 'extcrop', 'extfull'],
-                                                           value='crop', label='Preprocess',
-                                                           info="How to handle input image?")
-                                is_still_mode = gr.Checkbox(
-                                    label="Still Mode (fewer head motion, works with preprocess `full`)")
-                                batch_size = gr.Slider(label="Batch Size in generation", step=1, maximum=10,
-                                                       value=2)
-                                enhancer = gr.Checkbox(label="GFPGAN as Face enhancer")
-                                submit = gr.Button('Generate', elem_id="sadtalker_generate", variant='primary')
-
-                            with gr.Column(variant='panel'):
-                                # with gr.Blocks() as sad_talker_progress:
-                                #     sad_talker_progress_bar = gr.Textbox(label="progress", visible=True)
-
-                                with gr.Tabs(elem_id="sadtalker_genearted"):
-                                    gen_video = gr.Video(label="Generated video", format="mp4").style(width=256)
-
-                        # def show_sad_talker_progress(progress=gr.Progress(track_tqdm=True)):
-                        #     progress(0, desc="Starting")
-                        #     time.sleep(1)
-                        #     progress(0.05)
-                        #     for k in progress.tqdm(range(60), desc="fighting"):
-                        #         time.sleep(1)
-                        #     return gr.update(visible=False)
-
-                        # fn = show_sad_talker_progress, outputs = [sad_talker_progress_bar]) \
-                        #         .then(
-
-                        sad_talker = SadTalker(checkpoint_path=modules.config.path_sadtalker_checkpoint,
-                                               config_path=modules.config.path_sadtalker_config,
-                                               lazy_load=True)
-                        submit.click(fn=sad_talker.test,
-                                     inputs=[source_image,
-                                             driven_audio,
-                                             preprocess_type,
-                                             is_still_mode,
-                                             enhancer,
-                                             batch_size,
-                                             size_of_image,
-                                             pose_style,
-                                             result_dir
-                                             ],
-                                     outputs=[gen_video])
-                    if ram_size() >= 16:
-                        titletab_tab_animatediff_lcm = "AnimateLCM 📼"
-                    else:
-                        titletab_tab_animatediff_lcm = "AnimateLCM ⛔"
-                    with gr.TabItem(titletab_tab_animatediff_lcm, id=43) as tab_animatediff_lcm:
-                        with gr.Accordion("About", open=False):
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Informations</h1>
-                                    <b>Module : </b>AnimateLCM</br>
-                                    <b>Function : </b>Generate video from a prompt and a negative prompt using <a href='https://animatelcm.github.io/' target='_blank'>AnimateLCM</a> with <a href='https://stability.ai/stablediffusion' target='_blank'>Stable Diffusion</a> Models</br>
-                                    <b>Input(s) : </b>Prompt, negative prompt</br>
-                                    <b>Output(s) : </b>Video</br>
-                                    <b>HF model page : </b>
-                                    <a href='https://huggingface.co/emilianJR/epiCRealism' target='_blank'>emilianJR/epiCRealism</a>, 
-                                    <a href='https://huggingface.co/SG161222/Realistic_Vision_V3.0_VAE' target='_blank'>SG161222/Realistic_Vision_V3.0_VAE</a>, 
-                                    <a href='https://huggingface.co/digiplay/AbsoluteReality_v1.8.1' target='_blank'>digiplay/AbsoluteReality_v1.8.1</a>, 
-                                    <a href='https://huggingface.co/runwayml/stable-diffusion-v1-5' target='_blank'>runwayml/stable-diffusion-v1-5</a>, 
-                                    <a href='https://huggingface.co/nitrosocke/Ghibli-Diffusion' target='_blank'>nitrosocke/Ghibli-Diffusion</a></br>
-                                    """
-                                    #                                 <a href='https://huggingface.co/ckpt/anything-v4.5-vae-swapped' target='_blank'>ckpt/anything-v4.5-vae-swapped</a>,
-                                )
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Help</h1>
-                                    <div style='text-align: justified'>
-                                    <b>Usage :</b></br>
-                                    - (optional) Modify the settings to use another model, modify the number of frames to generate or change dimensions of the outputs</br>
-                                    - Fill the <b>prompt</b> with what you want to see in your output video</br>
-                                    - Fill the <b>negative prompt</b> with what you DO NOT want to see in your output video</br>
-                                    - Click the <b>Generate</b> button</br>
-                                    - After generation, generated video is displayed in the <b>Generated video</b> field.
-                                    </br>
-                                    <b>Models :</b></br>
-                                    - You could place <a href='https://huggingface.co/' target='_blank'>huggingface.co</a> or  <a href='https://www.civitai.com/' target='_blank'>civitai.com</a> Stable diffusion based safetensors models in the directory /models/Stable Diffusion. Restart to see them in the models list.
-                                    </div>
-                                    """
-                                )
-                        with gr.Accordion("Settings", open=True):
-                            with gr.Row():
-                                with gr.Column():
-                                    model_animatediff_lcm = gr.Dropdown(choices=model_list_animatediff_lcm,
-                                                                        value=model_list_animatediff_lcm[0],
-                                                                        label="Model",
-                                                                        info="Choose model to use for inference")
-                                with gr.Column():
-                                    model_adapters_animatediff_lcm = gr.Dropdown(
-                                        choices=list(model_list_adapters_animatediff_lcm.keys()),
-                                        value=list(model_list_adapters_animatediff_lcm.keys())[0],
-                                        label="Adapter",
-                                        info="Choose adapter model to use for inference")
-                                with gr.Column():
-                                    num_inference_step_animatediff_lcm = gr.Slider(1, webui_global_steps_max, step=1,
-                                                                                   value=4,
-                                                                                   label="Steps",
-                                                                                   info="steps")
-                                with gr.Column():
-                                    sampler_animatediff_lcm = gr.Dropdown(choices=list(SCHEDULER_MAPPING.keys()),
-                                                                          value="LCM", label="sampler",
-                                                                          info="sampler",
-                                                                          interactive=True)
-                            with gr.Row():
-                                with gr.Column():
-                                    adapter_animatediff_lcm = gr.Dropdown(choices=adapter_list_animatediff_lcm,
-                                                                          value=adapter_list_animatediff_lcm[0],
-                                                                          label="adapter",
-                                                                          info="Choose adapter to use for inference")
-                            with gr.Row():
-                                with gr.Column():
-                                    lora_animatediff_lcm = gr.Dropdown(choices=lora_list_animatediff_lcm,
-                                                                       value=lora_list_animatediff_lcm[0],
-                                                                       label="Lora",
-                                                                       info="Choose Lora to use for inference")
-                            with gr.Row():
-                                with gr.Column():
-                                    num_inference_step_animatediff_lcm = gr.Slider(1, 100, step=1, value=4,
-                                                                                   label="Steps",
-                                                                                   info="Number of iterations per video. Results and speed depends of sampler")
-                                with gr.Column():
-                                    sampler_animatediff_lcm = gr.Dropdown(choices=list(SCHEDULER_MAPPING.keys()),
-                                                                          value="LCM", label="Sampler",
-                                                                          info="Sampler to use for inference",
-                                                                          interactive=False)
-                            with gr.Row():
-                                with gr.Column():
-                                    guidance_scale_animatediff_lcm = gr.Slider(0.1, 20.0, step=0.1, value=2.0,
-                                                                               label="CFG scale",
-                                                                               info="Low values : more creativity. High values : more fidelity to the prompts")
-                                with gr.Column():
-                                    seed_animatediff_lcm = gr.Slider(0, 10000000000, step=1, value=0,
-                                                                     label="Seed(0 for random)",
-                                                                     info="Seed to use for generation. Depending on scheduler, may permit reproducibility")
-                                with gr.Column():
-                                    num_frames_animatediff_lcm = gr.Slider(1, 1200, step=1, value=16,
-                                                                           label="Video Length (frames)",
-                                                                           info="Number of frames in the output video (@8fps)")
-                                with gr.Column():
-                                    num_fps_animatediff_lcm = gr.Slider(1, 120, step=1, value=8,
-                                                                        label="fps",
-                                                                        info="fps")
-                            with gr.Row():
-                                with gr.Column():
-                                    width_animatediff_lcm = gr.Slider(128, 1280, step=64, value=512,
-                                                                      label="Video Width", info="Width of outputs")
-                                with gr.Column():
-                                    height_animatediff_lcm = gr.Slider(128, 1280, step=64, value=512,
-                                                                       label="Video Height",
-                                                                       info="Height of outputs")
-                                with gr.Column():
-                                    num_videos_per_prompt_animatediff_lcm = gr.Slider(1, 4, step=1, value=1,
-                                                                                      label="Batch size",
-                                                                                      info="Number of videos to generate in a single run",
-                                                                                      interactive=False)
-                            with gr.Row():
-                                with gr.Column():
-                                    num_prompt_animatediff_lcm = gr.Slider(1, 32, step=1, value=1,
-                                                                           label="Batch count",
-                                                                           info="Number of batch to run successively")
-                                with gr.Column():
-                                    use_gfpgan_animatediff_lcm = gr.Checkbox(value=True,
-                                                                             label="Use GFPGAN to restore faces",
-                                                                             info="Use GFPGAN to enhance faces in the outputs",
-                                                                             visible=True)
-                                with gr.Column():
-                                    tkme_animatediff_lcm = gr.Slider(0.0, 1.0, step=0.01, value=0,
-                                                                     label="Token Merging ratio",
-                                                                     info="0=slow,best quality, 1=fast,worst quality",
-                                                                     visible=True)
-                            with gr.Row():
-                                with gr.Column():
-                                    save_ini_btn_animatediff_lcm = gr.Button("Save custom defaults settings 💾")
-                                with gr.Column():
-                                    module_name_animatediff_lcm = gr.Textbox(value="animatediff_lcm", visible=False,
-                                                                             interactive=False)
-                                    del_ini_btn_animatediff_lcm = gr.Button("Delete custom defaults settings 🗑️",
-                                                                            interactive=True if test_cfg_exist(
-                                                                                module_name_animatediff_lcm.value) else False)
-                                    save_ini_btn_animatediff_lcm.click(
-                                        fn=write_ini,
-                                        inputs=[
-                                            module_name_animatediff_lcm,
-                                            model_animatediff_lcm,
-                                            adapter_animatediff_lcm,
-                                            lora_animatediff_lcm,
-                                            num_inference_step_animatediff_lcm,
-                                            sampler_animatediff_lcm,
-                                            guidance_scale_animatediff_lcm,
-                                            seed_animatediff_lcm,
-                                            num_frames_animatediff_lcm,
-                                            width_animatediff_lcm,
-                                            height_animatediff_lcm,
-                                            num_videos_per_prompt_animatediff_lcm,
-                                            num_prompt_animatediff_lcm,
-                                            use_gfpgan_animatediff_lcm,
-                                            tkme_animatediff_lcm,
-                                        ]
-                                    )
-                                    save_ini_btn_animatediff_lcm.click(fn=lambda: gr.Info('Settings saved'))
-                                    save_ini_btn_animatediff_lcm.click(
-                                        fn=lambda: del_ini_btn_animatediff_lcm.update(interactive=True),
-                                        outputs=del_ini_btn_animatediff_lcm)
-                                    del_ini_btn_animatediff_lcm.click(
-                                        fn=lambda: del_ini(module_name_animatediff_lcm.value))
-                                    del_ini_btn_animatediff_lcm.click(fn=lambda: gr.Info('Settings deleted'))
-                                    del_ini_btn_animatediff_lcm.click(
-                                        fn=lambda: del_ini_btn_animatediff_lcm.update(interactive=False),
-                                        outputs=del_ini_btn_animatediff_lcm)
-                            if test_cfg_exist(module_name_animatediff_lcm.value):
-                                readcfg_animatediff_lcm = read_ini_animatediff_lcm(
-                                    module_name_animatediff_lcm.value)
-                                model_animatediff_lcm.value = readcfg_animatediff_lcm[0]
-                                adapter_animatediff_lcm.value = readcfg_animatediff_lcm[1]
-                                lora_animatediff_lcm.value = readcfg_animatediff_lcm[2]
-                                num_inference_step_animatediff_lcm.value = readcfg_animatediff_lcm[3]
-                                sampler_animatediff_lcm.value = readcfg_animatediff_lcm[4]
-                                guidance_scale_animatediff_lcm.value = readcfg_animatediff_lcm[5]
-                                seed_animatediff_lcm.value = readcfg_animatediff_lcm[6]
-                                num_frames_animatediff_lcm.value = readcfg_animatediff_lcm[7]
-                                width_animatediff_lcm.value = readcfg_animatediff_lcm[8]
-                                height_animatediff_lcm.value = readcfg_animatediff_lcm[9]
-                                num_videos_per_prompt_animatediff_lcm.value = readcfg_animatediff_lcm[10]
-                                num_prompt_animatediff_lcm.value = readcfg_animatediff_lcm[11]
-                                use_gfpgan_animatediff_lcm.value = readcfg_animatediff_lcm[12]
-                                tkme_animatediff_lcm.value = readcfg_animatediff_lcm[13]
-                        with gr.Row():
-                            with gr.Column(scale=2):
-                                with gr.Row():
-                                    with gr.Column():
-                                        prompt_animatediff_lcm = gr.Textbox(lines=5, max_lines=5, label="Prompt",
-                                                                            info="Describe what you want in your video",
-                                                                            placeholder="A space rocket with trails of smoke behind it launching into space from the desert, 4k, high resolution")
-                                with gr.Row():
-                                    with gr.Column():
-                                        negative_prompt_animatediff_lcm = gr.Textbox(lines=5, max_lines=5,
-                                                                                     label="Negative Prompt",
-                                                                                     info="Describe what you DO NOT want in your video",
-                                                                                     placeholder="bad quality, worst quality, low resolution")
-                                with gr.Row():
-                                    with gr.Column():
-                                        output_type_animatediff_lcm = gr.Radio(choices=["mp4", "gif"], value="mp4",
-                                                                               label="output type",
-                                                                               info="output type")
-                                    with gr.Column():
-                                        gr.Number(visible=False)
-                            model_animatediff_lcm.change(
-                                fn=change_model_type_animatediff_lcm,
-                                inputs=[model_animatediff_lcm],
-                                outputs=[
-                                    sampler_animatediff_lcm,
-                                    width_animatediff_lcm,
-                                    height_animatediff_lcm,
-                                    num_inference_step_animatediff_lcm,
-                                    guidance_scale_animatediff_lcm,
-                                    negative_prompt_animatediff_lcm,
-                                ]
-                            )
-                            with gr.Column(scale=1):
-                                out_animatediff_lcm = gr.Video(label="Generated video", height=400, visible=True,
-                                                               interactive=False)
-                                gif_out_animatediff_lcm = gr.Gallery(
-                                    label="Generated gif",
-                                    show_label=True,
-                                    elem_id="gallery",
-                                    columns=3,
-                                    height=400,
-                                    visible=False
-                                )
-                        with gr.Row():
-                            with gr.Column():
-                                btn_animatediff_lcm = gr.Button("Generate 🚀", variant="primary", visible=True)
-                                btn_animatediff_lcm_gif = gr.Button("Generate 🚀", variant="primary", visible=False)
-                            with gr.Column():
-                                btn_animatediff_lcm_cancel = gr.Button("Cancel 🛑", variant="stop")
-                                btn_animatediff_lcm_cancel.click(fn=initiate_stop_animatediff_lcm, inputs=None,
-                                                                 outputs=None)
-                            with gr.Column():
-                                btn_animatediff_lcm_clear_input = gr.ClearButton(
-                                    components=[prompt_animatediff_lcm, negative_prompt_animatediff_lcm],
-                                    value="Clear inputs 🧹")
-                            with gr.Column():
-                                btn_animatediff_lcm_clear_output = gr.ClearButton(
-                                    components=[out_animatediff_lcm, gif_out_animatediff_lcm], value="Clear outputs 🧹")
-                                btn_animatediff_lcm.click(
-                                    fn=video_animatediff_lcm,
-                                    inputs=[
-                                        model_animatediff_lcm,
-                                        model_adapters_animatediff_lcm,
-                                        num_inference_step_animatediff_lcm,
-                                        sampler_animatediff_lcm,
-                                        guidance_scale_animatediff_lcm,
-                                        seed_animatediff_lcm,
-                                        num_frames_animatediff_lcm,
-                                        num_fps_animatediff_lcm,
-                                        height_animatediff_lcm,
-                                        width_animatediff_lcm,
-                                        num_videos_per_prompt_animatediff_lcm,
-                                        num_prompt_animatediff_lcm,
-                                        prompt_animatediff_lcm,
-                                        negative_prompt_animatediff_lcm,
-                                        output_type_animatediff_lcm,
-                                        nsfw_filter,
-                                        use_gfpgan_animatediff_lcm,
-                                        tkme_animatediff_lcm,
-                                    ],
-                                    outputs=out_animatediff_lcm,
-                                    show_progress="full",
-                                )
-                                btn_animatediff_lcm_gif.click(
-                                    fn=video_animatediff_lcm,
-                                    inputs=[
-                                        model_animatediff_lcm,
-                                        model_adapters_animatediff_lcm,
-                                        num_inference_step_animatediff_lcm,
-                                        sampler_animatediff_lcm,
-                                        guidance_scale_animatediff_lcm,
-                                        seed_animatediff_lcm,
-                                        num_frames_animatediff_lcm,
-                                        num_fps_animatediff_lcm,
-                                        height_animatediff_lcm,
-                                        width_animatediff_lcm,
-                                        num_videos_per_prompt_animatediff_lcm,
-                                        num_prompt_animatediff_lcm,
-                                        prompt_animatediff_lcm,
-                                        negative_prompt_animatediff_lcm,
-                                        output_type_animatediff_lcm,
-                                        nsfw_filter,
-                                        use_gfpgan_animatediff_lcm,
-                                        tkme_animatediff_lcm,
-                                    ],
-                                    outputs=gif_out_animatediff_lcm,
-                                    show_progress="full",
-                                )
-                                output_type_animatediff_lcm.change(
-                                    fn=change_output_type_animatediff_lcm,
-                                    inputs=[
-                                        output_type_animatediff_lcm,
-                                    ],
-                                    outputs=[
-                                        out_animatediff_lcm,
-                                        gif_out_animatediff_lcm,
-                                        btn_animatediff_lcm,
-                                        btn_animatediff_lcm_gif,
-                                    ]
-                                )
-
-                    if ram_size() >= 16:
-                        titletab_tab_animatediff_lightning = "Animate Lightning 📼"
-                    else:
-                        titletab_tab_animatediff_lightning = "Animate Lightning ⛔"
-                    with gr.TabItem(titletab_tab_animatediff_lightning, id=143) as tab_animatediff_lightning:
-                        with gr.Accordion("About", open=False):
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Informations</h1>
-                                    <b>Module : </b>Animate Lightning</br>
-                                    <b>Function : </b>Generate video from a prompt and a negative prompt using <a href='https://hf-mirror.com/ByteDance/AnimateDiff-Lightning/' target='_blank'>Animate Lightning</a> with <a href='https://stability.ai/stablediffusion' target='_blank'>Stable Diffusion</a> Models</br>
-                                    <b>Input(s) : </b>Prompt, negative prompt</br>
-                                    <b>Output(s) : </b>Video</br>
-                                    <b>HF model page : </b>
-                                    <a href='https://huggingface.co/emilianJR/epiCRealism' target='_blank'>emilianJR/epiCRealism</a>, 
-                                    <a href='https://huggingface.co/SG161222/Realistic_Vision_V3.0_VAE' target='_blank'>SG161222/Realistic_Vision_V3.0_VAE</a>, 
-                                    <a href='https://huggingface.co/nitrosocke/Ghibli-Diffusion' target='_blank'>nitrosocke/Ghibli-Diffusion</a></br>
-                                    """
-                                )
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Help</h1>
-                                    <div style='text-align: justified'>
-                                    <b>Usage :</b></br>
-                                    - (optional) Modify the settings to use another model, modify the number of frames to generate or change dimensions of the outputs</br>
-                                    - Fill the <b>prompt</b> with what you want to see in your output video</br>
-                                    - Fill the <b>negative prompt</b> with what you DO NOT want to see in your output video</br>
-                                    - Click the <b>Generate</b> button</br>
-                                    - After generation, generated video is displayed in the <b>Generated video</b> field.
-                                    </br>
-                                    <b>Models :</b></br>
-                                    - You could place <a href='https://huggingface.co/' target='_blank'>huggingface.co</a> or  <a href='https://www.civitai.com/' target='_blank'>civitai.com</a> Stable diffusion based safetensors models in the directory /models/Stable Diffusion. Restart to see them in the models list.
-                                    </div>
-                                    """
-                                )
-                        with gr.Accordion("Settings", open=True):
-                            with gr.Row():
-                                with gr.Column():
-                                    model_animatediff_lightning = gr.Dropdown(choices=model_list_animatediff_lightning,
-                                                                              value=model_list_animatediff_lightning[0],
-                                                                              label="Model",
-                                                                              info="Choose model to use for inference")
-                            with gr.Row():
-                                with gr.Column():
-                                    adapter_animatediff_lightning = gr.Dropdown(
-                                        choices=adapter_list_animatediff_lightning,
-                                        value=adapter_list_animatediff_lightning[0],
-                                        label="adapter",
-                                        info="Choose adapter to use for inference")
-                            # with gr.Row():
-                            #     with gr.Column():
-                            #         lora_animatediff_lightning = gr.Dropdown(choices=lora_list_animatediff_lightning,
-                            #                                                  value=lora_list_animatediff_lightning[0],
-                            #                                                  label="Lora",
-                            #                                                  info="Choose Lora to use for inference")
-                            with gr.Row():
-                                with gr.Column():
-                                    num_inference_step_animatediff_lightning = gr.Slider(1, 100, step=1, value=4,
-                                                                                         label="Steps",
-                                                                                         info="Number of iterations per video. Results and speed depends of sampler")
-                                with gr.Column():
-                                    sampler_animatediff_lightning = gr.Dropdown(choices=list(SCHEDULER_MAPPING.keys()),
-                                                                                value="Euler", label="Sampler",
-                                                                                info="Sampler to use for inference",
-                                                                                interactive=False)
-                            with gr.Row():
-                                with gr.Column():
-                                    guidance_scale_animatediff_lightning = gr.Slider(0.1, 20.0, step=0.1, value=2.0,
-                                                                                     label="CFG scale",
-                                                                                     info="Low values : more creativity. High values : more fidelity to the prompts")
-                                with gr.Column():
-                                    seed_animatediff_lightning = gr.Slider(0, 10000000000, step=1, value=0,
-                                                                           label="Seed(0 for random)",
-                                                                           info="Seed to use for generation. Depending on scheduler, may permit reproducibility")
-                                with gr.Column():
-                                    num_frames_animatediff_lightning = gr.Slider(1, 1200, step=1, value=16,
-                                                                                 label="Video Length (frames)",
-                                                                                 info="Number of frames in the output video (@8fps)")
-                            with gr.Row():
-                                with gr.Column():
-                                    width_animatediff_lightning = gr.Slider(128, 1280, step=64, value=512,
-                                                                            label="Video Width",
-                                                                            info="Width of outputs")
-                                with gr.Column():
-                                    height_animatediff_lightning = gr.Slider(128, 1280, step=64, value=512,
-                                                                             label="Video Height",
-                                                                             info="Height of outputs")
-                                with gr.Column():
-                                    num_videos_per_prompt_animatediff_lightning = gr.Slider(1, 4, step=1, value=1,
-                                                                                            label="Batch size",
-                                                                                            info="Number of videos to generate in a single run",
-                                                                                            interactive=False)
-                            with gr.Row():
-                                with gr.Column():
-                                    num_prompt_animatediff_lightning = gr.Slider(1, 32, step=1, value=1,
-                                                                                 label="Batch count",
-                                                                                 info="Number of batch to run successively")
-                                with gr.Column():
-                                    use_gfpgan_animatediff_lightning = gr.Checkbox(value=True,
-                                                                                   label="Use GFPGAN to restore faces",
-                                                                                   info="Use GFPGAN to enhance faces in the outputs",
-                                                                                   visible=True)
-                                with gr.Column():
-                                    tkme_animatediff_lightning = gr.Slider(0.0, 1.0, step=0.01, value=0,
-                                                                           label="Token Merging ratio",
-                                                                           info="0=slow,best quality, 1=fast,worst quality",
-                                                                           visible=True)
-                            with gr.Row():
-                                with gr.Column():
-                                    save_ini_btn_animatediff_lightning = gr.Button("Save custom defaults settings 💾")
-                                with gr.Column():
-                                    module_name_animatediff_lightning = gr.Textbox(value="animatediff_lightning",
-                                                                                   visible=False,
-                                                                                   interactive=False)
-                                    del_ini_btn_animatediff_lightning = gr.Button("Delete custom defaults settings 🗑️",
-                                                                                  interactive=True if test_cfg_exist(
-                                                                                      module_name_animatediff_lightning.value) else False)
-                                    save_ini_btn_animatediff_lightning.click(
-                                        fn=write_ini,
-                                        inputs=[
-                                            module_name_animatediff_lightning,
-                                            model_animatediff_lightning,
-                                            adapter_animatediff_lightning,
-                                            # lora_animatediff_lightning,
-                                            num_inference_step_animatediff_lightning,
-                                            sampler_animatediff_lightning,
-                                            guidance_scale_animatediff_lightning,
-                                            seed_animatediff_lightning,
-                                            num_frames_animatediff_lightning,
-                                            width_animatediff_lightning,
-                                            height_animatediff_lightning,
-                                            num_videos_per_prompt_animatediff_lightning,
-                                            num_prompt_animatediff_lightning,
-                                            use_gfpgan_animatediff_lightning,
-                                            tkme_animatediff_lightning,
-                                        ]
-                                    )
-                                    save_ini_btn_animatediff_lightning.click(fn=lambda: gr.Info('Settings saved'))
-                                    save_ini_btn_animatediff_lightning.click(
-                                        fn=lambda: del_ini_btn_animatediff_lightning.update(interactive=True),
-                                        outputs=del_ini_btn_animatediff_lightning)
-                                    del_ini_btn_animatediff_lightning.click(
-                                        fn=lambda: del_ini(module_name_animatediff_lightning.value))
-                                    del_ini_btn_animatediff_lightning.click(fn=lambda: gr.Info('Settings deleted'))
-                                    del_ini_btn_animatediff_lightning.click(
-                                        fn=lambda: del_ini_btn_animatediff_lightning.update(interactive=False),
-                                        outputs=del_ini_btn_animatediff_lightning)
-                            if test_cfg_exist(module_name_animatediff_lightning.value):
-                                readcfg_animatediff_lightning = read_ini_animatediff_lightning(
-                                    module_name_animatediff_lightning.value)
-                                model_animatediff_lightning.value = readcfg_animatediff_lightning[0]
-                                adapter_animatediff_lightning.value = readcfg_animatediff_lightning[1]
-                                # lora_animatediff_lightning.value = readcfg_animatediff_lightning[2]
-                                num_inference_step_animatediff_lightning.value = readcfg_animatediff_lightning[2]
-                                sampler_animatediff_lightning.value = readcfg_animatediff_lightning[3]
-                                guidance_scale_animatediff_lightning.value = readcfg_animatediff_lightning[4]
-                                seed_animatediff_lightning.value = readcfg_animatediff_lightning[5]
-                                num_frames_animatediff_lightning.value = readcfg_animatediff_lightning[6]
-                                width_animatediff_lightning.value = readcfg_animatediff_lightning[7]
-                                height_animatediff_lightning.value = readcfg_animatediff_lightning[8]
-                                num_videos_per_prompt_animatediff_lightning.value = readcfg_animatediff_lightning[9]
-                                num_prompt_animatediff_lightning.value = readcfg_animatediff_lightning[10]
-                                use_gfpgan_animatediff_lightning.value = readcfg_animatediff_lightning[11]
-                                tkme_animatediff_lightning.value = readcfg_animatediff_lightning[12]
-                        with gr.Row():
-                            with gr.Column(scale=2):
-                                with gr.Row():
-                                    with gr.Column():
-                                        prompt_animatediff_lightning = gr.Textbox(lines=5, max_lines=5, label="Prompt",
-                                                                                  info="Describe what you want in your video",
-                                                                                  placeholder="A space rocket with trails of smoke behind it launching into space from the desert, 4k, high resolution")
-                                with gr.Row():
-                                    with gr.Column():
-                                        negative_prompt_animatediff_lightning = gr.Textbox(lines=5, max_lines=5,
-                                                                                           label="Negative Prompt",
-                                                                                           info="Describe what you DO NOT want in your video",
-                                                                                           placeholder="bad quality, worst quality, low resolution")
-                            model_animatediff_lightning.change(
-                                fn=change_model_type_animatediff_lightning,
-                                inputs=[model_animatediff_lightning],
-                                outputs=[
-                                    sampler_animatediff_lightning,
-                                    width_animatediff_lightning,
-                                    height_animatediff_lightning,
-                                    num_inference_step_animatediff_lightning,
-                                    guidance_scale_animatediff_lightning,
-                                    negative_prompt_animatediff_lightning,
-                                ]
-                            )
-                            with gr.Column(scale=1):
-                                out_animatediff_lightning = gr.Video(label="Generated video", height=400,
-                                                                     interactive=False)
-                        with gr.Row():
-                            btn_animatediff_lightning = gr.Button("Generate 🚀", variant="primary")
-                            btn_animatediff_lightning_cancel = gr.Button("Cancel 🛑", variant="stop")
-                            btn_animatediff_lightning_cancel.click(fn=initiate_stop_animatediff_lightning, inputs=None,
-                                                                   outputs=None)
-                            btn_animatediff_lightning_clear_input = gr.ClearButton(
-                                components=[prompt_animatediff_lightning, negative_prompt_animatediff_lightning],
-                                value="Clear inputs 🧹")
-                            btn_animatediff_lightning_clear_output = gr.ClearButton(
-                                components=[out_animatediff_lightning],
-                                value="Clear outputs 🧹")
-                            btn_animatediff_lightning.click(
-                                fn=video_animatediff_lightning,
-                                inputs=[
-                                    model_animatediff_lightning,
-                                    adapter_animatediff_lightning,
-                                    # lora_animatediff_lightning,
-                                    num_inference_step_animatediff_lightning,
-                                    sampler_animatediff_lightning,
-                                    guidance_scale_animatediff_lightning,
-                                    seed_animatediff_lightning,
-                                    num_frames_animatediff_lightning,
-                                    height_animatediff_lightning,
-                                    width_animatediff_lightning,
-                                    num_videos_per_prompt_animatediff_lightning,
-                                    num_prompt_animatediff_lightning,
-                                    prompt_animatediff_lightning,
-                                    negative_prompt_animatediff_lightning,
-                                    nsfw_filter,
-                                    use_gfpgan_animatediff_lightning,
-                                    tkme_animatediff_lightning,
-                                ],
-                                outputs=out_animatediff_lightning,
-                                show_progress="full",
-                            )
-
-            ip_advanced.change(lambda: None, queue=False, show_progress=False, _js=down_js)
+            ip_advanced.change(lambda: None, queue=False, show_progress=False, js=down_js)
 
             current_tab = gr.State(value='uov')
             # current_tab = gr.Textbox(value='uov', visible=False)
@@ -2353,350 +1115,6 @@ with (gr.Blocks(
             # lambda_img = lambda x: x['image'] if isinstance(x, dict) else x
             # uov_input_image.upload(lambda_img, inputs=uov_input_image, outputs=default_image, queue=False)
             # inpaint_input_image.upload(lambda_img, inputs=inpaint_input_image, outputs=default_image, queue=False)
-
-            with gr.Row(elem_classes='advanced_check_row'):
-                audio_factory_checkbox = gr.Checkbox(label='Audio-Factory', value=False, container=True,
-                                                     info="| text-to-music | audio-to-music | text-to-speech |",
-                                                     elem_classes='min_check')
-            with gr.Row(visible=False) as audio_input_panel:
-                with gr.Tabs():
-                    if ram_size() >= 16:
-                        titletab_chattts_mel = "ChatTTS 🎶"
-                    else:
-                        titletab_chattts_mel = "ChatTTS ⛔"
-                    with gr.TabItem(titletab_chattts_mel, id=132) as tab_chattts_mel:
-                        from resources.chatTTS.webui.wording import get
-                        import resources.chatTTS.webui.batch_option
-                        import resources.chatTTS.webui.text_options
-                        import resources.chatTTS.webui.seed_option
-                        import resources.chatTTS.webui.aduio_option
-                        import resources.chatTTS.webui.enhance_option
-                        import resources.chatTTS.webui.output_option
-                        import resources.chatTTS.webui.config_option
-
-                        with gr.Accordion("About", open=False):
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Informations</h1>
-                                    <b>Module : </b>ChatTTS</br>
-                                    <b>Function : </b>ChatTTS is a text-to-speech model designed specifically for dialogue scenarios such as LLM assistant. <a href='https://github.com/2noise/ChatTTS/tree/main/ChatTTS' target='_blank'>ChatTTS</a></br>
-                                    <b>Input(s) : </b>Input prompt, Input audio</br>
-                                    <b>Output(s) : </b>Generated audio</br>
-                                    <b>HF model page : </b>
-                                    <a href='https://huggingface.co/2Noise/ChatTTS' target='_blank'>2Noise/ChatTTS</a></br>
-                                    """
-                                )
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Help</h1>
-                                    <div style='text-align: justified'>
-                                    <b>Usage :</b></br>
-                                    - Select an audio source type (file or micro recording)</br>
-                                    - Select an audio source by choosing a file or recording something</br>
-                                    - Fill the <b>prompt</b> by describing the audio you want to generate from the text</br>
-                                    - (optional) Modify the settings to change audio duration or inferences parameters</br>
-                                    - Click the <b>Generate<b> button</br>
-                                    - After generation, generated audio is available to listen in the <b>Generated audio<b> field.
-                                    </div>
-                                    """
-                                )
-                        with gr.Accordion("Settings", open=False):
-                            with gr.Row():
-                                with gr.Column():
-                                    with gr.Row():
-                                        gr.Markdown(get('TextOptionsTitle'))
-                                    resources.chatTTS.webui.text_options.render()
-                                    with gr.Row():
-                                        gr.Markdown(get('SeedOptionsTitle'))
-                                    resources.chatTTS.webui.seed_option.render()
-                                    with gr.Row():
-                                        gr.Markdown(get('AudioOptionsTitle'))
-                                    resources.chatTTS.webui.aduio_option.render()
-                                    with gr.Row():
-                                        gr.Markdown(get('AudioEnhancementTitle'))
-                                    resources.chatTTS.webui.enhance_option.render()
-                                    with gr.Row():
-                                        gr.Markdown(get('configmanager'))
-                                    resources.chatTTS.webui.config_option.render()
-                        with gr.Row():
-                            resources.chatTTS.webui.batch_option.render()
-                        with gr.Row():
-                            resources.chatTTS.webui.output_option.render()
-
-                        resources.chatTTS.webui.batch_option.listen()
-                        resources.chatTTS.webui.text_options.listen()
-                        resources.chatTTS.webui.seed_option.listen()
-                        resources.chatTTS.webui.aduio_option.listen()
-                        resources.chatTTS.webui.enhance_option.listen()
-                        resources.chatTTS.webui.output_option.listen()
-
-                    if ram_size() >= 16:
-                        titletab_musicgen_mel = "MusicGen Melody 🎶"
-                    else:
-                        titletab_musicgen_mel = "MusicGen Melody ⛔"
-                    with gr.TabItem(titletab_musicgen_mel, id=32) as tab_musicgen_mel:
-                        with gr.Accordion("About", open=False):
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Informations</h1>
-                                    <b>Module : </b>MusicGen Melody</br>
-                                    <b>Function : </b>Generate music from a prompt with guidance from an input audio, using <a href='https://github.com/facebookresearch/audiocraft' target='_blank'>MusicGen</a></br>
-                                    <b>Input(s) : </b>Input prompt, Input audio</br>
-                                    <b>Output(s) : </b>Generated music</br>
-                                    <b>HF model page : </b>
-                                    <a href='https://huggingface.co/facebook/musicgen-melody' target='_blank'>facebook/musicgen-melody</a></br>
-                                    """
-                                )
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Help</h1>
-                                    <div style='text-align: justified'>
-                                    <b>Usage :</b></br>
-                                    - Select an audio source type (file or micro recording)</br>
-                                    - Select an audio source by choosing a file or recording something</br>
-                                    - Fill the <b>prompt</b> by describing the music you want to generate from the audio source</br>
-                                    - (optional) Modify the settings to change audio duration or inferences parameters</br>
-                                    - Click the <b>Generate<b> button</br>
-                                    - After generation, generated music is available to listen in the <b>Generated music<b> field.
-                                    </div>
-                                    """
-                                )
-                        with gr.Accordion("Settings", open=False):
-                            with gr.Row():
-                                with gr.Column():
-                                    model_musicgen_mel = gr.Dropdown(choices=modellist_musicgen_mel,
-                                                                     value=modellist_musicgen_mel[0], label="Model",
-                                                                     info="Choose model to use for inference")
-                                with gr.Column():
-                                    duration_musicgen_mel = gr.Slider(1, 160, step=1, value=5,
-                                                                      label="Audio length (sec)")
-                                with gr.Column():
-                                    cfg_coef_musicgen_mel = gr.Slider(0.1, 20.0, step=0.1, value=3.0,
-                                                                      label="CFG scale",
-                                                                      info="Low values : more creativity. High values : more fidelity to the prompts")
-                                with gr.Column():
-                                    num_batch_musicgen_mel = gr.Slider(1, 32, step=1, value=1, label="Batch count",
-                                                                       info="Number of batch to run successively")
-                            with gr.Row():
-                                with gr.Column():
-                                    use_sampling_musicgen_mel = gr.Checkbox(value=True, label="Use sampling")
-                                with gr.Column():
-                                    temperature_musicgen_mel = gr.Slider(0.0, 10.0, step=0.1, value=1.0,
-                                                                         label="temperature")
-                                with gr.Column():
-                                    top_k_musicgen_mel = gr.Slider(0, 500, step=1, value=250, label="top_k")
-                                with gr.Column():
-                                    top_p_musicgen_mel = gr.Slider(0.0, 500.0, step=1.0, value=0.0, label="top_p")
-                            with gr.Row():
-                                with gr.Column():
-                                    save_ini_btn_musicgen_mel = gr.Button("Save custom defaults settings 💾")
-                                with gr.Column():
-                                    module_name_musicgen_mel = gr.Textbox(value="musicgen_mel", visible=False,
-                                                                          interactive=False)
-                                    del_ini_btn_musicgen_mel = gr.Button("Delete custom defaults settings 🗑️",
-                                                                         interactive=True if test_cfg_exist(
-                                                                             module_name_musicgen_mel.value) else False)
-                                    save_ini_btn_musicgen_mel.click(
-                                        fn=write_ini,
-                                        inputs=[
-                                            module_name_musicgen_mel,
-                                            model_musicgen_mel,
-                                            duration_musicgen_mel,
-                                            cfg_coef_musicgen_mel,
-                                            num_batch_musicgen_mel,
-                                            use_sampling_musicgen_mel,
-                                            temperature_musicgen_mel,
-                                            top_k_musicgen_mel,
-                                            top_p_musicgen_mel,
-                                        ]
-                                    )
-                                    save_ini_btn_musicgen_mel.click(fn=lambda: gr.Info('Settings saved'))
-                                    save_ini_btn_musicgen_mel.click(
-                                        fn=lambda: del_ini_btn_musicgen_mel.update(interactive=True),
-                                        outputs=del_ini_btn_musicgen_mel)
-                                    del_ini_btn_musicgen_mel.click(
-                                        fn=lambda: del_ini(module_name_musicgen_mel.value))
-                                    del_ini_btn_musicgen_mel.click(fn=lambda: gr.Info('Settings deleted'))
-                                    del_ini_btn_musicgen_mel.click(
-                                        fn=lambda: del_ini_btn_musicgen_mel.update(interactive=False),
-                                        outputs=del_ini_btn_musicgen_mel)
-                            if test_cfg_exist(module_name_musicgen_mel.value):
-                                readcfg_musicgen_mel = read_ini_musicgen_mel(module_name_musicgen_mel.value)
-                                model_musicgen_mel.value = readcfg_musicgen_mel[0]
-                                duration_musicgen_mel.value = readcfg_musicgen_mel[1]
-                                cfg_coef_musicgen_mel.value = readcfg_musicgen_mel[2]
-                                num_batch_musicgen_mel.value = readcfg_musicgen_mel[3]
-                                use_sampling_musicgen_mel.value = readcfg_musicgen_mel[4]
-                                temperature_musicgen_mel.value = readcfg_musicgen_mel[5]
-                                top_k_musicgen_mel.value = readcfg_musicgen_mel[6]
-                                top_p_musicgen_mel.value = readcfg_musicgen_mel[7]
-                        with gr.Row():
-                            with gr.Column():
-                                with gr.Row():
-                                    source_type_musicgen_mel = gr.Radio(choices=["audio", "micro"], value="audio",
-                                                                        label="Source audio type",
-                                                                        info="Choose source audio type")
-                        with gr.Row(equal_height=True):
-                            with gr.Column():
-                                source_audio_musicgen_mel = gr.Audio(label="Source audio", source="upload",
-                                                                     type="filepath")
-                                source_type_musicgen_mel.change(fn=change_source_type_musicgen_mel,
-                                                                inputs=source_type_musicgen_mel,
-                                                                outputs=source_audio_musicgen_mel)
-                            with gr.Column():
-                                prompt_musicgen_mel = gr.Textbox(label="Describe your music", lines=8, max_lines=8,
-                                                                 placeholder="90s rock song with loud guitars and heavy drums")
-                            with gr.Column():
-                                out_musicgen_mel = gr.Audio(label="Generated music", type="filepath",
-                                                            show_download_button=True, interactive=False)
-                        with gr.Row():
-                            btn_musicgen_mel = gr.Button("Generate 🚀", variant="primary")
-                            btn_musicgen_mel_cancel = gr.Button("Cancel 🛑", variant="stop")
-                            btn_musicgen_mel_cancel.click(fn=initiate_stop_musicgen_mel, inputs=None, outputs=None)
-                            btn_musicgen_mel_clear_input = gr.ClearButton(
-                                components=[prompt_musicgen_mel, source_audio_musicgen_mel], value="Clear inputs 🧹")
-                            btn_musicgen_mel_clear_output = gr.ClearButton(components=out_musicgen_mel,
-                                                                           value="Clear outputs 🧹")
-                            btn_musicgen_mel.click(
-                                fn=music_musicgen_mel,
-                                inputs=[
-                                    prompt_musicgen_mel,
-                                    model_musicgen_mel,
-                                    duration_musicgen_mel,
-                                    num_batch_musicgen_mel,
-                                    temperature_musicgen_mel,
-                                    top_k_musicgen_mel,
-                                    top_p_musicgen_mel,
-                                    use_sampling_musicgen_mel,
-                                    cfg_coef_musicgen_mel,
-                                    source_audio_musicgen_mel,
-                                    source_type_musicgen_mel,
-                                ],
-                                outputs=out_musicgen_mel,
-                                show_progress="full",
-                            )
-
-                    with gr.TabItem("Bark 🗣️", id=36) as tab_bark:
-                        with gr.Accordion("About", open=False):
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Informations</h1>
-                                    <b>Module : </b>Bark</br>
-                                    <b>Function : </b>Generate high quality text-to-speech in several languages with <a href='https://github.com/suno-ai/bark' target='_blank'>Bark</a></br>
-                                    <b>Input(s) : </b>Prompt</br>
-                                    <b>Output(s) : </b>Generated speech</br>
-                                    <b>HF model page : </b>
-                                    <a href='https://huggingface.co/suno/bark' target='_blank'>suno/bark</a> ,
-                                    <a href='https://huggingface.co/suno/bark-small' target='_blank'>suno/bark-small</a></br>               
-                                    """
-                                )
-                            with gr.Box():
-                                gr.HTML(
-                                    """
-                                    <h1 style='text-align: left'; text-decoration: underline;>Help</h1>
-                                    <div style='text-align: justified'>
-                                    <b>Usage :</b></br>
-                                    - Fill the <b>prompt</b> with the text you want to hear</br>                                
-                                    - (optional) Modify the settings to select a model and a voice</br>                                
-                                    - Click the <b>Generate</b> button</br>
-                                    - After generation, generated audio is available to listen in the <b>Generated speech</b> field.</br>
-                                    <b>Tips : </b>You can add modifications to the generated voices, by adding the following in your prompts : 
-                                    [laughter]</br>
-                                    [laughs]</br>
-                                    [sighs]</br>
-                                    [music]</br>
-                                    [gasps]</br>
-                                    [clears throat]</br>
-                                    — or ... for hesitations</br>
-                                    ♪ for song lyrics</br>
-                                    CAPITALIZATION for emphasis of a word</br>
-                                    [MAN] and [WOMAN] to bias Bark toward male and female speakers, respectively</br>
-                                    </div>
-                                    """
-                                )
-                        with gr.Accordion("Settings", open=False):
-                            with gr.Row():
-                                with gr.Column():
-                                    model_bark = gr.Dropdown(choices=model_list_bark, value=model_list_bark[0],
-                                                             label="Model",
-                                                             info="Choose model to use for inference")
-                                with gr.Column():
-                                    voice_preset_bark = gr.Dropdown(choices=list(voice_preset_list_bark.keys()),
-                                                                    value=list(voice_preset_list_bark.keys())[2],
-                                                                    label="Voice")
-                            with gr.Row():
-                                with gr.Column():
-                                    save_ini_btn_bark = gr.Button("Save custom defaults settings 💾")
-                                with gr.Column():
-                                    module_name_bark = gr.Textbox(value="bark", visible=False, interactive=False)
-                                    del_ini_btn_bark = gr.Button("Delete custom defaults settings 🗑️",
-                                                                 interactive=True if test_cfg_exist(
-                                                                     module_name_bark.value) else False)
-                                    save_ini_btn_bark.click(
-                                        fn=write_ini,
-                                        inputs=[
-                                            module_name_bark,
-                                            model_bark,
-                                            voice_preset_bark,
-                                        ]
-                                    )
-                                    save_ini_btn_bark.click(fn=lambda: gr.Info('Settings saved'))
-                                    save_ini_btn_bark.click(fn=lambda: del_ini_btn_bark.update(interactive=True),
-                                                            outputs=del_ini_btn_bark)
-                                    del_ini_btn_bark.click(fn=lambda: del_ini(module_name_bark.value))
-                                    del_ini_btn_bark.click(fn=lambda: gr.Info('Settings deleted'))
-                                    del_ini_btn_bark.click(fn=lambda: del_ini_btn_bark.update(interactive=False),
-                                                           outputs=del_ini_btn_bark)
-                            if test_cfg_exist(module_name_bark.value):
-                                readcfg_bark = read_ini_bark(module_name_bark.value)
-                                model_bark.value = readcfg_bark[0]
-                                voice_preset_bark.value = readcfg_bark[1]
-                        with gr.Row():
-                            with gr.Column():
-                                prompt_bark = gr.Textbox(label="Text to speech", lines=5, max_lines=10,
-                                                         placeholder="Type or past here what you want to hear ...")
-                            with gr.Column():
-                                out_bark = gr.Audio(label="Generated speech", type="filepath",
-                                                    show_download_button=True,
-                                                    interactive=False)
-                        with gr.Row():
-                            with gr.Column():
-                                btn_bark = gr.Button("Generate 🚀", variant="primary")
-                            with gr.Column():
-                                btn_bark_clear_input = gr.ClearButton(components=prompt_bark,
-                                                                      value="Clear inputs 🧹")
-                            with gr.Column():
-                                btn_bark_clear_output = gr.ClearButton(components=out_bark, value="Clear outputs 🧹")
-                            btn_bark.click(
-                                fn=music_bark,
-                                inputs=[
-                                    prompt_bark,
-                                    model_bark,
-                                    voice_preset_bark,
-                                ],
-                                outputs=out_bark,
-                                show_progress="full",
-                            )
-
-
-            def toggle_audio_file(choice):
-                if not choice:
-                    return gr.update(visible=True), gr.update(visible=False)
-                else:
-                    return gr.update(visible=False), gr.update(visible=True)
-
-
-            def ref_video_fn(path_of_ref_video):
-                if path_of_ref_video is not None:
-                    return gr.update(value=True)
-                else:
-                    return gr.update(value=False)
-
 
             def update_video_factory(x):
                 return gr.update(visible=x), gr.update(visible=x)
@@ -2710,24 +1128,15 @@ with (gr.Blocks(
                 return gr.update(visible=x)
 
 
-            def update_audio_factory(x):
-                return gr.update(visible=x)
-
-
             image_factory_checkbox.change(update_image_factory, inputs=image_factory_checkbox,
-                                          outputs=image_input_panel, queue=False, show_progress=False,
-                                          _js=switch_js)
+                                          outputs=image_input_panel, queue=False, show_progress=False, js=switch_js)
 
             video_factory_checkbox.change(update_video_factory, inputs=video_factory_checkbox,
-                                          outputs=[video_input_panel, btn], queue=False, show_progress=False,
-                                          _js=switch_js)
+                                          outputs=[video_input_panel, btn], queue=False, show_progress=False, js=switch_js)
 
             text_factory_checkbox.change(update_text_factory, inputs=text_factory_checkbox,
-                                         outputs=text_input_panel, queue=False, show_progress=False, _js=switch_js)
+                                         outputs=text_input_panel, queue=False, show_progress=False, js=switch_js)
 
-            audio_factory_checkbox.change(update_audio_factory, inputs=audio_factory_checkbox,
-                                          outputs=audio_input_panel, queue=False, show_progress=False,
-                                          _js=switch_js)
 
 
             def update_default_image(x):
@@ -2745,11 +1154,11 @@ with (gr.Blocks(
                 return
 
 
-            uov_tab.select(lambda: 'uov', outputs=current_tab, queue=False, _js=down_js, show_progress=False)
-            inpaint_tab.select(lambda: 'inpaint', outputs=current_tab, queue=False, _js=down_js,
+            uov_tab.select(lambda: 'uov', outputs=current_tab, queue=False, js=down_js, show_progress=False)
+            inpaint_tab.select(lambda: 'inpaint', outputs=current_tab, queue=False, js=down_js,
                                show_progress=False)
-            ip_tab.select(lambda: 'ip', outputs=current_tab, queue=False, _js=down_js, show_progress=False)
-            desc_tab.select(lambda: 'desc', outputs=current_tab, queue=False, _js=down_js, show_progress=False)
+            ip_tab.select(lambda: 'ip', outputs=current_tab, queue=False, js=down_js, show_progress=False)
+            desc_tab.select(lambda: 'desc', outputs=current_tab, queue=False, js=down_js, show_progress=False)
 
         with gr.Column(scale=1):
             progress_window = grh.Image(label='Preview', show_label=True, height=640, visible=False)
@@ -2770,13 +1179,13 @@ with (gr.Blocks(
                 remain_images_progress = gr.Textbox(label="Images process progress", value=settings["image_number"],
                                                     elem_classes='type_row_spec', visible=False, show_label=False)
             with gr.Row():
-                generate_button = gr.Button(label="Generate", value="Generate", elem_classes='type_row_half',
+                generate_button = gr.Button(value="Generate", elem_classes='type_row_half',
                                             elem_id='generate_button', visible=True)
-                # load_parameter_button = gr.Button(label="Load Parameters", value="Load Parameters",
+                # load_parameter_button = gr.Button(value="Load Parameters",
                 #                                   elem_classes='type_row', elem_id='load_parameter_button',
                 #                                   visible=False)
-                skip_button = gr.Button(label="Skip", value="Skip", elem_classes='type_row_half', visible=False)
-                stop_button = gr.Button(label="Stop", value="Stop", elem_classes='type_row_half',
+                skip_button = gr.Button(value="Skip", elem_classes='type_row_half', visible=False)
+                stop_button = gr.Button(value="Stop", elem_classes='type_row_half',
                                         elem_id='stop_button', visible=False)
 
 
@@ -2795,25 +1204,29 @@ with (gr.Blocks(
                         model_management.interrupt_current_processing()
                     return currentTask
 
-
-                stop_button.click(stop_clicked, inputs=currentTask, outputs=currentTask, queue=True,
-                                  every=1.0,
-                                  show_progress=False, _js='cancelGenerateForever')
-                skip_button.click(skip_clicked, inputs=currentTask, outputs=currentTask, queue=True,
-                                  every=1.0,
-                                  show_progress=False)
+                # 新版本：去掉 every, queue, show_progress；js 参数保持不变（无下划线）
+                stop_button.click(stop_clicked, inputs=currentTask, outputs=currentTask)
+                skip_button.click(skip_clicked, inputs=currentTask, outputs=currentTask)
 
             with gr.Row(elem_classes='prompt_row'):
-                prompt = gr.Textbox(label='Prompt', show_label=True, placeholder="Type prompt here.",
-                                    container=True,
-                                    autofocus=True, elem_classes='prompt_row', lines=5, max_lines=20,
-                                    info='Describing objects that you DO want to see.',
-                                    value=settings['prompt'])
+                prompt = gr.Textbox(
+                    label='Prompt', show_label=True,
+                    placeholder="Type prompt here.",
+                    container=True, autofocus=True,
+                    elem_classes='prompt_row',
+                    elem_id="main_prompt",          # <-- 添加
+                    lines=5, max_lines=20,
+                    info='Describing objects that you DO want to see.',
+                    value=settings['prompt']
+                )
             with gr.Row(elem_classes='n_negative_prompt_row'):
-                negative_prompt = gr.Textbox(label='Negative Prompt', show_label=True,
-                                             placeholder="Type negative prompt here.",
-                                             info='Describing objects that you DO NOT want to see.', lines=5,
-                                             max_lines=20)
+                negative_prompt = gr.Textbox(
+                    label='Negative Prompt', show_label=True,
+                    placeholder="Type negative prompt here.",
+                    elem_id="negative_prompt",      # <-- 添加
+                    info='Describing objects that you DO NOT want to see.',
+                    lines=5, max_lines=20
+                )
 
         with gr.Column(scale=1, visible=settings['advanced_mode']) as advanced_column:
             with gr.Tab(label='Setting'):
@@ -2861,7 +1274,7 @@ with (gr.Blocks(
                         notification_input = gr.Audio(label='Notification', interactive=True,
                                                       value=notification_file,
                                                       elem_id='audio_notification', visible=settings['play_notification_sound'],
-                                                      show_edit_button=False)
+                                                      )
 
                     def play_notification_checked(r, notification):
                         return gr.update(visible=r, value=notification if r else None)
@@ -2894,7 +1307,7 @@ with (gr.Blocks(
                     load_prompt_button = gr.UploadButton(label='Load Prompt', file_count='single',
                                                          file_types=['.json', '.png', '.jpg', '.webp'],
                                                          elem_classes='type_small_row', min_width=0)
-                    load_last_prompt_button = gr.Button(label='Load Last Prompt', value='Load Last Prompt',
+                    load_last_prompt_button = gr.Button(value='Load Last Prompt',
                                                         elem_classes='type_small_row', min_width=0)
 
 
@@ -3054,14 +1467,14 @@ with (gr.Blocks(
                                             outputs=style_selections,
                                             queue=False,
                                             show_progress=False).then(
-                        lambda: None, _js='()=>{refresh_style_localization();}')
+                        lambda: None, js='refresh_style_localization')
 
                     gradio_receiver_style_selections.input(style_sorter.sort_styles,
                                                            inputs=style_selections,
                                                            outputs=style_selections,
                                                            queue=False,
                                                            show_progress=False).then(
-                        lambda: None, _js='()=>{refresh_style_localization();}')
+                        lambda: None, js='refresh_style_localization')
 
 
                     def show_sub_style_selection(ssk: dict, nn, op=0):
@@ -3188,25 +1601,32 @@ with (gr.Blocks(
                         "Tags": "",
                         "Usage_Tips": "",
                         "Author": "",
-                        "ReMark": ""
+                        "ReMark": "",
                     }
+
                     if x is not None and "lora" in x.lower():
-                        path = modules.config.paths_loras[0] + "\\"
+                        path = modules.config.paths_loras[0]
                     else:
-                        path = modules.config.paths_checkpoints[0] + "\\"
-                    target_name = path + x + ".json"
-                    if os.path.isfile(path=target_name):
-                        with open(target_name, encoding='utf-8') as json_file:
-                            try:
+                        path = modules.config.paths_checkpoints[0]
+
+                    # 使用 os.path.join 处理路径，避免手动拼接反斜杠
+                    target_name = os.path.join(path, x + ".json")
+
+                    if os.path.isfile(target_name):
+                        try:
+                            with open(target_name, encoding="utf-8") as json_file:
                                 json_obj = json.load(json_file)
-                                printF(name=MasterName.get_master_name(),
-                                       info="[Parameters] json_obj = {}".format(json_obj)).printf()
-                            except Exception as e:
-                                printF(name=MasterName.get_master_name(),
-                                       info="json -- get_target_info, e: {}".format(e)).printf()
-                            finally:
-                                json_file.close()
-                                return json_obj
+                                printF(
+                                    name=MasterName.get_master_name(),
+                                    info="[Parameters] json_obj = {}".format(json_obj),
+                                ).printf()
+                        except Exception as e:
+                            printF(
+                                name=MasterName.get_master_name(),
+                                info="json -- get_target_info, e: {}".format(e),
+                            ).printf()
+                        # finally 块不需要了，with 上下文管理器会自动关闭文件
+
                     return json_obj
 
 
@@ -3375,7 +1795,7 @@ with (gr.Blocks(
                                               choices=modules.config.controlnet_lora_depth_filenames,
                                               value=modules.config.default_controlnet_depth_name)
                 with gr.Row():
-                    model_refresh = gr.Button(label='Refresh', value='\U0001f504 Refresh All Files',
+                    model_refresh = gr.Button(value='\U0001f504 Refresh All Files',
                                               variant='secondary', elem_classes='refresh_button')
 
                 with gr.Row():
@@ -3689,8 +2109,6 @@ with (gr.Blocks(
             modules.config.update_all_model_names()
             results = []
 
-            print(x)
-
             if x[0] not in modules.config.preset_filenames:
                 results += [gr.update(choices=modules.config.preset_filenames, value="Not Exist!->")]
             else:
@@ -3707,17 +2125,17 @@ with (gr.Blocks(
             else:
                 results += [gr.update(choices=['None'] + selected_model_filenames)]
 
-            if x[3] not in [modules.config.model_filenames, "None"]:
+            # 修正：原代码 `x[3] not in [list, "None"]` 永远为真
+            if x[3] not in modules.config.model_filenames and x[3] != "None":
                 results += [gr.update(choices=['None'] + modules.config.model_filenames, value="Not Exist!->")]
             else:
                 results += [gr.update(choices=['None'] + modules.config.model_filenames)]
 
             y = list(x[4:-2])
             z = [y[nn:nn + 3] for nn in range(0, len(y), 3)]
-            print(z)
             for lf in z:
                 if lf[1] is not None and "\\" in lf[1]:
-                    lf[1].replace('\\\\', '\\')
+                    lf[1] = lf[1].replace('\\\\', '\\')  # 修正：原代码没有赋值回 lf[1]
                 if lf[1] not in modules.config.lora_filenames or lf[1] is None:
                     results += [gr.update(value=False),
                                 gr.update(choices=['None'] + modules.config.lora_filenames, value="Not Exist!->"),
@@ -3820,7 +2238,7 @@ with (gr.Blocks(
 
         image_factory_checkbox.change(lambda x: gr.update(visible=x), image_factory_checkbox, advanced_column,
                                       queue=False, show_progress=False) \
-            .then(fn=lambda: None, _js='refresh_grid_delayed', queue=False, show_progress=False)
+            .then(fn=lambda: None, js='refresh_grid_delayed', queue=False, show_progress=False)
 
 
         def img2img_mode_checked(x):
@@ -4077,22 +2495,49 @@ with (gr.Blocks(
                            gr.update(visible=False, interactive=False), False),
                   outputs=[generate_button, stop_button, skip_button, state_is_generating]) \
             .then(fn=update_history_link, outputs=history_link) \
-            .then(fn=lambda: None, _js='playNotification').then(fn=lambda: None, _js='refresh_grid_delayed')
+            .then(fn=lambda: None, js='playNotification').then(fn=lambda: None, js='refresh_grid_delayed')
 
         # for notification_file in ['notification.ogg', 'notification.mp3']:
         #     if os.path.exists(notification_file):
         #         gr.Audio(interactive=False, value=notification_file, elem_id='audio_notification', visible=False)
         #         break
+                
 
-# dump_default_english_config()
-app = gr.mount_gradio_app(app, shared.gradio_root.queue(concurrency_count=2, max_size=2), '/')
+# 在 launch 之前添加类型检查和转换
+path_outputs = modules.config.path_outputs
+auth_filename = constants.AUTH_FILENAME
+
+if not isinstance(path_outputs, str):
+    print(f"Warning: path_outputs is {type(path_outputs)}, expected str. Setting allowed_paths=None")
+    allowed_paths = None
+else:
+    allowed_paths = [path_outputs]
+
+if not isinstance(auth_filename, str):
+    print(f"Warning: AUTH_FILENAME is {type(auth_filename)}, expected str. Setting blocked_paths=None")
+    blocked_paths = None
+else:
+    blocked_paths = [auth_filename]
+
+# 处理 server_name 避免 localhost 不可访问
+server_name = adapter.args_manager.args.listen
+if not server_name or server_name == "0.0.0.0":
+    # 0.0.0.0 可能导致 localhost 检查失败，改为 127.0.0.1 或保持但设置 share=True
+    # 最简单：如果 share=False 且 server_name 为 0.0.0.0，强制 share=True
+    if not adapter.args_manager.args.share and server_name == "0.0.0.0":
+        print("Warning: share=False with server_name='0.0.0.0' may cause localhost error. Setting share=True.")
+        share = True
+    else:
+        share = adapter.args_manager.args.share
+else:
+    share = adapter.args_manager.args.share
 async_gradio_app = shared.gradio_root
 async_gradio_app.launch(
     inbrowser=adapter.args_manager.args.in_browser,
-    server_name=adapter.args_manager.args.listen,
-    server_port=adapter.args_manager.args.port,
-    share=adapter.args_manager.args.share,
-    auth=check_auth if (adapter.args_manager.args.share or adapter.args_manager.args.listen) and auth_enabled else None,
-    allowed_paths=[modules.config.path_outputs],
-    blocked_paths=[constants.AUTH_FILENAME]
+    server_name=server_name or "127.0.0.1",
+    server_port=adapter.args_manager.args.port or 7860,
+    share=share,
+    auth=check_auth if (share or server_name) and auth_enabled else None,
+    allowed_paths=allowed_paths,
+    blocked_paths=blocked_paths
 )

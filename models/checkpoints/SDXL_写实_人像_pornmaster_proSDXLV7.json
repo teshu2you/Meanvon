@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"2025",
+	"Base": "SDXL 1.0",
+	"Links": "https://www.qpipi.com/80357/",
+	"Version": "v7.0",
+	"Tags": "BASE MODEL NSFW",
+	"Usage_Tips": "SDXL/PONY加速器:Hyper-SDXL-12steps-CFG-lora Lora權重:0.8~1 12~14步。取样方法(Sampler)=Euler a、Schedule type: SGM Uniform CFG:4~6",
+	"Author": "iamddtla",
+	"ReMark": "范例图片使用clip:2 從合併中移除所有2024年的老舊檢查站。在與V6版本相同的提示詞情況下，V7版本的美感更加提升。保留SDXL原本內建的功能，例如:人物、相機種類、藝術家。對於sdxl的lora相容性良好。此模型包含VAE，無需使用VAE。提示詞的令牌數量請保持在225個以下"
+}

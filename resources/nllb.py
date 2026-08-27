@@ -9,6 +9,7 @@ from modules.util import free_cuda_mem, free_cuda_cache
 import traceback
 model_path_nllb = "./models/nllb/"
 os.makedirs(model_path_nllb, exist_ok=True)
+translated_tokens = None
 
 model_list_nllb = []
 
@@ -233,15 +234,24 @@ language_list_nllb = {
     "Zulu 	 	 	 	 	 	 	 	": "zul_Latn",
 }
 
+
 @metrics_decoration
 def text_nllb(
-    modelid_nllb, 
-    max_tokens_nllb, 
-    source_language_nllb, 
-    prompt_nllb, 
-    output_language_nllb, 
-    progress_nllb=gr.Progress(track_tqdm=True)
-    ):
+        modelid_nllb,
+        max_tokens_nllb,
+        source_language_nllb,
+        prompt_nllb,
+        output_language_nllb,
+        progress_nllb=gr.Progress(track_tqdm=True)
+):
+    # 在函数开始时初始化所有变量
+    output_nllb = None
+    model_nllb = None
+    tokenizer_nllb = None
+    automodel_nllb = None
+    inputs_nllb = None
+    translated_tokens = None
+
     try:
         print(">>>[nllb translation 👥 ]: starting module")
 
@@ -271,30 +281,75 @@ def text_nllb(
 
         automodel_nllb = AutoModelForSeq2SeqLM.from_pretrained(model_nllb).to(device_nllb)
         inputs_nllb = tokenizer_nllb(prompt_nllb, return_tensors="pt").to(device_nllb)
-        automodel_nllb = automodel_nllb.to_bettertransformer()
 
-        translated_tokens = automodel_nllb.generate(
-            **inputs_nllb,
-            forced_bos_token_id=tokenizer_nllb.lang_code_to_id[output_language_nllb],
-            max_new_tokens=max_tokens_nllb,
-        )
+        if hasattr(automodel_nllb, 'to_bettertransformer'):
+            automodel_nllb = automodel_nllb.to_bettertransformer()
+        else:
+            print("Warning: to_bettertransformer not available, skipping optimization")
+
+        # 修复：使用 convert_ids_to_tokens 或 get_vocab 获取语言 ID
+        try:
+            # 方法1：使用 tokenizer 的转换方法
+            forced_bos_token_id = tokenizer_nllb.convert_tokens_to_ids(output_language_nllb)
+
+            # 如果上面获取不到，尝试方法2
+            if forced_bos_token_id is None:
+                # 检查 tokenizer 是否有 lang_code_to_id 属性
+                if hasattr(tokenizer_nllb, 'lang_code_to_id'):
+                    forced_bos_token_id = tokenizer_nllb.lang_code_to_id[output_language_nllb]
+                elif hasattr(tokenizer_nllb, 'added_tokens_decoder'):
+                    # 从 added_tokens 中查找
+                    for token_id, token in tokenizer_nllb.added_tokens_decoder.items():
+                        if token == output_language_nllb:
+                            forced_bos_token_id = token_id
+                            break
+                else:
+                    # 最后尝试从 vocab 获取
+                    forced_bos_token_id = tokenizer_nllb.get_vocab().get(output_language_nllb)
+
+            if forced_bos_token_id is None:
+                raise ValueError(f"Could not find token ID for language: {output_language_nllb}")
+
+        except Exception as e:
+            print(f"Warning: Could not get language token ID: {e}")
+            # 如果无法获取语言 ID，不使用 forced_bos_token_id
+            forced_bos_token_id = None
+
+        # 根据是否有 forced_bos_token_id 调用 generate
+        if forced_bos_token_id is not None:
+            translated_tokens = automodel_nllb.generate(
+                **inputs_nllb,
+                forced_bos_token_id=forced_bos_token_id,
+                max_new_tokens=max_tokens_nllb,
+            )
+        else:
+            translated_tokens = automodel_nllb.generate(
+                **inputs_nllb,
+                max_new_tokens=max_tokens_nllb,
+            )
 
         output_nllb = tokenizer_nllb.batch_decode(translated_tokens, skip_special_tokens=True)[0]
         filename_nllb = write_file(output_nllb)
 
         print(f">>>[nllb translation 👥 ]: generated 1 translation")
-        reporting_nllb = f">>>[nllb translation 👥 ]: "+\
-            f"Settings : Model={modelid_nllb} | "+\
-            f"Max tokens={max_tokens_nllb} | "+\
-            f"Source language={source_language_nllb} | "+\
-            f"Output language={output_language_nllb} | "+\
-            f"Prompt={prompt_nllb}"
+        reporting_nllb = f">>>[nllb translation 👥 ]: Settings : Model={modelid_nllb} | Max tokens={max_tokens_nllb} | Source language={source_language_nllb} | Output language={output_language_nllb} | Prompt={prompt_nllb}"
         print(reporting_nllb)
 
-    except:
+    except Exception as e:
+        print(f"Error in text_nllb: {e}")
         traceback.print_exc()
+
     finally:
-        del model_nllb, tokenizer_nllb, automodel_nllb, inputs_nllb, translated_tokens
+        # 安全清理 - 只清理已定义的变量
+        for var_name in ['model_nllb', 'tokenizer_nllb', 'automodel_nllb', 'inputs_nllb', 'translated_tokens']:
+            var_value = locals().get(var_name)
+            if var_value is not None:
+                try:
+                    del var_value
+                except:
+                    pass
+
         clean_ram()
         print(f">>>[nllb translation 👥 ]: leaving module")
-        return output_nllb
+
+    return output_nllb

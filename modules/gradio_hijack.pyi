@@ -16,9 +16,10 @@ import gradio as gr
 from gradio.events import EventListenerMethod
 from PIL import Image as _Image
 
-# è®¾ç½®æ—¥å¿—ï¼Œæ–¹ä¾¿è°ƒè¯•
+# ÉèÖÃÈÕÖ¾£¬·½±ãµ÷ÊÔ
 logger = logging.getLogger(__name__)
 
+from gradio.events import Dependency
 
 class Image(gr.Image):
     """
@@ -282,3 +283,8 @@ class Image(gr.Image):
     def style(self, **kwargs):
         warnings.warn("'style()' is deprecated.", DeprecationWarning, stacklevel=2)
         return self
+    from typing import Callable, Literal, Sequence, Any, TYPE_CHECKING
+    from gradio.blocks import Block
+    if TYPE_CHECKING:
+        from gradio.components import Timer
+        from gradio.components.base import Component
