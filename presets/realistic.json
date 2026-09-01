@@ -1,6 +1,6 @@
 {
     "default_model_type":"SDXL",
-    "default_model": "SDXL_真实_mklanRealistic_mklanRealxlV1.safetensors",
+    "default_model": "SDXL_iniverseMixSFWNSFW_f1dRealnsfwGuofengV2.safetensors",
     "default_refiner": "None",
     "default_refiner_switch": 0.5,
     "default_loras": [
@@ -44,7 +44,7 @@
     ],
     "default_aspect_ratio": "896*1152",
     "checkpoint_downloads": {
-        "SDXL_写实_照片_realisticStockPhoto_v20.safetensors": "https://huggingface.co/lllyasviel/fav_models/resolve/main/fav/SDXL_写实_照片_realisticStockPhoto_v20.safetensors"
+        "SDXL_iniverseMixSFWNSFW_f1dRealnsfwGuofengV2.safetensors": "https://huggingface.co/lllyasviel/fav_models/resolve/main/fav/SDXL_iniverseMixSFWNSFW_f1dRealnsfwGuofengV2.safetensors"
     },
     "embeddings_downloads": {},
     "lora_downloads": {

@@ -1,30 +1,34 @@
-import torch
+# Reference:  https://github.com/comfyanonymous/ComfyUI/blob/master/comfy_extras/nodes_tomesd.py
+# Credit:     https://github.com/dbolya/tomesd
+
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from modules_forge.unet_patcher import UnetPatcher
+
 import math
 
-from typing import Tuple, Callable
+import torch
+
+from modules.shared import opts
 
 
-def do_nothing(x: torch.Tensor, mode: str = None):
+def do_nothing(x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
     return x
 
 
-def mps_gather_workaround(input, dim, index):
+def mps_gather_workaround(input: torch.Tensor, dim: int, index: torch.Tensor) -> torch.Tensor:
     if input.shape[-1] == 1:
-        return torch.gather(
-            input.unsqueeze(-1),
-            dim - 1 if dim < 0 else dim,
-            index.unsqueeze(-1)
-        ).squeeze(-1)
+        return torch.gather(input.unsqueeze(-1), dim - 1 if dim < 0 else dim, index.unsqueeze(-1)).squeeze(-1)
     else:
         return torch.gather(input, dim, index)
 
 
-def bipartite_soft_matching_random2d(metric: torch.Tensor,
-                                     w: int, h: int, sx: int, sy: int, r: int,
-                                     no_rand: bool = False) -> Tuple[Callable, Callable]:
+def bipartite_soft_matching_random2d(metric: torch.Tensor, w: int, h: int, sx: int, sy: int, r: int, no_rand: bool = False) -> tuple[Callable, Callable]:
     """
-    Partitions the tokens into src and dst and merges r tokens from src to dst.
-    Dst tokens are partitioned by choosing one randomy in each (sx, sy) region.
+    Partitions the tokens into src and dst, and merges r tokens from src to dst.
+    dst tokens are partitioned by choosing one randomly in each (sx, sy) region.
+
     Args:
      - metric [B, N, C]: metric to use for similarity
      - w: image width in tokens
@@ -36,10 +40,7 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
     """
     B, N, _ = metric.shape
 
-    if r <= 0 or w == 1 or h == 1:
-        return do_nothing, do_nothing
-
-    gather = mps_gather_workaround if metric.device.type == "mps" else torch.gather
+    gather: Callable[..., torch.Tensor] = mps_gather_workaround if metric.device.type == "mps" else torch.gather
 
     with torch.no_grad():
 
@@ -59,7 +60,7 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         # Image is not divisible by sx or sy so we need to move it into a new buffer
         if (hsy * sy) < h or (wsx * sx) < w:
             idx_buffer = torch.zeros(h, w, device=metric.device, dtype=torch.int64)
-            idx_buffer[:(hsy * sy), :(wsx * sx)] = idx_buffer_view
+            idx_buffer[: (hsy * sy), : (wsx * sx)] = idx_buffer_view
         else:
             idx_buffer = idx_buffer_view
 
@@ -74,7 +75,7 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         a_idx = rand_idx[:, num_dst:, :]  # src
         b_idx = rand_idx[:, :num_dst, :]  # dst
 
-        def split(x):
+        def split(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
             C = x.shape[-1]
             src = gather(x, dim=1, index=a_idx.expand(B, N - num_dst, C))
             dst = gather(x, dim=1, index=b_idx.expand(B, num_dst, C))
@@ -96,6 +97,7 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
         src_idx = edge_idx[..., :r, :]  # Merged Tokens
         dst_idx = gather(node_idx[..., None], dim=-2, index=src_idx)
 
+    @torch.inference_mode()
     def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:
         src, dst = split(x)
         n, t1, c = src.shape
@@ -106,6 +108,7 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
 
         return torch.cat([unm, dst], dim=1)
 
+    @torch.inference_mode()
     def unmerge(x: torch.Tensor) -> torch.Tensor:
         unm_len = unm_idx.shape[1]
         unm, dst = x[..., :unm_len, :], x[..., unm_len:, :]
@@ -124,37 +127,40 @@ def bipartite_soft_matching_random2d(metric: torch.Tensor,
     return merge, unmerge
 
 
-def get_functions(x, ratio, original_shape):
-    b, c, original_h, original_w = original_shape
+def get_functions(x: torch.Tensor, ratio: float, original_shape: list[int]) -> tuple[Callable, Callable]:
+    _, _, original_h, original_w = original_shape
     original_tokens = original_h * original_w
+
     downsample = int(math.ceil(math.sqrt(original_tokens // x.shape[1])))
-    stride_x = 2
-    stride_y = 2
-    max_downsample = 1
+    stride_x: int = opts.token_merging_stride
+    stride_y: int = opts.token_merging_stride
+    max_downsample: int = opts.token_merging_downsample
+    no_rand: bool = opts.token_merging_no_rand
 
     if downsample <= max_downsample:
         w = int(math.ceil(original_w / downsample))
         h = int(math.ceil(original_h / downsample))
         r = int(x.shape[1] * ratio)
-        no_rand = False
-        m, u = bipartite_soft_matching_random2d(x, w, h, stride_x, stride_y, r, no_rand)
-        return m, u
 
-    nothing = lambda y: y
-    return nothing, nothing
+        if r <= 0 or w == 1 or h == 1:
+            return do_nothing, do_nothing
+
+        return bipartite_soft_matching_random2d(x, w, h, stride_x, stride_y, r, no_rand)
+
+    return do_nothing, do_nothing
 
 
 class TomePatcher:
-    def __init__(self):
-        self.u = None
+    @classmethod
+    def patch(cls, model: "UnetPatcher", ratio: float):
+        cls.u = None
 
-    def patch(self, model, ratio):
-        def tomesd_m(q, k, v, extra_options):
-            m, self.u = get_functions(q, ratio, extra_options["original_shape"])
+        def tomesd_m(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, extra_options: dict):
+            m, cls.u = get_functions(q, ratio, extra_options["original_shape"])
             return m(q), k, v
 
-        def tomesd_u(n, extra_options):
-            return self.u(n)
+        def tomesd_u(n: torch.Tensor, *args, **kwargs):
+            return cls.u(n)
 
         m = model.clone()
         m.set_model_attn1_patch(tomesd_m)

@@ -115,3 +115,34 @@ def delete_folder_content(folder, prefix=None):
             result = False
 
     return result
+
+
+
+def is_installed_version(package, version_required):
+    try:
+        version_installed = importlib.metadata.version(package)
+    except Exception:
+        print()
+        print(f'Installing the required version of {package}: {version_required}')
+        return False
+    if packaging.version.parse(version_required) != packaging.version.parse(version_installed):
+        print()
+        print(f'The current version of {package} is: {version_installed}. Installing the required version: {version_required}')
+        return False
+    return True
+
+
+def verify_installed_version(package_name, package_ver, dependencies = False, use_index = '', package_url = ''):
+    result = True
+    index_url_line = f' --index-url {use_index}' if use_index != '' else ''
+    if package_url:
+        package_line = package_url
+    else:
+        package_line = f'{package_name}=={package_ver}'
+    if not is_installed_version(package_name, package_ver):
+        run(f'"{python}" -m pip uninstall -y {package_name}')
+        if dependencies:
+            result = run_pip(f"install -U -I {package_line} {index_url_line} --no-warn-script-location", {package_name}, live=True)
+        else:
+            result = run_pip(f"install -U -I --no-deps {package_line} {index_url_line} --no-warn-script-location", {package_name}, live=True)
+    return result

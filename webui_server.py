@@ -1544,23 +1544,23 @@ with gr.Blocks(
 
                         print(choice)
                         if choice == "Default":
-                            return gr.CheckboxGroup.update(show_label=False, container=False,
+                            return gr.update(show_label=False, container=False,
                                                            choices=legal_style_names,
                                                            value=default_legal_style_names,
                                                            label='Image Style')
                         elif choice == "ALL_Checked":
-                            return gr.CheckboxGroup.update(show_label=False, container=False,
+                            return gr.update(show_label=False, container=False,
                                                            choices=legal_style_names,
                                                            value=legal_style_names,
                                                            label='Image Style')
                         elif choice == "ALL_UnChecked":
-                            return gr.CheckboxGroup.update(show_label=False, container=False,
+                            return gr.update(show_label=False, container=False,
                                                            choices=legal_style_names,
                                                            value=[],
                                                            label='Image Style')
                         else:
                             special = _p(choice)
-                            return gr.CheckboxGroup.update(show_label=False, container=False,
+                            return gr.update(show_label=False, container=False,
                                                            choices=[fooocus_expansion] + special,
                                                            value=special,
                                                            label='Image Style')
@@ -1650,13 +1650,21 @@ with gr.Blocks(
                                                       choices=modules.config.model_types,
                                                       value=modules.config.default_model_type, show_label=True)
                 with gr.Row():
-                    base_model = gr.Dropdown(label='Base Model (SDXL only)',
-                                             choices=modules.config.sd_model_filenames,
-                                             value=modules.config.default_base_model_name, show_label=True)
+                    base_model = gr.Dropdown(
+                    label='Base Model (SDXL only)',
+                    choices=modules.config.sd_model_filenames,
+                    value=modules.config.default_base_model_name,
+                    show_label=True,
+                    allow_custom_value=True,
+                )
 
-                    refiner_model = gr.Dropdown(label='Refiner (SDXL or SD 1.5)',
-                                                choices=['None'] + modules.config.model_filenames,
-                                                value=modules.config.default_refiner_model_name, show_label=True)
+                    refiner_model = gr.Dropdown(
+                        label='Refiner (SDXL or SD 1.5)',
+                        choices=['None'] + modules.config.model_filenames,
+                        value=modules.config.default_refiner_model_name,
+                        show_label=True,
+                        allow_custom_value=True,
+                    )
                 with gr.Row():
                     with gr.Accordion(label="-", open=False) as bm_acc:
                         img_bm_thumbnail = grh.Image(label='bm_thumbnail', type='filepath', show_label=False,
@@ -1702,34 +1710,37 @@ with gr.Blocks(
                     return [gr.update(open=False), gr.update(value=None), gr.update(value="")]
 
 
-                def get_model_type_selector(x, y):
-                    new_models_type_selectors_list = []
-                    for msl in modules.config.model_types:
-                        if x in msl:
-                            new_models_type_selectors_list.append(msl)
+                def get_model_type_selector(model_type, current_model):
+                    model_type_key = str(model_type or "").lower()
 
-                    new_model_type_filenames = ["None"]
-                    for nmsl in new_models_type_selectors_list:
-                        nmsl = nmsl
-                        new_model_type_filenames += modules.config.get_model_filenames(modules.config.modelfile_path,
-                                                                                       name_filter=nmsl)
+                    model_choices = ["None"]
+                    for model_type_name in modules.config.model_types:
+                        if model_type_key in str(model_type_name).lower():
+                            model_choices += modules.config.get_model_filenames(
+                                modules.config.modelfile_path,
+                                name_filter=model_type_name,
+                            )
 
-                    new_model_type_filenames = sorted(set(new_model_type_filenames), key=new_model_type_filenames.index)
+                    model_choices = list(dict.fromkeys(model_choices))
+                    model_value = (
+                        current_model
+                        if current_model in model_choices
+                        else model_choices[0]
+                    )
 
-                    if y in new_model_type_filenames:
-                        _value = y
-                    else:
-                        _value = new_model_type_filenames[0]
-
-                    if "SDXL" in x:
-                        return [gr.update(label=x, choices=new_model_type_filenames, value=_value),
-                                gr.update(visible=True), gr.update(visible=True)]
-                    if "HunyuanDiT" in x or "Flux" in x or "Kolors" in x:
-                        return [gr.update(label=x, choices=new_model_type_filenames, value=_value),
-                                gr.update(visible=False, value="None"), gr.update(value="ALL_UnChecked")]
-                    else:
-                        return [gr.update(label=x, choices=new_model_type_filenames, value=_value),
-                                gr.update(visible=False, value="None"), gr.update(visible=True)]
+                    return [
+                        gr.update(
+                            label=model_type,
+                            choices=model_choices,
+                            value=model_value,
+                        ),
+                        gr.update(
+                            choices=["None"] + list(modules.config.model_filenames),
+                            value="None",
+                            visible=True,
+                        ),
+                        gr.update(visible=True),
+                    ]
 
 
                 model_type_selector.change(fn=get_model_type_selector, inputs=[model_type_selector, base_model],
@@ -2028,23 +2039,53 @@ with gr.Blocks(
                            outputs=[prompt, style_selections], show_progress=True, queue=True)
 
 
-        def adjust_refiner_model_config(x, y, z):
-            r = modules.config.get_config_from_model_preset(y).get("default_refiner")
-            if x == "Custom":
-                refiner = z
+        def adjust_refiner_model_config(performance, preset_name, current_refiner):
+            preset_config = modules.config.get_config_from_model_preset(preset_name) or {}
+            default_refiner = preset_config.get("default_refiner")
+
+            performance_name = str(performance or "").strip()
+            performance_key = performance_name.lower()
+
+            if performance_name == "Custom":
+                requested_refiner = current_refiner
             else:
-                refiner = r
-            print(f"x,y,refiner = {x} - {y} - {refiner}")
-            if x.lower() == constants.TYPE_LIGHTNING:
-                cis = ['None'] + [c for c in modules.config.model_filenames if constants.TYPE_LIGHTNING in c.lower()]
-                return gr.update(label=x.title() + " model(for SDXL)", choices=cis, value=cis[0], show_label=True)
-            elif x.lower() in [constants.TYPE_LCM, constants.TYPE_TURBO, constants.TYPE_HYPER_SD]:
-                cis = ['None'] + [c for c in modules.config.model_filenames if x.lower() in c.lower()]
-                return gr.update(label=x.title() + " model(for SDXL)", choices=cis, value=cis[0], show_label=True)
+                requested_refiner = default_refiner
+
+            if performance_key == constants.TYPE_LIGHTNING.lower():
+                model_filter = constants.TYPE_LIGHTNING.lower()
+                label = f"{performance_name.title()} model(for SDXL)"
+            elif performance_key in {
+                constants.TYPE_LCM.lower(),
+                constants.TYPE_TURBO.lower(),
+                constants.TYPE_HYPER_SD.lower(),
+            }:
+                model_filter = performance_key
+                label = f"{performance_name.title()} model(for SDXL)"
             else:
-                return gr.update(label='Refiner (SDXL or SD 1.5)',
-                                 choices=['None'] + modules.config.model_filenames,
-                                 value=refiner, show_label=True)
+                choices = ["None"] + list(modules.config.model_filenames)
+                value = requested_refiner if requested_refiner in choices else "None"
+
+                return gr.update(
+                    label="Refiner (SDXL or SD 1.5)",
+                    choices=choices,
+                    value=value,
+                    show_label=True,
+                )
+
+            filtered_models = [
+                filename
+                for filename in modules.config.model_filenames
+                if model_filter in filename.lower()
+            ]
+            choices = ["None"] + filtered_models
+            value = requested_refiner if requested_refiner in choices else "None"
+
+            return gr.update(
+                label=label,
+                choices=choices,
+                value=value,
+                show_label=True,
+            )
 
 
         def reset_model_preset(x):
@@ -2062,10 +2103,11 @@ with gr.Blocks(
 
             results += [modules.config.get_config_from_model_preset(x).get("default_model_type")]
             m = modules.config.get_config_from_model_preset(x).get("default_model")
+
             if m in modules.config.model_filenames:
-                results += [m]
+                results.append(m)
             else:
-                results += ["Not Exist!->" + m]
+                results.append("None")
 
             loras = modules.config.get_config_from_model_preset(x).get("default_loras")
             for ll in loras:
@@ -2086,10 +2128,7 @@ with gr.Blocks(
             if r in modules.config.model_filenames:
                 results += [r]
             else:
-                if r in ["", "None", "Not Exist!->"]:
-                    results += ["None"]
-                else:
-                    results += ["Not Exist!->" + r]
+                results += ["None"]
 
             gr.Info(str(x) + ' in effect!')
             return results
@@ -2110,7 +2149,10 @@ with gr.Blocks(
             results = []
 
             if x[0] not in modules.config.preset_filenames:
-                results += [gr.update(choices=modules.config.preset_filenames, value="Not Exist!->")]
+                results += [gr.update(
+                    choices=['Not Exist!->'] + modules.config.preset_filenames,
+                    value="Not Exist!->"
+                )]
             else:
                 results += [gr.update(choices=modules.config.preset_filenames)]
 
@@ -2120,25 +2162,37 @@ with gr.Blocks(
 
             results += [gr.update(value=x[1])]
 
-            if x[2] not in modules.config.model_filenames:
-                results += [gr.update(choices=['None'] + modules.config.model_filenames, value="Not Exist!->")]
-            else:
-                results += [gr.update(choices=['None'] + selected_model_filenames)]
+            base_choices = ['None'] + selected_model_filenames
+            base_value = x[2] if x[2] in base_choices else "None"
+            
+            results += [
+                gr.update(
+                    choices=base_choices,
+                    value=base_value
+                )
+            ]
 
             # 修正：原代码 `x[3] not in [list, "None"]` 永远为真
-            if x[3] not in modules.config.model_filenames and x[3] != "None":
-                results += [gr.update(choices=['None'] + modules.config.model_filenames, value="Not Exist!->")]
-            else:
-                results += [gr.update(choices=['None'] + modules.config.model_filenames)]
+            refiner_choices = ['None'] + modules.config.model_filenames
+            refiner_value = x[3] if x[3] in refiner_choices else refiner_choices[0]
+
+            results += [
+                gr.update(
+                    choices=refiner_choices,
+                    value=refiner_value
+                )
+            ]
 
             y = list(x[4:-2])
             z = [y[nn:nn + 3] for nn in range(0, len(y), 3)]
             for lf in z:
                 if lf[1] is not None and "\\" in lf[1]:
-                    lf[1] = lf[1].replace('\\\\', '\\')  # 修正：原代码没有赋值回 lf[1]
-                if lf[1] not in modules.config.lora_filenames or lf[1] is None:
+                    lf[1] = lf[1].replace('\\\\', '\\')
+                if lf[1] is None or lf[1] not in modules.config.lora_filenames:
+                    missing_value = "None" if lf[1] is None else "Not Exist!->"
+                    available = ['None', 'Not Exist!->'] + modules.config.lora_filenames
                     results += [gr.update(value=False),
-                                gr.update(choices=['None'] + modules.config.lora_filenames, value="Not Exist!->"),
+                                gr.update(choices=available, value=missing_value),
                                 gr.update(value=lf[2])]
                 else:
                     results += [gr.update(value=True),
@@ -2146,16 +2200,18 @@ with gr.Blocks(
                                 gr.update(value=lf[2])]
 
             if x[-2] not in modules.config.controlnet_lora_canny_filenames:
-                results += [
-                    gr.update(choices=['None'] + modules.config.controlnet_lora_canny_filenames,
-                              value="Not Exist!->")]
+                results += [gr.update(
+                    choices=['None', 'Not Exist!->'] + modules.config.controlnet_lora_canny_filenames,
+                    value="Not Exist!->"
+                )]
             else:
                 results += [gr.update(choices=['None'] + modules.config.controlnet_lora_canny_filenames)]
 
             if x[-1] not in modules.config.controlnet_lora_depth_filenames:
-                results += [
-                    gr.update(choices=['None'] + modules.config.controlnet_lora_depth_filenames,
-                              value="Not Exist!->")]
+                results += [gr.update(
+                    choices=['None', 'Not Exist!->'] + modules.config.controlnet_lora_depth_filenames,
+                    value="Not Exist!->"
+                )]
             else:
                 results += [gr.update(choices=['None'] + modules.config.controlnet_lora_depth_filenames)]
 
@@ -2344,6 +2400,7 @@ with gr.Blocks(
         ctrls += canny_ctrls + depth_ctrls
         ctrls += ip_ctrls
         ctrls += [model_type_selector]
+        ctrls += [nsfw_filter]
 
         load_prompt_button.upload(fn=load_prompt_handler, inputs=[load_prompt_button] + ctrls + [seed_random],
                                   outputs=ctrls + [seed_random])

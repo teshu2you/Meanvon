@@ -91,14 +91,17 @@ class T5TextProcessingEngine:
             chunk = PromptChunk()
 
         for tokens, (text, weight) in zip(tokenized, parsed):
-            if text == 'BREAK' and weight == -1:
-                next_chunk()
+            if text == "BREAK" and weight == -1:
+                if chunk.tokens:
+                    next_chunk()
                 continue
 
             position = 0
             while position < len(tokens):
-                token = tokens[position]
-                chunk.tokens.append(token)
+                if len(chunk.tokens) >= self.min_length:
+                    next_chunk()
+
+                chunk.tokens.append(tokens[position])
                 chunk.multipliers.append(weight)
                 position += 1
 

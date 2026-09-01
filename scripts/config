@@ -41,7 +41,7 @@
     "path_outputs_videos": "X:\\python_project\\Meanvon\\outputs\\videos",
     "temp_path": "C:\\Users\\xl\\AppData\\Local\\Temp\\MeanVon",
     "temp_path_cleanup_on_launch": true,
-    "default_model": "JuggernautXL_X_X_RunDiffusion.safetensors",
+    "default_model": "SDXL_Juggernaut-XI-byRunDiffusion.safetensors",
     "previous_default_models": [],
     "default_refiner": "None",
     "default_refiner_switch": 0.8,

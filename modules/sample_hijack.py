@@ -31,7 +31,11 @@ def clip_separate_inner(c, p, target_model=None, target_clip=None):
         p = None
         c = c[..., :768].clone()
 
-        final_layer_norm = target_clip.cond_stage_model.clip_l.transformer.text_model.final_layer_norm
+        clip_model = target_clip.cond_stage_model.clip_l
+        clip_model = getattr(clip_model, "transformer", clip_model)
+        text_model = getattr(clip_model, "text_model", clip_model)
+
+        final_layer_norm = text_model.final_layer_norm
 
         final_layer_norm_origin_device = final_layer_norm.weight.device
         final_layer_norm_origin_dtype = final_layer_norm.weight.dtype

@@ -3,7 +3,7 @@ import sys
 import os
 import threading
 import traceback
-
+from extras.censor import default_censor
 import adapter
 from adapter import args_manager
 from util.printf import printF, MasterName
@@ -39,6 +39,7 @@ import copy
 import random
 import time
 import numpy as np
+import modules.util as util
 import torch
 import re
 import logging
@@ -47,6 +48,9 @@ from typing import List
 from util.file import save_output_file
 from adapter.parameters import GenerationFinishReason, ImageGenerationResult, ImageGenerationParams
 from adapter.task_queue import QueueTask, TaskQueue, TaskOutputs
+
+from enhanced.backend import comfyd, comfyclient_pipeline as comfypipeline
+from enhanced.comfy_task import get_comfy_task, default_kolors_base_model_name
 
 worker_queue: TaskQueue = None
 queue_task: QueueTask = None
@@ -244,11 +248,16 @@ class taskManager:
         self.inpaint_input_image = None
         self.cn_tasks = {'Image Prompt': ['none', 0.6, 0.5], 'PyraCanny': ['none', 0.6, 0.5],
                          'CPDS': ['none', 0.6, 0.5]}
+        self.black_out_nsfw = 0
         self.input_gallery = []
         self.revision_gallery = []
         self.output_gallery = []                              # 新增：以前缺少此属性
         self.keep_input_names = False
         self.default_model_type = "SDXL"
+        
+        self.backfill_prompt = False
+        self.translation_methods = ''
+        self.comfyd_active_checkbox = False
 
     def init_param(self, obj):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> init_param").printf()
@@ -291,10 +300,15 @@ class taskManager:
 
             self.image_seed = self.refresh_seed(self.image_seed is None, self.image_seed)
             self.default_model_type = params.default_model_type
+            self.black_out_nsfw = params.black_out_nsfw
 
             for img_prompt in params.image_prompts:
                 cn_img, cn_stop, cn_weight, cn_type = img_prompt
                 self.cn_tasks[cn_type].append([cn_img, cn_stop, cn_weight])
+                
+            self.backfill_prompt = params.backfill_prompt
+            self.translation_methods = params.translation_methods
+            self.comfyd_active_checkbox = params.comfyd_active_checkbox
 
         elif self.request_source == "webui":
             obj.processing = True
@@ -344,6 +358,7 @@ class taskManager:
             # ctrls += canny_ctrls + depth_ctrls
             # ctrls += ip_ctrls
             # ctrls += [model_type_selector]
+            # ctrls += [nsfw_filter]
             # if not adapter.args_manager.args.disable_metadata:
             #     ctrls += [save_metadata_to_images, metadata_scheme]
 
@@ -485,6 +500,7 @@ class taskManager:
             #     args.pop()) if not args_manager.args.disable_metadata else flags.MetadataScheme.FOOOCUS
 
             self.default_model_type = args.pop()
+            self.black_out_nsfw = args.pop()
             self.save_metadata_to_images = args.pop()
             self.metadata_scheme = flags.MetadataScheme(args.pop())
 
@@ -500,6 +516,7 @@ class taskManager:
                 self.steps = self.custom_steps
             else:
                 self.steps = self.fixed_steps
+
 
     @torch.no_grad()
     @torch.inference_mode()
@@ -620,7 +637,12 @@ class taskManager:
     def yield_result(self, async_task, imgs, do_not_show_finished_images=False):
         if not isinstance(imgs, list):
             imgs = [imgs]
-
+            
+        if self.black_out_nsfw == "1":
+            printF(name=MasterName.get_master_name(),
+                               info="[Task Queue] Checking for NSFW content...").printf()
+            imgs = default_censor(imgs)
+            
         if self.request_source == "webui":
             async_task.results = async_task.results + imgs
 
@@ -1872,114 +1894,162 @@ class taskManager:
                 elif img2img_megapixels > max_mp:
                     img2img_megapixels = max_mp
                 input_image = self.get_image(path=self.input_image_path, megapixels=img2img_megapixels)
+                
+            if "kolors" in self.base_model_name_prefix.lower():
+                self.task_class = "Kolors+"
+            elif "flux" in self.base_model_name_prefix.lower():
+                self.task_class = "Flux"
+            elif "hydit" in self.base_model_name_prefix.lower():
+                self.task_class = "HyDiT+"
+            elif "sd3x" in self.base_model_name_prefix.lower():
+                self.task_class = "SD3x"
+            else:
+                self.task_class = "default"
 
             try:
                 if async_task.last_stop is not False:
                     ldm_patched.modules.model_management.interrupt_current_processing()
                 positive_cond, negative_cond = task['c'], task['uc']
-
-                if 'cn' in self.goals:
-                    for cn_flag, cn_path in [
-                        (flags.cn_canny, self.controlnet_canny_path),
-                        (flags.cn_cpds, self.controlnet_cpds_path)
-                    ]:
-                        for cn_img, cn_stop, cn_weight in self.cn_tasks[cn_flag]:
-                            positive_cond, negative_cond = modules.core.apply_controlnet(
-                                positive_cond, negative_cond,
-                                pipeline.loaded_ControlNets[cn_path], cn_img, cn_weight, 0, cn_stop)
-                self.execution_end_time = time.perf_counter()
-
+                
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] positive_cond = {}".format(positive_cond)).printf()
-                printF(name=MasterName.get_master_name(),
-                       info="[Parameters] negative_cond = {}".format(negative_cond)).printf()
-                printF(name=MasterName.get_master_name(),
-                       info="[Parameters] image_number = {}".format(self.image_number)).printf()
+                    info="[Parameters] image_number = {}".format(self.image_number)).printf()
                 printF(name=MasterName.get_master_name(), info="[Parameters] steps = {}".format(self.steps)).printf()
                 printF(name=MasterName.get_master_name(), info="[Parameters] switch = {}".format(self.switch)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] img2img_mode = {}".format(self.img2img_mode)).printf()
+                    info="[Parameters] img2img_mode = {}".format(self.img2img_mode)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] input_image = {}".format(input_image)).printf()
+                    info="[Parameters] input_image = {}".format(input_image)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] start_step = {}".format(self.start_step)).printf()
+                    info="[Parameters] start_step = {}".format(self.start_step)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] control_lora_canny = {}".format(self.control_lora_canny)).printf()
+                    info="[Parameters] control_lora_canny = {}".format(self.control_lora_canny)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] canny_edge_low = {}".format(self.canny_edge_low)).printf()
+                    info="[Parameters] canny_edge_low = {}".format(self.canny_edge_low)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] canny_edge_high = {}".format(self.canny_edge_high)).printf()
+                    info="[Parameters] canny_edge_high = {}".format(self.canny_edge_high)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] canny_start = {}".format(self.canny_start)).printf()
+                    info="[Parameters] canny_start = {}".format(self.canny_start)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] canny_stop = {}".format(self.canny_stop)).printf()
+                    info="[Parameters] canny_stop = {}".format(self.canny_stop)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] canny_strength = {}".format(self.canny_strength)).printf()
+                    info="[Parameters] canny_strength = {}".format(self.canny_strength)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] control_lora_depth = {}".format(self.control_lora_depth)).printf()
+                    info="[Parameters] control_lora_depth = {}".format(self.control_lora_depth)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] depth_start = {}".format(self.depth_start)).printf()
+                    info="[Parameters] depth_start = {}".format(self.depth_start)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] depth_stop = {}".format(self.depth_stop)).printf()
+                    info="[Parameters] depth_stop = {}".format(self.depth_stop)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] depth_strength = {}".format(self.depth_strength)).printf()
+                    info="[Parameters] depth_strength = {}".format(self.depth_strength)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] task['task_seed'] = {}".format(task['task_seed'])).printf()
+                    info="[Parameters] task['task_seed'] = {}".format(task['task_seed'])).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] final_sampler_name = {}".format(final_sampler_name)).printf()
+                    info="[Parameters] final_sampler_name = {}".format(final_sampler_name)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] final_scheduler_name = {}".format(final_scheduler_name)).printf()
+                    info="[Parameters] final_scheduler_name = {}".format(final_scheduler_name)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] initial_latent = {}".format(self.initial_latent)).printf()
+                    info="[Parameters] initial_latent = {}".format(self.initial_latent)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] denoise = {}".format(self.denoise)).printf()
+                    info="[Parameters] denoise = {}".format(self.denoise)).printf()
                 printF(name=MasterName.get_master_name(), info="[Parameters] tiled = {}".format(self.tiled)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] guidance_scale = {}".format(self.guidance_scale)).printf()
+                    info="[Parameters] guidance_scale = {}".format(self.guidance_scale)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] refiner_swap_method = {}".format(self.refiner_swap_method)).printf()
+                    info="[Parameters] refiner_swap_method = {}".format(self.refiner_swap_method)).printf()
                 printF(name=MasterName.get_master_name(),
-                       info="[Parameters] loras = {}".format(self.loras)).printf()
+                    info="[Parameters] loras = {}".format(self.loras)).printf()
+                               
+                if self.task_class in flags.comfy_classes: 
+                    combined_positive = ", ".join([x for x in task["positive"] if isinstance(x, str) and x.strip()])
+                    combined_negative = ", ".join([x for x in task["negative"] if isinstance(x, str) and x.strip()])
+        
+                    default_params = dict(
+                        prompt=combined_positive,
+                        negative_prompt=combined_negative,
+                        width=self.width,
+                        height=self.height,
+                        base_model=self.base_model_name,
+                        sampler=self.sampler_name,
+                        scheduler=final_scheduler_name,
+                        cfg_scale=self.cfg_scale,
+                        steps=self.steps,
+                        denoise=self.denoising_strength,
+                        seed=task['task_seed'],
+                        )
+                    default_params.update(self.params_backend)
+                    
+                    comfy_task = get_comfy_task(self.task_name, async_task.task_method, default_params, input_image)
+                    self.imgs = comfypipeline.process_flow(comfy_task.name, comfy_task.params, comfy_task.images, callback=callback)
+                    
+                    del task['c'], task['uc'], combined_positive, combined_negative  # Save memory
 
-                self.imgs = pipeline.process_diffusion(
-                    positive_cond=positive_cond,
-                    negative_cond=negative_cond,
-                    steps=self.steps,
-                    switch=self.switch,
-                    width=self.width,
-                    img2img=self.img2img_mode,  # ? -> latent
-                    input_image=input_image,  # ? -> latent
-                    start_step=self.start_step,
-                    control_lora_canny=self.control_lora_canny,
-                    canny_edge_low=self.canny_edge_low,
-                    canny_edge_high=self.canny_edge_high,
-                    canny_start=self.canny_start,
-                    canny_stop=self.canny_stop,
-                    canny_strength=self.canny_strength,
-                    control_lora_depth=self.control_lora_depth,
-                    depth_start=self.depth_start,
-                    depth_stop=self.depth_stop,
-                    depth_strength=self.depth_strength,
-                    height=self.height,
-                    image_seed=task['task_seed'],
-                    callback=callback,
-                    sampler_name=final_sampler_name,
-                    scheduler_name=final_scheduler_name,
-                    latent=self.initial_latent,
-                    denoise=self.denoise,
-                    tiled=self.tiled,
-                    cfg_scale=self.guidance_scale,
-                    refiner_swap_method=self.refiner_swap_method
-                )
+                else:
+                
+                    if pipeline.model_base is not None:
+                        # Resolve the active inner model
+                        active_model = getattr(pipeline.model_base,
+                            'inner_model', pipeline.model_base)
+                        use_tiling = getattr(async_task,
+                            'seamless_tiling', False)
+                        util.apply_native_tiling(active_model,
+                            enable=use_tiling)
 
-                del task['c'], task['uc'], positive_cond, negative_cond  # Save memory
+                    if 'cn' in self.goals:
+                        for cn_flag, cn_path in [
+                            (flags.cn_canny, self.controlnet_canny_path),
+                            (flags.cn_cpds, self.controlnet_cpds_path)
+                        ]:
+                            for cn_img, cn_stop, cn_weight in self.cn_tasks[cn_flag]:
+                                positive_cond, negative_cond = modules.core.apply_controlnet(
+                                    positive_cond, negative_cond,
+                                    pipeline.loaded_ControlNets[cn_path], cn_img, cn_weight, 0, cn_stop)
+                    self.execution_end_time = time.perf_counter()
+
+                    printF(name=MasterName.get_master_name(),
+                        info="[Parameters] positive_cond = {}".format(positive_cond)).printf()
+                    printF(name=MasterName.get_master_name(),
+                        info="[Parameters] negative_cond = {}".format(negative_cond)).printf()
+
+
+                    self.imgs = pipeline.process_diffusion(
+                        positive_cond=positive_cond,
+                        negative_cond=negative_cond,
+                        steps=self.steps,
+                        switch=self.switch,
+                        width=self.width,
+                        img2img=self.img2img_mode,  # ? -> latent
+                        input_image=input_image,  # ? -> latent
+                        start_step=self.start_step,
+                        control_lora_canny=self.control_lora_canny,
+                        canny_edge_low=self.canny_edge_low,
+                        canny_edge_high=self.canny_edge_high,
+                        canny_start=self.canny_start,
+                        canny_stop=self.canny_stop,
+                        canny_strength=self.canny_strength,
+                        control_lora_depth=self.control_lora_depth,
+                        depth_start=self.depth_start,
+                        depth_stop=self.depth_stop,
+                        depth_strength=self.depth_strength,
+                        height=self.height,
+                        image_seed=task['task_seed'],
+                        callback=callback,
+                        sampler_name=final_sampler_name,
+                        scheduler_name=final_scheduler_name,
+                        latent=self.initial_latent,
+                        denoise=self.denoise,
+                        tiled=self.tiled,
+                        cfg_scale=self.guidance_scale,
+                        refiner_swap_method=self.refiner_swap_method
+                    )
+
+                    del task['c'], task['uc'], positive_cond, negative_cond  # Save memory
 
                 if modules.inpaint_worker.current_task is not None:
                     self.imgs = [modules.inpaint_worker.current_task.post_process(x) for x in self.imgs]
 
                 self.log_meta_messages(task=task)
                 self.yield_result(async_task, self.img_paths,
-                                  do_not_show_finished_images=len(self.tasks) == 1 or self.disable_intermediate_results)
+                                do_not_show_finished_images=len(self.tasks) == 1 or self.disable_intermediate_results)
 
             except ldm_patched.modules.model_management.InterruptProcessingException as e:
                 if async_task.last_stop == 'skip':

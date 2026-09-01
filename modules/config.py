@@ -153,7 +153,7 @@ def try_load_deprecated_user_path_config():
         replace_config('fooocus_expansion_path', 'path_fooocus_expansion')
         replace_config('temp_outputs_path', 'path_outputs')
 
-        if deprecated_config_dict.get("default_model", None) == 'JuggernautXL_ragnarokBy.safetensors':
+        if deprecated_config_dict.get("default_model", None) == 'SDXL_Juggernaut-XI-byRunDiffusion.safetensors':
             os.replace('user_path_config.txt', 'user_path_config-deprecated.txt')
             print('Config updated successfully in silence. '
                   'A backup of previous config is written to "user_path_config-deprecated.txt".')
@@ -402,9 +402,14 @@ os.makedirs(temp_outputs_path, exist_ok=True)
 
 default_clip_vision_name = 'clip_vision_g.safetensors'
 
-default_flux_vae_name = 'ae.safetensors'
-default_flux_text_encoder_clip = 'clip_l.safetensors'
-default_flux_text_encoder_t5xxl = 't5xxl_fp8_e4m3fn.safetensors'
+default_flux1_vae_name = 'flux1-vae.safetensors'
+default_flux2_vae_name = 'flux2-vae.safetensors'
+
+default_flux1_text_encoder_clip = 'clip_l.safetensors'
+default_flux1_text_encoder_t5xxl = 't5xxl_fp8_e4m3fn.safetensors'
+
+default_flux2_text_encoder_clip = 'clip_l.safetensors'
+default_flux2_text_encoder_t5xxl = 't5xxl_fp8_e4m3fn.safetensors'
 
 default_controlnet_canny_name = 'control-lora-canny-rank128.safetensors'
 default_controlnet_depth_name = 'control-lora-depth-rank128.safetensors'
@@ -441,18 +446,24 @@ model_types = [
     # "SD3",
     # "StableAudio",
     # "AuraFlow",
+    "QwenImage",
     "HunyuanDiT",
-    # "HunyuanDiT1",
+    "Krea2",
     "Flux",
-    # "FluxSchnell",
-    "Kolors"
+    "FluxSchnell",
+    "Flux2K4B",
+    "Flux2K9B",
+    "Kolors",
+    "ZImage",
+    "ErnieImage"
+    
 ]
 
 default_model_type = "SDXL"
 
 default_base_model_name = default_model = get_config_item_or_set_default(
     key='default_model',
-    default_value='JuggernautXL_ragnarokBy.safetensors',
+    default_value='SDXL_Juggernaut-XI-byRunDiffusion.safetensors',
     validator=lambda x: isinstance(x, str)
 )
 

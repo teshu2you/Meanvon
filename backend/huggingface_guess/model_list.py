@@ -748,10 +748,406 @@ class FluxSchnell(Flux):
         "shift": 1.0,
     }
 
+class Anima(BASE):
+    huggingface_repo = "circlestone-labs/Anima"
 
-models = [Stable_Zero123, SD15_instructpix2pix, SD15, SD20, SD21UnclipL, SD21UnclipH,
-          SDXL_instructpix2pix, SDXLRefiner, SDXL, SSD1B, KOALA_700M, KOALA_1B, Segmind_Vega,
-          SD_X4Upscaler, Stable_Cascade_C, Stable_Cascade_B, SV3D_u, SV3D_p, SD3,
-          StableAudio, AuraFlow, HunyuanDiT, HunyuanDiT1, Flux, FluxSchnell, Kolors]
-# models = [SD15, SD20, SDXLRefiner, SDXL, SD3, AuraFlow, HunyuanDiT, HunyuanDiT1, Flux, FluxSchnell, Kolors]
+    unet_config = {
+        "image_model": "anima",
+    }
+
+    unet_extra_config = {}
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 3.0,
+    }
+
+    latent_format = latent.Wan21
+    memory_usage_factor = 1.32
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float16,
+        torch.float32,
+    ]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {
+            "qwen3_06b.transformer": "text_encoder",
+        }
+
+
+class Chroma(FluxSchnell):
+    huggingface_repo = "Chroma"
+
+    unet_config = {
+        "image_model": "chroma",
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+    }
+
+    memory_usage_factor = 3.2
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float16,
+        torch.float32,
+    ]
+
+    text_encoder_key_prefix = [
+        "text_encoders.",
+        "cond_stage_model.",
+    ]
+
+    def clip_target(self, state_dict):
+        for prefix in self.text_encoder_key_prefix:
+            normal_key = (
+                f"{prefix}t5xxl.transformer.encoder.final_layer_norm.weight"
+            )
+            quantized_key = (
+                f"{prefix}t5xxl.transformer.encoder.final_layer_norm.qweight"
+            )
+
+            if normal_key in state_dict or quantized_key in state_dict:
+                return {
+                    "t5xxl": "text_encoder",
+                }
+
+        return {}
+
+
+class ErnieImage(BASE):
+    huggingface_repo = "baidu/ERNIE-Image"
+
+    unet_config = {
+        "image_model": "ernie",
+    }
+
+    unet_extra_config = {}
+
+    sampling_settings = {
+        "multiplier": 1000.0,
+        "shift": 3.0,
+    }
+
+    latent_format = latent.Flux2
+    memory_usage_factor = 10.0
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float32,
+    ]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict):
+        return {
+            "ministral3_3b.transformer": "text_encoder",
+        }
+
+
+class Flux2K4B(Flux):
+    huggingface_repo = "black-forest-labs/FLUX.2-klein-4B"
+
+    unet_config = {
+        "image_model": "flux2",
+        "hidden_size": 3072,
+    }
+
+    unet_extra_config = {}
+
+    sampling_settings = {
+        "shift": 2.02,
+    }
+
+    latent_format = latent.Flux2
+    memory_usage_factor = 14.6
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float16,
+        torch.float32,
+    ]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {
+            "qwen3_4b.transformer": "text_encoder",
+        }
+
+
+class Flux2K9B(Flux):
+    huggingface_repo = "black-forest-labs/FLUX.2-klein-9B"
+
+    unet_config = {
+        "image_model": "flux2",
+        "hidden_size": 4096,
+    }
+
+    unet_extra_config = {}
+
+    sampling_settings = {
+        "shift": 2.02,
+    }
+
+    latent_format = latent.Flux2
+    memory_usage_factor = 19.5
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float16,
+        torch.float32,
+    ]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {
+            "qwen3_8b.transformer": "text_encoder",
+        }
+
+class Krea2(BASE):
+    huggingface_repo = "krea/Krea-2-Raw"
+
+    unet_config = {
+        "image_model": "krea2",
+    }
+
+    unet_extra_config = {}
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 1.15,
+    }
+
+    latent_format = latent.Wan21
+    memory_usage_factor = 2.2
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float16,
+        torch.float32,
+    ]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {
+            "qwen3vl_4b.transformer": "text_encoder",
+        }
+
+    def model_type(self, state_dict):
+        return ModelType.FLOW
+
+class Lumina2(BASE):
+    huggingface_repo = "neta-art/Neta-Lumina"
+
+    unet_config = {
+        "image_model": "lumina2",
+        "dim": 2304,
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 6.0,
+    }
+
+    memory_usage_factor = 1.4
+
+    unet_extra_config = {}
+    latent_format = latent.Flux
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float32,
+    ]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict):
+        prefix = self.text_encoder_key_prefix[0]
+        embed_key = f"{prefix}gemma2_2b.transformer.model.embed_tokens.weight"
+
+        if embed_key in state_dict:
+            state_dict.pop(f"{prefix}gemma2_2b.logit_scale", None)
+            state_dict.pop(f"{prefix}spiece_model", None)
+            return {
+                "gemma2_2b.transformer": "text_encoder",
+            }
+
+        return {
+            "gemma2_2b": "text_encoder",
+        }
+
+class Mugen(SDXL):
+    huggingface_repo = "CabalResearch/Mugen"
+
+    unet_config = dict(SDXL.unet_config, out_channels=32)
+
+    sampling_settings = {
+        "shift": 12.0,
+    }
+
+    latent_format = latent.SDXL_Flux2
+
+    vae_key_prefix = [
+        "vae.",
+        "first_stage_model.",
+    ]
+
+    def inpaint_model(self):
+        return False
+
+    def model_type(self, state_dict):
+        return ModelType.FLOW
+
+class QwenImage(BASE):
+    huggingface_repo = "Qwen/Qwen-Image"
+
+    unet_config = {
+        "image_model": "qwen_image",
+    }
+
+    unet_extra_config = {}
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 1.15,
+    }
+
+    latent_format = latent.Wan21
+    memory_usage_factor = 1.8
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float32,
+    ]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict):
+        prefix = self.text_encoder_key_prefix[0]
+
+        if f"{prefix}qwen25_7b.transformer.model.embed_tokens.weight" in state_dict:
+            state_dict.pop(f"{prefix}qwen25_7b.logit_scale", None)
+            return {
+                "qwen25_7b.transformer": "text_encoder",
+            }
+
+        return {
+            "qwen25_7b": "text_encoder",
+        }
+
+    def model_type(self, state_dict):
+        return ModelType.FLUX
+
+class ZImage(Lumina2):
+    huggingface_repo = "Tongyi-MAI/Z-Image-Turbo"
+
+    unet_config = {
+        "image_model": "lumina2",
+        "dim": 3840,
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 3.0,
+    }
+
+    memory_usage_factor = 2.8
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float32,
+    ]
+
+    def clip_target(self, state_dict={}):
+        return {
+            "qwen3_4b.transformer": "text_encoder",
+        }       
+ 
+class WAN21_T2V(BASE):
+    unet_config = {
+        "image_model": "wan21_t2v",   # 请确认与 wan.py 中的实际配置一致
+    }
+    unet_extra_config = {}
+    sampling_settings = {}
+    latent_format = latent.Wan21
+    supported_inference_dtypes = [torch.bfloat16, torch.float16, torch.float32]
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {"umt5": "text_encoder"}
+
+    def model_type(self, state_dict):
+        return ModelType.FLOW
+
+
+class WAN21_I2V(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan21_i2v",   # 请确认与 wan.py 中的实际配置一致
+    }
+                 
+models = [
+    Stable_Zero123,
+    SD15_instructpix2pix,
+    SD15,
+    SD20,
+    SD21UnclipL,
+    SD21UnclipH,
+    SDXL_instructpix2pix,
+    SDXLRefiner,
+    SDXL,
+    Mugen,
+    SSD1B,
+    KOALA_700M,
+    KOALA_1B,
+    Segmind_Vega,
+    SD_X4Upscaler,
+    Stable_Cascade_C,
+    Stable_Cascade_B,
+    SV3D_u,
+    SV3D_p,
+    SD3,
+    StableAudio,
+    AuraFlow,
+    HunyuanDiT,
+    HunyuanDiT1,
+    Flux,
+    FluxSchnell,
+    Lumina2,
+    QwenImage,
+    Krea2,
+    Flux2K4B,
+    Flux2K9B,
+    Kolors,
+    Chroma,
+    Anima,
+    ErnieImage,
+    ZImage,
+    WAN21_T2V,
+    WAN21_I2V,
+]
+
 models += [SVD_img2vid]

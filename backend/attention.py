@@ -1,41 +1,94 @@
+# https://github.com/Comfy-Org/ComfyUI/blob/v0.7.0/comfy/ldm/modules/attention.py
+
+import logging
 import math
+
 import torch
-import einops
+from einops import rearrange, repeat
+from torch import einsum
 
+from backend import memory_management, operations
 from backend.args import args
-from backend import memory_management
-from backend.misc.sub_quadratic_attention import efficient_dot_product_attention
-from util.printf import printF, MasterName
+from backend.logging import setup_logger
 
-BROKEN_XFORMERS = False
-if memory_management.xformers_enabled():
+logger = logging.getLogger("attention")
+setup_logger(logger)
+
+
+if memory_management.xformers_enabled() or memory_management.xformers_enabled_vae():
     import xformers
     import xformers.ops
 
-    try:
-        x_vers = xformers.__version__
-        BROKEN_XFORMERS = x_vers.startswith("0.0.2") and not x_vers.startswith("0.0.20")
-    except:
-        pass
+
+if memory_management.sage_enabled():
+    import importlib.metadata
+
+    IS_SAGE_3 = False
+
+    if importlib.metadata.version("sageattention").startswith("1"):
+        IS_SAGE_1 = True
+        from sageattention import sageattn
+    else:
+        IS_SAGE_1 = False
+        from functools import partial
+
+        import sageattention
+
+        from backend.args import SageAttentionFuncs
+
+        match args.sage_function:
+            case SageAttentionFuncs.auto:
+                sageattn = sageattention.sageattn
+            case SageAttentionFuncs.fp16_triton:
+                sageattn = sageattention.sageattn_qk_int8_pv_fp16_triton
+            case SageAttentionFuncs.fp16_cuda:
+                sageattn = partial(sageattention.sageattn_qk_int8_pv_fp16_cuda, pv_accum_dtype="fp32")
+            case SageAttentionFuncs.fp8_cuda:
+                sageattn = partial(sageattention.sageattn_qk_int8_pv_fp8_cuda, pv_accum_dtype="fp32+fp32")
+            case SageAttentionFuncs.fp8_cuda_pp:
+                sageattn = partial(sageattention.sageattn_qk_int8_pv_fp8_cuda, pv_accum_dtype="fp32+fp16")
+            case SageAttentionFuncs.sageattn3:
+                from sageattn3 import sageattn3_blackwell
+
+                IS_SAGE_3 = True
+
+                def sageattn(q, k, v, attn_mask=None, is_causal=False, tensor_layout="NHD"):
+                    q, k, v = [x.transpose(1, 2) if tensor_layout == "NHD" else x for x in (q, k, v)]
+                    out = sageattn3_blackwell(q, k, v, is_causal=is_causal, attn_mask=attn_mask)
+                    return out.transpose(1, 2) if tensor_layout == "NHD" else out
 
 
-FORCE_UPCAST_ATTENTION_DTYPE = memory_management.force_upcast_attention_dtype()
+if memory_management.flash_enabled():
+    from flash_attn import flash_attn_func
+
+    @torch.library.custom_op("flash_attention::flash_attn", mutates_args=())
+    def flash_attn_wrapper(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, dropout_p: float = 0.0, causal: bool = False) -> torch.Tensor:
+        return flash_attn_func(q, k, v, dropout_p=dropout_p, causal=causal)
+
+    @flash_attn_wrapper.register_fake
+    def flash_attn_fake(q, k, v, dropout_p=0.0, causal=False):
+        return q.new_empty(q.shape)
 
 
-def get_attn_precision(attn_precision=torch.float32):
-    if args.disable_attention_upcast:
-        return None
-    if FORCE_UPCAST_ATTENTION_DTYPE is not None:
-        return FORCE_UPCAST_ATTENTION_DTYPE
-    return attn_precision
+def get_attn_precision(attn_precision: torch.dtype, current_dtype: torch.dtype) -> torch.dtype:
+    memory_management.force_upcast_attention_dtype().get(current_dtype, attn_precision)
 
 
-def exists(val):
+def exists(val) -> bool:
     return val is not None
 
 
-def attention_basic(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False):
-    attn_precision = get_attn_precision(attn_precision)
+if memory_management.is_nvidia():
+    SDP_BATCH_LIMIT = 2**15
+else:
+    SDP_BATCH_LIMIT = 2**31
+
+
+# region Attentions
+
+
+def attention_basic(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
+    attn_precision = get_attn_precision(attn_precision, q.dtype)
 
     if skip_reshape:
         b, _, _, dim_head = q.shape
@@ -43,7 +96,7 @@ def attention_basic(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
         b, _, dim_head = q.shape
         dim_head //= heads
 
-    scale = dim_head ** -0.5
+    scale = dim_head**-0.5
 
     h = heads
     if skip_reshape:
@@ -53,26 +106,22 @@ def attention_basic(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
         )
     else:
         q, k, v = map(
-            lambda t: t.unsqueeze(3)
-            .reshape(b, -1, heads, dim_head)
-            .permute(0, 2, 1, 3)
-            .reshape(b * heads, -1, dim_head)
-            .contiguous(),
+            lambda t: t.unsqueeze(3).reshape(b, -1, heads, dim_head).permute(0, 2, 1, 3).reshape(b * heads, -1, dim_head).contiguous(),
             (q, k, v),
         )
 
     if attn_precision == torch.float32:
-        sim = torch.einsum('b i d, b j d -> b i j', q.float(), k.float()) * scale
+        sim = einsum("b i d, b j d -> b i j", q.float(), k.float()) * scale
     else:
-        sim = torch.einsum('b i d, b j d -> b i j', q, k) * scale
+        sim = einsum("b i d, b j d -> b i j", q, k) * scale
 
     del q, k
 
     if exists(mask):
         if mask.dtype == torch.bool:
-            mask = einops.rearrange(mask, 'b ... -> b (...)')
+            mask = rearrange(mask, "b ... -> b (...)")
             max_neg_value = -torch.finfo(sim.dtype).max
-            mask = einops.repeat(mask, 'b j -> (b h) () j', h=h)
+            mask = repeat(mask, "b j -> (b h) () j", h=h)
             sim.masked_fill_(~mask, max_neg_value)
         else:
             if len(mask.shape) == 2:
@@ -83,245 +132,75 @@ def attention_basic(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
             sim.add_(mask)
 
     sim = sim.softmax(dim=-1)
-    out = torch.einsum('b i j, b j d -> b i d', sim.to(v.dtype), v)
-    out = (
-        out.unsqueeze(0)
-        .reshape(b, heads, -1, dim_head)
-        .permute(0, 2, 1, 3)
-        .reshape(b, -1, heads * dim_head)
-    )
+
+    out = einsum("b i j, b j d -> b i d", sim.to(v.dtype), v)
+
+    if skip_output_reshape:
+        out = out.unsqueeze(0).reshape(b, heads, -1, dim_head)
+    else:
+        out = out.unsqueeze(0).reshape(b, heads, -1, dim_head).permute(0, 2, 1, 3).reshape(b, -1, heads * dim_head)
+
     return out
 
 
-def attention_sub_quad(query, key, value, heads, mask=None, attn_precision=None, skip_reshape=False):
-    attn_precision = get_attn_precision(attn_precision)
+@torch.compiler.disable
+def attention_xformers(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
+    b = q.shape[0]
+    dim_head = q.shape[-1]
 
-    if skip_reshape:
-        b, _, _, dim_head = query.shape
-    else:
-        b, _, dim_head = query.shape
-        dim_head //= heads
-
-    scale = dim_head ** -0.5
-
-    if skip_reshape:
-        query = query.reshape(b * heads, -1, dim_head)
-        value = value.reshape(b * heads, -1, dim_head)
-        key = key.reshape(b * heads, -1, dim_head).movedim(1, 2)
-    else:
-        query = query.unsqueeze(3).reshape(b, -1, heads, dim_head).permute(0, 2, 1, 3).reshape(b * heads, -1, dim_head)
-        value = value.unsqueeze(3).reshape(b, -1, heads, dim_head).permute(0, 2, 1, 3).reshape(b * heads, -1, dim_head)
-        key = key.unsqueeze(3).reshape(b, -1, heads, dim_head).permute(0, 2, 3, 1).reshape(b * heads, dim_head, -1)
-
-    dtype = query.dtype
-    upcast_attention = attn_precision == torch.float32 and query.dtype != torch.float32
-    if upcast_attention:
-        bytes_per_token = torch.finfo(torch.float32).bits // 8
-    else:
-        bytes_per_token = torch.finfo(query.dtype).bits // 8
-    batch_x_heads, q_tokens, _ = query.shape
-    _, _, k_tokens = key.shape
-    qk_matmul_size_bytes = batch_x_heads * bytes_per_token * q_tokens * k_tokens
-
-    mem_free_total, mem_free_torch = memory_management.get_free_memory(query.device, True)
-
-    kv_chunk_size_min = None
-    kv_chunk_size = None
-    query_chunk_size = None
-
-    for x in [4096, 2048, 1024, 512, 256]:
-        count = mem_free_total / (batch_x_heads * bytes_per_token * x * 4.0)
-        if count >= k_tokens:
-            kv_chunk_size = k_tokens
-            query_chunk_size = x
-            break
-
-    if query_chunk_size is None:
-        query_chunk_size = 512
-
-    if mask is not None:
-        if len(mask.shape) == 2:
-            bs = 1
-        else:
-            bs = mask.shape[0]
-        mask = mask.reshape(bs, -1, mask.shape[-2], mask.shape[-1]).expand(b, heads, -1, -1).reshape(-1, mask.shape[-2], mask.shape[-1])
-
-    hidden_states = efficient_dot_product_attention(
-        query,
-        key,
-        value,
-        query_chunk_size=query_chunk_size,
-        kv_chunk_size=kv_chunk_size,
-        kv_chunk_size_min=kv_chunk_size_min,
-        use_checkpoint=False,
-        upcast_attention=upcast_attention,
-        mask=mask,
-    )
-
-    hidden_states = hidden_states.to(dtype)
-
-    hidden_states = hidden_states.unflatten(0, (-1, heads)).transpose(1, 2).flatten(start_dim=2)
-    return hidden_states
-
-
-def attention_split(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False):
-    attn_precision = get_attn_precision(attn_precision)
-
-    if skip_reshape:
-        b, _, _, dim_head = q.shape
-    else:
-        b, _, dim_head = q.shape
-        dim_head //= heads
-
-    scale = dim_head ** -0.5
-
-    h = heads
-    if skip_reshape:
-        q, k, v = map(
-            lambda t: t.reshape(b * heads, -1, dim_head),
-            (q, k, v),
-        )
-    else:
-        q, k, v = map(
-            lambda t: t.unsqueeze(3)
-            .reshape(b, -1, heads, dim_head)
-            .permute(0, 2, 1, 3)
-            .reshape(b * heads, -1, dim_head)
-            .contiguous(),
-            (q, k, v),
-        )
-
-    r1 = torch.zeros(q.shape[0], q.shape[1], v.shape[2], device=q.device, dtype=q.dtype)
-
-    mem_free_total = memory_management.get_free_memory(q.device)
-
-    if attn_precision == torch.float32:
-        element_size = 4
-        upcast = True
-    else:
-        element_size = q.element_size()
-        upcast = False
-
-    gb = 1024 ** 3
-    tensor_size = q.shape[0] * q.shape[1] * k.shape[1] * element_size
-    modifier = 3
-    mem_required = tensor_size * modifier
-    steps = 1
-
-    if mem_required > mem_free_total:
-        steps = 2 ** (math.ceil(math.log(mem_required / mem_free_total, 2)))
-        # print(f"Expected tensor size:{tensor_size/gb:0.1f}GB, cuda free:{mem_free_cuda/gb:0.1f}GB "
-        #      f"torch free:{mem_free_torch/gb:0.1f} total:{mem_free_total/gb:0.1f} steps:{steps}")
-
-    if steps > 64:
-        max_res = math.floor(math.sqrt(math.sqrt(mem_free_total / 2.5)) / 8) * 64
-        raise RuntimeError(f'Not enough memory, use lower resolution (max approx. {max_res}x{max_res}). '
-                           f'Need: {mem_required / 64 / gb:0.1f}GB free, Have:{mem_free_total / gb:0.1f}GB free')
-
-    if mask is not None:
-        if len(mask.shape) == 2:
-            bs = 1
-        else:
-            bs = mask.shape[0]
-        mask = mask.reshape(bs, -1, mask.shape[-2], mask.shape[-1]).expand(b, heads, -1, -1).reshape(-1, mask.shape[-2], mask.shape[-1])
-
-    # print("steps", steps, mem_required, mem_free_total, modifier, q.element_size(), tensor_size)
-    first_op_done = False
-    cleared_cache = False
-    while True:
-        try:
-            slice_size = q.shape[1] // steps if (q.shape[1] % steps) == 0 else q.shape[1]
-            for i in range(0, q.shape[1], slice_size):
-                end = i + slice_size
-                if upcast:
-                    with torch.autocast(enabled=False, device_type='cuda'):
-                        s1 = torch.einsum('b i d, b j d -> b i j', q[:, i:end].float(), k.float()) * scale
-                else:
-                    s1 = torch.einsum('b i d, b j d -> b i j', q[:, i:end], k) * scale
-
-                if mask is not None:
-                    if len(mask.shape) == 2:
-                        s1 += mask[i:end]
-                    else:
-                        s1 += mask[:, i:end]
-
-                s2 = s1.softmax(dim=-1).to(v.dtype)
-                del s1
-                first_op_done = True
-
-                r1[:, i:end] = torch.einsum('b i j, b j d -> b i d', s2, v)
-                del s2
-            break
-        except memory_management.OOM_EXCEPTION as e:
-            if first_op_done == False:
-                memory_management.soft_empty_cache(True)
-                if cleared_cache == False:
-                    cleared_cache = True
-                    print("out of memory error, emptying cache and trying again")
-                    continue
-                steps *= 2
-                if steps > 64:
-                    raise e
-                print("out of memory error, increasing steps and trying again {}".format(steps))
-            else:
-                raise e
-
-    del q, k, v
-
-    r1 = (
-        r1.unsqueeze(0)
-        .reshape(b, heads, -1, dim_head)
-        .permute(0, 2, 1, 3)
-        .reshape(b, -1, heads * dim_head)
-    )
-    return r1
-
-
-def attention_xformers(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False):
-    if skip_reshape:
-        b, _, _, dim_head = q.shape
-    else:
-        b, _, dim_head = q.shape
-        dim_head //= heads
-
-    if BROKEN_XFORMERS and b * heads > 65535:
-        return attention_pytorch(q, k, v, heads, mask, skip_reshape=skip_reshape)
+    if torch.jit.is_tracing() or torch.jit.is_scripting():
+        return attention_pytorch(q, k, v, heads, mask, skip_reshape=skip_reshape, **kwargs)
 
     if skip_reshape:
         q, k, v = map(
-            lambda t: t.reshape(b * heads, -1, dim_head),
+            lambda t: t.permute(0, 2, 1, 3),
             (q, k, v),
         )
     else:
+        dim_head //= heads
         q, k, v = map(
             lambda t: t.reshape(b, -1, heads, dim_head),
             (q, k, v),
         )
 
     if mask is not None:
-        pad = 8 - q.shape[1] % 8
-        mask_out = torch.empty([q.shape[0], q.shape[1], q.shape[1] + pad], dtype=q.dtype, device=q.device)
-        mask_out[:, :, :mask.shape[-1]] = mask
-        mask = mask_out[:, :, :mask.shape[-1]]
+        if mask.ndim == 2:
+            mask = mask.unsqueeze(0)
+        if mask.ndim == 3:
+            mask = mask.unsqueeze(1)
+        pad = 8 - mask.shape[-1] % 8
+        mask_out = torch.empty([mask.shape[0], mask.shape[1], q.shape[1], mask.shape[-1] + pad], dtype=q.dtype, device=q.device)
+        mask_out[..., : mask.shape[-1]] = mask
+        mask = mask_out[..., : mask.shape[-1]]
+        mask = mask.expand(b, heads, -1, -1)
 
-    out = xformers.ops.memory_efficient_attention(q, k, v, attn_bias=mask)
+    try:
+        out = xformers.ops.memory_efficient_attention(q, k, v, attn_bias=mask)
+        _fallback = False
+    except Exception as e:
+        if "(too new)" in str(e):
+            logger.warning("xformers does not work on RTX 50s")
+        else:
+            logger.error(f"Error running xformers: {e}")
+        _fallback = True
 
-    if skip_reshape:
-        out = (
-            out.unsqueeze(0)
-            .reshape(b, heads, -1, dim_head)
-            .permute(0, 2, 1, 3)
-            .reshape(b, -1, heads * dim_head)
-        )
+    if _fallback:
+        if not skip_reshape:
+            q, k, v = map(
+                lambda t: t.transpose(1, 2),
+                (q, k, v),
+            )
+        return attention_pytorch(q, k, v, heads, mask=mask, skip_reshape=True, **kwargs)
+
+    if skip_output_reshape:
+        out = out.permute(0, 2, 1, 3)
     else:
-        out = (
-            out.reshape(b, -1, heads * dim_head)
-        )
+        out = out.reshape(b, -1, heads * dim_head)
 
     return out
 
 
-def attention_pytorch(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False):
+def attention_pytorch(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
     if skip_reshape:
         b, _, _, dim_head = q.shape
     else:
@@ -332,20 +211,167 @@ def attention_pytorch(q, k, v, heads, mask=None, attn_precision=None, skip_resha
             (q, k, v),
         )
 
-    out = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
-    out = (
-        out.transpose(1, 2).reshape(b, -1, heads * dim_head)
-    )
+    if mask is not None:
+        if mask.ndim == 2:
+            mask = mask.unsqueeze(0)
+        if mask.ndim == 3:
+            mask = mask.unsqueeze(1)
+
+    if SDP_BATCH_LIMIT >= b:
+        out = operations.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
+        if not skip_output_reshape:
+            out = out.transpose(1, 2).reshape(b, -1, heads * dim_head)
+    else:
+        out = torch.empty((b, q.shape[2], heads * dim_head), dtype=q.dtype, layout=q.layout, device=q.device)
+        for i in range(0, b, SDP_BATCH_LIMIT):
+            m = mask
+            if mask is not None:
+                if mask.shape[0] > 1:
+                    m = mask[i : i + SDP_BATCH_LIMIT]
+
+            out[i : i + SDP_BATCH_LIMIT] = operations.scaled_dot_product_attention(q[i : i + SDP_BATCH_LIMIT], k[i : i + SDP_BATCH_LIMIT], v[i : i + SDP_BATCH_LIMIT], attn_mask=m, dropout_p=0.0, is_causal=False).transpose(1, 2).reshape(-1, q.shape[2], heads * dim_head)
+
     return out
 
 
-def slice_attention_single_head_spatial(q, k, v):
+@torch.compiler.disable
+def attention_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
+    in_dtype = v.dtype
+    if torch.float32 in (q.dtype, k.dtype, v.dtype):
+        q, k, v = q.to(torch.float16), k.to(torch.float16), v.to(torch.float16)
+
+    if skip_reshape:
+        b, _, _, dim_head = q.shape
+        tensor_layout = "HND"
+    else:
+        b, _, dim_head = q.shape
+        dim_head //= heads
+        q, k, v = map(
+            lambda t: t.view(b, -1, heads, dim_head),
+            (q, k, v),
+        )
+        tensor_layout = "NHD"
+
+    if mask is not None:
+        if mask.ndim == 2:
+            mask = mask.unsqueeze(0)
+        if mask.ndim == 3:
+            mask = mask.unsqueeze(1)
+
+    _fallback: bool = ((not IS_SAGE_1) and dim_head > 128) or (IS_SAGE_1 and (dim_head not in (64, 96, 128)))
+
+    try:
+        if not _fallback:
+            out = sageattn(q, k, v, attn_mask=mask, is_causal=False, tensor_layout=tensor_layout).to(in_dtype)
+    except Exception as e:
+        # Filter out CUDA device error logs
+        if "Input tensors must be on cuda" not in str(e):
+            logger.error(f"Error running sageattn: {e}")
+        _fallback = True
+
+    if _fallback:
+        if tensor_layout == "NHD":
+            q, k, v = map(
+                lambda t: t.transpose(1, 2),
+                (q, k, v),
+            )
+        return attention_pytorch(q, k, v, heads, mask=mask, skip_reshape=True, skip_output_reshape=skip_output_reshape, **kwargs)
+
+    if tensor_layout == "HND":
+        if not skip_output_reshape:
+            out = out.transpose(1, 2).reshape(b, -1, heads * dim_head)
+    else:
+        if skip_output_reshape:
+            out = out.transpose(1, 2)
+        else:
+            out = out.reshape(b, -1, heads * dim_head)
+
+    return out
+
+
+@torch.compiler.disable
+def attention_flash(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
+    if skip_reshape:
+        b, _, _, dim_head = q.shape
+    else:
+        b, _, dim_head = q.shape
+        dim_head //= heads
+        q, k, v = map(
+            lambda t: t.view(b, -1, heads, dim_head).transpose(1, 2),
+            (q, k, v),
+        )
+
+    if mask is not None:
+        if mask.ndim == 2:
+            mask = mask.unsqueeze(0)
+        if mask.ndim == 3:
+            mask = mask.unsqueeze(1)
+
+    try:
+        assert mask is None
+        out = flash_attn_wrapper(
+            q.transpose(1, 2),
+            k.transpose(1, 2),
+            v.transpose(1, 2),
+            dropout_p=0.0,
+            causal=False,
+        ).transpose(1, 2)
+        _fallback = False
+    except Exception as e:
+        logger.error(f"Error running flash_attn: {e}")
+        _fallback = True
+
+    if _fallback:
+        out = operations.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
+
+    if not skip_output_reshape:
+        out = out.transpose(1, 2).reshape(b, -1, heads * dim_head)
+
+    return out
+
+
+if memory_management.sage_enabled():
+    attention_function = attention_sage
+    if IS_SAGE_1:
+        logger.info("Using SageAttention")
+    elif IS_SAGE_3:
+        logger.info("Using SageAttention 3")
+    else:
+        match args.sage_function:
+            case SageAttentionFuncs.auto:
+                logger.info("Using SageAttention 2")
+            case SageAttentionFuncs.fp16_triton:
+                logger.info("Using SageAttention 2 (fp16 Triton)")
+            case SageAttentionFuncs.fp16_cuda:
+                logger.info("Using SageAttention 2 (fp16 CUDA)")
+            case SageAttentionFuncs.fp8_cuda:
+                logger.info("Using SageAttention 2 (fp8 CUDA)")
+            case SageAttentionFuncs.fp8_cuda_pp:
+                logger.info("Using SageAttention 2 (fp8 CUDA ++)")
+
+elif memory_management.flash_enabled():
+    logger.info("Using FlashAttention")
+    attention_function = attention_flash
+elif memory_management.xformers_enabled():
+    logger.info("Using xformers Cross Attention")
+    attention_function = attention_xformers
+elif memory_management.pytorch_attention_enabled():
+    logger.info("Using PyTorch Cross Attention")
+    attention_function = attention_pytorch
+else:
+    logger.info("Using Basic Cross Attention")
+    attention_function = attention_basic
+
+
+# region VAE
+
+
+def slice_attention_vae(q, k, v):
     r1 = torch.zeros_like(k, device=q.device)
-    scale = (int(q.shape[-1]) ** (-0.5))
+    scale = int(q.shape[-1]) ** (-0.5)
 
     mem_free_total = memory_management.get_free_memory(q.device)
 
-    gb = 1024 ** 3
     tensor_size = q.shape[0] * q.shape[1] * k.shape[2] * q.element_size()
     modifier = 3 if q.element_size() == 2 else 2.5
     mem_required = tensor_size * modifier
@@ -367,34 +393,39 @@ def slice_attention_single_head_spatial(q, k, v):
                 r1[:, :, i:end] = torch.bmm(v, s2)
                 del s2
             break
-        except memory_management.OOM_EXCEPTION as e:
-            memory_management.soft_empty_cache(True)
-            steps *= 2
+        except Exception as e:
+            if not memory_management.is_oom(e):
+                raise e
             if steps > 128:
                 raise e
-            print("out of memory error, increasing steps and trying again {}".format(steps))
+
+        logger.warning("Out of Memory Error; retrying with higher steps...")
+        memory_management.soft_empty_cache()
+        steps *= 2
 
     return r1
 
 
-def normal_attention_single_head_spatial(q, k, v):
-    # compute attention
-    b, c, h, w = q.shape
+def normal_attention_vae(q, k, v):
+    orig_shape = q.shape
+    b = orig_shape[0]
+    c = orig_shape[1]
 
-    q = q.reshape(b, c, h * w)
-    q = q.permute(0, 2, 1)  # b,hw,c
-    k = k.reshape(b, c, h * w)  # b,c,hw
-    v = v.reshape(b, c, h * w)
+    q = q.reshape(b, c, -1)
+    q = q.permute(0, 2, 1)
+    k = k.reshape(b, c, -1)
+    v = v.reshape(b, c, -1)
 
-    r1 = slice_attention_single_head_spatial(q, k, v)
-    h_ = r1.reshape(b, c, h, w)
+    r1 = slice_attention_vae(q, k, v)
+    h_ = r1.reshape(orig_shape)
     del r1
     return h_
 
 
-def xformers_attention_single_head_spatial(q, k, v):
-    # compute attention
-    B, C, H, W = q.shape
+def xformers_attention_vae(q, k, v):
+    orig_shape = q.shape
+    B = orig_shape[0]
+    C = orig_shape[1]
     q, k, v = map(
         lambda t: t.view(B, C, -1).transpose(1, 2).contiguous(),
         (q, k, v),
@@ -402,108 +433,49 @@ def xformers_attention_single_head_spatial(q, k, v):
 
     try:
         out = xformers.ops.memory_efficient_attention(q, k, v, attn_bias=None)
-        out = out.transpose(1, 2).reshape(B, C, H, W)
-    except NotImplementedError as e:
-        out = slice_attention_single_head_spatial(q.view(B, -1, C), k.view(B, -1, C).transpose(1, 2),
-                                                  v.view(B, -1, C).transpose(1, 2)).reshape(B, C, H, W)
+        out = out.transpose(1, 2).reshape(orig_shape)
+        _fallback = False
+    except Exception:
+        _fallback = True
+
+    if _fallback:
+        out = slice_attention_vae(q.view(B, -1, C), k.view(B, -1, C).transpose(1, 2), v.view(B, -1, C).transpose(1, 2)).reshape(orig_shape)
+
     return out
 
 
-def pytorch_attention_single_head_spatial(q, k, v):
-    # compute attention
-    B, C, H, W = q.shape
+def pytorch_attention_vae(q, k, v):
+    orig_shape = q.shape
+    B = orig_shape[0]
+    C = orig_shape[1]
     q, k, v = map(
         lambda t: t.view(B, 1, C, -1).transpose(2, 3).contiguous(),
         (q, k, v),
     )
 
     try:
-        out = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
-        out = out.transpose(2, 3).reshape(B, C, H, W)
-    except memory_management.OOM_EXCEPTION as e:
-        printF(name=MasterName.get_master_name(),
-               info="scaled_dot_product_attention OOMed: switched to slice attention").printf()
-        out = slice_attention_single_head_spatial(q.view(B, -1, C), k.view(B, -1, C).transpose(1, 2),
-                                                  v.view(B, -1, C).transpose(1, 2)).reshape(B, C, H, W)
+        out = operations.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
+        out = out.transpose(2, 3).reshape(orig_shape)
+        _fallback = False
+    except Exception as e:
+        if not memory_management.is_oom(e):
+            raise e
+        logger.warning("Out of Memory Error; retrying with Slice Attention")
+        _fallback = True
+
+    if _fallback:
+        memory_management.soft_empty_cache()
+        out = slice_attention_vae(q.view(B, -1, C), k.view(B, -1, C).transpose(1, 2), v.view(B, -1, C).transpose(1, 2)).reshape(orig_shape)
+
     return out
 
 
-if memory_management.xformers_enabled():
-    printF(name=MasterName.get_master_name(),
-           info="Using xformers cross attention").printf()
-    attention_function = attention_xformers
-elif memory_management.pytorch_attention_enabled():
-    printF(name=MasterName.get_master_name(),
-           info="Using pytorch cross attention").printf()
-    attention_function = attention_pytorch
-elif args.attention_split:
-    printF(name=MasterName.get_master_name(),
-           info="Using split optimization for cross attention").printf()
-    attention_function = attention_split
-else:
-    printF(name=MasterName.get_master_name(),
-           info="Using sub quadratic optimization for cross attention").printf()
-    attention_function = attention_sub_quad
-
 if memory_management.xformers_enabled_vae():
-    printF(name=MasterName.get_master_name(),
-           info="Using xformers attention for VAE").printf()
-    attention_function_single_head_spatial = xformers_attention_single_head_spatial
+    logger.info("Using xformers Attention for VAE")
+    attention_function_vae = xformers_attention_vae
 elif memory_management.pytorch_attention_enabled():
-    printF(name=MasterName.get_master_name(),
-           info="Using pytorch attention for VAE").printf()
-    attention_function_single_head_spatial = pytorch_attention_single_head_spatial
+    logger.info("Using PyTorch Attention for VAE")
+    attention_function_vae = pytorch_attention_vae
 else:
-    printF(name=MasterName.get_master_name(),
-           info="Using split attention for VAE").printf()
-    attention_function_single_head_spatial = normal_attention_single_head_spatial
-
-
-class AttentionProcessorForge:
-    def __call__(self, attn, hidden_states, encoder_hidden_states, attention_mask=None, temb=None, *args, **kwargs):
-        residual = hidden_states
-
-        if attn.spatial_norm is not None:
-            hidden_states = attn.spatial_norm(hidden_states, temb)
-
-        input_ndim = hidden_states.ndim
-
-        if input_ndim == 4:
-            batch_size, channel, height, width = hidden_states.shape
-            hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
-
-        batch_size, sequence_length, _ = (
-            hidden_states.shape if encoder_hidden_states is None else encoder_hidden_states.shape
-        )
-
-        if attention_mask is not None:
-            attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
-            attention_mask = attention_mask.view(batch_size, attn.heads, -1, attention_mask.shape[-1])
-
-        if attn.group_norm is not None:
-            hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
-
-        query = attn.to_q(hidden_states)
-
-        if encoder_hidden_states is None:
-            encoder_hidden_states = hidden_states
-        elif attn.norm_cross:
-            encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
-
-        key = attn.to_k(encoder_hidden_states)
-        value = attn.to_v(encoder_hidden_states)
-
-        hidden_states = attention_function(query, key, value, heads=attn.heads, mask=attention_mask)
-
-        hidden_states = attn.to_out[0](hidden_states)
-        hidden_states = attn.to_out[1](hidden_states)
-
-        if input_ndim == 4:
-            hidden_states = hidden_states.transpose(-1, -2).reshape(batch_size, channel, height, width)
-
-        if attn.residual_connection:
-            hidden_states = hidden_states + residual
-
-        hidden_states = hidden_states / attn.rescale_output_factor
-
-        return hidden_states
+    logger.info("Using Slice Attention for VAE")
+    attention_function_vae = normal_attention_vae

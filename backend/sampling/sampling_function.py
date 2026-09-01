@@ -3,73 +3,80 @@
 # Copyright Forge 2024
 
 
-import torch
-import math
 import collections
+import math
+from typing import TYPE_CHECKING
 
-from backend import memory_management
-from backend.sampling.condition import Condition, compile_conditions, compile_weighted_conditions
-from backend.operations import cleanup_cache
-from backend.args import dynamic_args, args
-from backend import utils
+if TYPE_CHECKING:
+    from backend.patcher.unet import UnetPatcher
+
+import torch
+
+from backend import memory_management, utils
+from backend.args import args, dynamic_args
+from backend.sampling.condition import (
+    Condition,
+    compile_conditions,
+    compile_weighted_conditions,
+)
 
 
 def get_area_and_mult(conds, x_in, timestep_in):
     area = (x_in.shape[2], x_in.shape[3], 0, 0)
     strength = 1.0
 
-    if 'timestep_start' in conds:
-        timestep_start = conds['timestep_start']
+    if "timestep_start" in conds:
+        timestep_start = conds["timestep_start"]
         if timestep_in[0] > timestep_start:
             return None
-    if 'timestep_end' in conds:
-        timestep_end = conds['timestep_end']
+    if "timestep_end" in conds:
+        timestep_end = conds["timestep_end"]
         if timestep_in[0] < timestep_end:
             return None
-    if 'area' in conds:
-        area = conds['area']
-    if 'strength' in conds:
-        strength = conds['strength']
+    if "area" in conds:
+        area = conds["area"]
+    if "strength" in conds:
+        strength = conds["strength"]
 
-    input_x = x_in[:, :, area[2]:area[0] + area[2], area[3]:area[1] + area[3]]
+    input_x = x_in[:, :, area[2] : area[0] + area[2], area[3] : area[1] + area[3]]
 
-    if 'mask' in conds:
+    if "mask" in conds:
         mask_strength = 1.0
         if "mask_strength" in conds:
             mask_strength = conds["mask_strength"]
-        mask = conds['mask']
-        assert (mask.shape[1] == x_in.shape[2])
-        assert (mask.shape[2] == x_in.shape[3])
-        mask = mask[:, area[2]:area[0] + area[2], area[3]:area[1] + area[3]] * mask_strength
+        mask = conds["mask"]
+        assert mask.shape[1] == x_in.shape[2]
+        assert mask.shape[2] == x_in.shape[3]
+        mask = mask[:, area[2] : area[0] + area[2], area[3] : area[1] + area[3]] * mask_strength
         mask = mask.unsqueeze(1).repeat(input_x.shape[0] // mask.shape[0], input_x.shape[1], 1, 1)
     else:
         mask = torch.ones_like(input_x)
     mult = mask * strength
 
-    if 'mask' not in conds:
+    if "mask" not in conds:
         rr = 8
         if area[2] != 0:
             for t in range(rr):
-                mult[:, :, t:1 + t, :] *= ((1.0 / rr) * (t + 1))
+                mult[:, :, t : 1 + t, :] *= (1.0 / rr) * (t + 1)
         if (area[0] + area[2]) < x_in.shape[2]:
             for t in range(rr):
-                mult[:, :, area[0] - 1 - t:area[0] - t, :] *= ((1.0 / rr) * (t + 1))
+                mult[:, :, area[0] - 1 - t : area[0] - t, :] *= (1.0 / rr) * (t + 1)
         if area[3] != 0:
             for t in range(rr):
-                mult[:, :, :, t:1 + t] *= ((1.0 / rr) * (t + 1))
+                mult[:, :, :, t : 1 + t] *= (1.0 / rr) * (t + 1)
         if (area[1] + area[3]) < x_in.shape[3]:
             for t in range(rr):
-                mult[:, :, :, area[1] - 1 - t:area[1] - t] *= ((1.0 / rr) * (t + 1))
+                mult[:, :, :, area[1] - 1 - t : area[1] - t] *= (1.0 / rr) * (t + 1)
 
     conditioning = {}
     model_conds = conds["model_conds"]
     for c in model_conds:
         conditioning[c] = model_conds[c].process_cond(batch_size=x_in.shape[0], device=x_in.device, area=area)
 
-    control = conds.get('control', None)
+    control = conds.get("control", None)
 
     patches = None
-    cond_obj = collections.namedtuple('cond_obj', ['input_x', 'mult', 'conditioning', 'area', 'control', 'patches'])
+    cond_obj = collections.namedtuple("cond_obj", ["input_x", "mult", "conditioning", "area", "control", "patches"])
     return cond_obj(input_x, mult, conditioning, area, control, patches)
 
 
@@ -106,11 +113,6 @@ def can_concat_cond(c1, c2):
 
 
 def cond_cat(c_list):
-    c_crossattn = []
-    c_concat = []
-    c_adm = []
-    crossattn_max_len = 0
-
     temp = {}
     for x in c_list:
         for k in x:
@@ -192,21 +194,19 @@ def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
 
         free_memory = memory_management.get_free_memory(x_in.device)
 
-        if (not args.disable_gpu_warning) and x_in.device.type == 'cuda':
+        if (not args.disable_gpu_warning) and x_in.device.type == "cuda":
             free_memory_mb = free_memory / (1024.0 * 1024.0)
             safe_memory_mb = 1536.0
             if free_memory_mb < safe_memory_mb:
-                print(f"\n\n----------------------")
-                print(f"[Low GPU VRAM Warning] Your current GPU free memory is {free_memory_mb:.2f} MB for this diffusion iteration.")
-                print(f"[Low GPU VRAM Warning] This number is lower than the safe value of {safe_memory_mb:.2f} MB.")
-                print(f"[Low GPU VRAM Warning] If you continue the diffusion process, you may cause NVIDIA GPU degradation, and the speed may be extremely slow (about 10x slower).")
-                print(f"[Low GPU VRAM Warning] To solve the problem, you can set the 'GPU Weights' (on the top of page) to a lower value.")
-                print(f"[Low GPU VRAM Warning] If you cannot find 'GPU Weights', you can click the 'all' option in the 'UI' area on the left-top corner of the webpage.")
-                print(f"[Low GPU VRAM Warning] If you want to take the risk of NVIDIA GPU fallback and test the 10x slower speed, you can (but are highly not recommended to) add '--disable-gpu-warning' to CMD flags to remove this warning.")
-                print(f"----------------------\n\n")
+                logger = memory_management.logger
+
+                logger.warning("The current free memory for GPU is {:.2f} MB".format(free_memory_mb))
+                logger.warning("This number is lower than the safe threshold ; This may cause extreme slow performance")
+                logger.warning('You can add "--reserve-vram 2" to keep a larger headroom')
+                logger.warning('You can also (not recommended) add "--disable-gpu-warning" to remove this warning')
 
         for i in range(1, len(to_batch_temp) + 1):
-            batch_amount = to_batch_temp[:len(to_batch_temp) // i]
+            batch_amount = to_batch_temp[: len(to_batch_temp) // i]
             input_shape = [len(batch_amount) * first_shape[0]] + list(first_shape)[1:]
             if model.memory_required(input_shape) < free_memory:
                 to_batch = batch_amount
@@ -236,8 +236,8 @@ def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
         timestep_ = torch.cat([timestep] * batch_chunks)
 
         transformer_options = {}
-        if 'transformer_options' in model_options:
-            transformer_options = model_options['transformer_options'].copy()
+        if "transformer_options" in model_options:
+            transformer_options = model_options["transformer_options"].copy()
 
         if patches is not None:
             if "patches" in transformer_options:
@@ -256,7 +256,7 @@ def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
         transformer_options["cond_mark"] = compute_cond_mark(cond_or_uncond=cond_or_uncond, sigmas=timestep)
         transformer_options["cond_indices"], transformer_options["uncond_indices"] = compute_cond_indices(cond_or_uncond=cond_or_uncond, sigmas=timestep)
 
-        c['transformer_options'] = transformer_options
+        c["transformer_options"] = transformer_options
 
         if control is not None:
             p = control
@@ -264,22 +264,22 @@ def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
                 p.transformer_options = transformer_options
                 p = p.previous_controlnet
             control_cond = c.copy()  # get_control may change items in this dict, so we need to copy it
-            c['control'] = control.get_control(input_x, timestep_, control_cond, len(cond_or_uncond))
-            c['control_model'] = control
+            c["control"] = control.get_control(input_x, timestep_, control_cond, len(cond_or_uncond))
+            c["control_model"] = control
 
-        if 'model_function_wrapper' in model_options:
-            output = model_options['model_function_wrapper'](model.apply_model, {"input": input_x, "timestep": timestep_, "c": c, "cond_or_uncond": cond_or_uncond}).chunk(batch_chunks)
+        if "model_function_wrapper" in model_options:
+            output = model_options["model_function_wrapper"](model.apply_model, {"input": input_x, "timestep": timestep_, "c": c, "cond_or_uncond": cond_or_uncond}).chunk(batch_chunks)
         else:
             output = model.apply_model(input_x, timestep_, **c).chunk(batch_chunks)
         del input_x
 
         for o in range(batch_chunks):
             if cond_or_uncond[o] == COND:
-                out_cond[:, :, area[o][2]:area[o][0] + area[o][2], area[o][3]:area[o][1] + area[o][3]] += output[o] * mult[o]
-                out_count[:, :, area[o][2]:area[o][0] + area[o][2], area[o][3]:area[o][1] + area[o][3]] += mult[o]
+                out_cond[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += output[o] * mult[o]
+                out_count[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += mult[o]
             else:
-                out_uncond[:, :, area[o][2]:area[o][0] + area[o][2], area[o][3]:area[o][1] + area[o][3]] += output[o] * mult[o]
-                out_uncond_count[:, :, area[o][2]:area[o][0] + area[o][2], area[o][3]:area[o][1] + area[o][3]] += mult[o]
+                out_uncond[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += output[o] * mult[o]
+                out_uncond_count[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += mult[o]
         del mult
 
     out_cond /= out_count
@@ -290,7 +290,7 @@ def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
 
 
 def sampling_function_inner(model, x, timestep, uncond, cond, cond_scale, model_options={}, seed=None, return_full=False):
-    edit_strength = sum((item['strength'] if 'strength' in item else 1) for item in cond)
+    edit_strength = sum((item["strength"] if "strength" in item else 1) for item in cond)
 
     if math.isclose(cond_scale, 1.0) and model_options.get("disable_cfg1_optimization", False) == False:
         uncond_ = None
@@ -300,11 +300,13 @@ def sampling_function_inner(model, x, timestep, uncond, cond, cond_scale, model_
     for fn in model_options.get("sampler_pre_cfg_function", []):
         model, cond, uncond_, x, timestep, model_options = fn(model, cond, uncond_, x, timestep, model_options)
 
-    cond_pred, uncond_pred = calc_cond_uncond_batch(model, cond, uncond_, x, timestep, model_options)
+    if getattr(dynamic_args.context_handler, "should_use_context", lambda *args: False)(x):
+        cond_pred, uncond_pred = dynamic_args.context_handler.execute(calc_cond_uncond_batch, model, [cond, uncond_], x, timestep, model_options)
+    else:
+        cond_pred, uncond_pred = calc_cond_uncond_batch(model, cond, uncond_, x, timestep, model_options)
 
     if "sampler_cfg_function" in model_options:
-        args = {"cond": x - cond_pred, "uncond": x - uncond_pred, "cond_scale": cond_scale, "timestep": timestep, "input": x, "sigma": timestep,
-                "cond_denoised": cond_pred, "uncond_denoised": uncond_pred, "model": model, "model_options": model_options}
+        args = {"cond": x - cond_pred, "uncond": x - uncond_pred, "cond_scale": cond_scale, "timestep": timestep, "input": x, "sigma": timestep, "cond_denoised": cond_pred, "uncond_denoised": uncond_pred, "model": model, "model_options": model_options}
         cfg_result = x - model_options["sampler_cfg_function"](args)
     elif not math.isclose(edit_strength, 1.0):
         cfg_result = uncond_pred + (cond_pred - uncond_pred) * cond_scale * edit_strength
@@ -312,8 +314,7 @@ def sampling_function_inner(model, x, timestep, uncond, cond, cond_scale, model_
         cfg_result = uncond_pred + (cond_pred - uncond_pred) * cond_scale
 
     for fn in model_options.get("sampler_post_cfg_function", []):
-        args = {"denoised": cfg_result, "cond": cond, "uncond": uncond, "model": model, "uncond_denoised": uncond_pred, "cond_denoised": cond_pred,
-                "sigma": timestep, "model_options": model_options, "input": x}
+        args = {"denoised": cfg_result, "cond": cond, "uncond": uncond, "cond_scale": cond_scale, "model": model, "uncond_denoised": uncond_pred, "cond_denoised": cond_pred, "sigma": timestep, "model_options": model_options, "input": x}
         cfg_result = fn(args)
 
     if return_full:
@@ -322,7 +323,7 @@ def sampling_function_inner(model, x, timestep, uncond, cond, cond_scale, model_
     return cfg_result
 
 
-def sampling_function(self, denoiser_params, cond_scale, cond_composition):
+def sampling_function(self, denoiser_params, cond_scale, cond_composition, extra_model_options=None):
     unet_patcher = self.inner_model.inner_model.forge_objects.unet
     model = unet_patcher.model
     control = unet_patcher.controlnet_linked_list
@@ -331,7 +332,7 @@ def sampling_function(self, denoiser_params, cond_scale, cond_composition):
     timestep = denoiser_params.sigma
     uncond = compile_conditions(denoiser_params.text_uncond)
     cond = compile_weighted_conditions(denoiser_params.text_cond, cond_composition)
-    model_options = unet_patcher.model_options
+    model_options = utils.join_dicts(unet_patcher.model_options, extra_model_options)
     seed = self.p.seeds[0]
 
     if extra_concat_condition is not None:
@@ -339,36 +340,33 @@ def sampling_function(self, denoiser_params, cond_scale, cond_composition):
     else:
         image_cond_in = denoiser_params.image_cond
 
-    if isinstance(image_cond_in, torch.Tensor):
-        if image_cond_in.shape[0] == x.shape[0] \
-                and image_cond_in.shape[2] == x.shape[2] \
-                and image_cond_in.shape[3] == x.shape[3]:
+    if isinstance(image_cond_in, torch.Tensor) and self.inner_model.inner_model.is_inpaint:
+        if image_cond_in.shape[0] == x.shape[0] and image_cond_in.shape[2] == x.shape[2] and image_cond_in.shape[3] == x.shape[3]:
             if uncond is not None:
                 for i in range(len(uncond)):
-                    uncond[i]['model_conds']['c_concat'] = Condition(image_cond_in)
+                    uncond[i]["model_conds"]["c_concat"] = Condition(image_cond_in)
             for i in range(len(cond)):
-                cond[i]['model_conds']['c_concat'] = Condition(image_cond_in)
+                cond[i]["model_conds"]["c_concat"] = Condition(image_cond_in)
 
     if control is not None:
         for h in cond:
-            h['control'] = control
+            h["control"] = control
         if uncond is not None:
             for h in uncond:
-                h['control'] = control
+                h["control"] = control
 
-    for modifier in model_options.get('conditioning_modifiers', []):
+    for modifier in model_options.get("conditioning_modifiers", []):
         model, x, timestep, uncond, cond, cond_scale, model_options, seed = modifier(model, x, timestep, uncond, cond, cond_scale, model_options, seed)
 
     denoised, cond_pred, uncond_pred = sampling_function_inner(model, x, timestep, uncond, cond, cond_scale, model_options, seed, return_full=True)
     return denoised, cond_pred, uncond_pred
 
 
-def sampling_prepare(unet, x):
-    B, C, H, W = x.shape
+def sampling_prepare(unet: "UnetPatcher", x: torch.Tensor):
+    shape = list(x.shape)
+    mem_shape = [2 * shape[0]] + shape[1:]
 
-    memory_estimation_function = unet.model_options.get('memory_peak_estimation_modifier', unet.memory_required)
-
-    unet_inference_memory = memory_estimation_function([B * 2, C, H, W])
+    unet_inference_memory = unet.memory_required(mem_shape)
     additional_inference_memory = unet.extra_preserved_memory_during_sampling
     additional_model_patchers = unet.extra_model_patchers_during_sampling
 
@@ -377,17 +375,10 @@ def sampling_prepare(unet, x):
         additional_model_patchers += unet.controlnet_linked_list.get_models()
 
     if unet.has_online_lora():
-        lora_memory = utils.nested_compute_size(unet.lora_patches, element_size=utils.dtype_to_element_size(unet.model.computation_dtype))
+        lora_memory = utils.nested_compute_size(unet.patches, element_size=utils.dtype_to_element_size(unet.model.computation_dtype))
         additional_inference_memory += lora_memory
 
-    memory_management.load_models_gpu(
-        models=[unet] + additional_model_patchers,
-        memory_required=unet_inference_memory,
-        hard_memory_preservation=additional_inference_memory
-    )
-
-    if unet.has_online_lora():
-        utils.nested_move_to_device(unet.lora_patches, device=unet.current_device, dtype=unet.model.computation_dtype)
+    memory_management.load_models_gpu(models=[unet] + additional_model_patchers, memory_required=unet_inference_memory + additional_inference_memory, minimum_memory_required=unet_inference_memory // 2 + additional_inference_memory)
 
     real_model = unet.model
 
@@ -396,13 +387,9 @@ def sampling_prepare(unet, x):
     for cnet in unet.list_controlnets():
         cnet.pre_run(real_model, percent_to_timestep_function)
 
-    return
 
-
-def sampling_cleanup(unet):
-    if unet.has_online_lora():
-        utils.nested_move_to_device(unet.lora_patches, device=unet.offload_device)
+def sampling_cleanup(unet: "UnetPatcher"):
     for cnet in unet.list_controlnets():
         cnet.cleanup()
-    cleanup_cache()
-    return
+
+    memory_management.soft_empty_cache()

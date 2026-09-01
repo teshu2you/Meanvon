@@ -1,5 +1,6 @@
-import torch
 import math
+
+import torch
 
 
 def repeat_to_batch_size(tensor, batch_size):
@@ -38,7 +39,7 @@ class Condition:
 
 class ConditionNoiseShape(Condition):
     def process_cond(self, batch_size, device, area, **kwargs):
-        data = self.cond[:, :, area[2]:area[0] + area[2], area[3]:area[1] + area[3]]
+        data = self.cond[:, :, area[2] : area[0] + area[2], area[3] : area[1] + area[3]]
         return self._copy_with(repeat_to_batch_size(data, batch_size).to(device))
 
 
@@ -97,26 +98,23 @@ def compile_conditions(cond):
             cross_attn=cond,
             model_conds=dict(
                 c_crossattn=ConditionCrossAttn(cond),
-            )
+            ),
         )
-        return [result, ]
+        return [
+            result,
+        ]
 
-    cross_attn = cond['crossattn']
-    pooled_output = cond['vector']
+    cross_attn = cond["crossattn"]
+    pooled_output = cond["vector"]
 
-    result = dict(
-        cross_attn=cross_attn,
-        pooled_output=pooled_output,
-        model_conds=dict(
-            c_crossattn=ConditionCrossAttn(cross_attn),
-            y=Condition(pooled_output)
-        )
-    )
+    result = dict(cross_attn=cross_attn, pooled_output=pooled_output, model_conds=dict(c_crossattn=ConditionCrossAttn(cross_attn), y=Condition(pooled_output)))
 
-    if 'guidance' in cond:
-        result['model_conds']['guidance'] = Condition(cond['guidance'])
+    if "guidance" in cond:
+        result["model_conds"]["guidance"] = Condition(cond["guidance"])
 
-    return [result, ]
+    return [
+        result,
+    ]
 
 
 def compile_weighted_conditions(cond, weights):
@@ -130,13 +128,13 @@ def compile_weighted_conditions(cond, weights):
             current_indices.append(i)
             current_weight = w
 
-        if hasattr(cond, 'advanced_indexing'):
+        if hasattr(cond, "advanced_indexing"):
             feed = cond.advanced_indexing(current_indices)
         else:
             feed = cond[current_indices]
 
         h = compile_conditions(feed)
-        h[0]['strength'] = current_weight
+        h[0]["strength"] = current_weight
         results += h
 
     return results

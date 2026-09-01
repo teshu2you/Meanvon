@@ -1,39 +1,39 @@
-from extras.packages_3rdparty import gguf
 import torch
 
+from modules_forge.packages import gguf
 
-quants_mapping = {
+QUANTS_MAPPING: dict[gguf.constants.GGMLQuantizationType, gguf.quants.__Quant] = {
     gguf.GGMLQuantizationType.Q2_K: gguf.Q2_K,
     gguf.GGMLQuantizationType.Q3_K: gguf.Q3_K,
     gguf.GGMLQuantizationType.Q4_0: gguf.Q4_0,
-    gguf.GGMLQuantizationType.Q4_K: gguf.Q4_K,
     gguf.GGMLQuantizationType.Q4_1: gguf.Q4_1,
+    gguf.GGMLQuantizationType.Q4_K: gguf.Q4_K,
     gguf.GGMLQuantizationType.Q5_0: gguf.Q5_0,
     gguf.GGMLQuantizationType.Q5_1: gguf.Q5_1,
     gguf.GGMLQuantizationType.Q5_K: gguf.Q5_K,
     gguf.GGMLQuantizationType.Q6_K: gguf.Q6_K,
     gguf.GGMLQuantizationType.Q8_0: gguf.Q8_0,
+    gguf.GGMLQuantizationType.BF16: gguf.BF16,
 }
 
 
 class ParameterGGUF(torch.nn.Parameter):
-    def __init__(self, tensor=None, requires_grad=False, no_init=False):
+    def __init__(self, torch_tensor, *, tensor_type=None, tensor_shape=None, no_init=False):
         super().__init__()
         if no_init:
             return
 
-        self.gguf_cls = quants_mapping.get(tensor.tensor_type, None)
-        self.real_shape = torch.Size(reversed(list(tensor.shape)))
+        self.gguf_cls: "gguf.quants.__Quant" = QUANTS_MAPPING.get(tensor_type, None)
+        self.real_shape: torch.Size = tensor_shape
         self.computation_dtype = torch.float16
         self.baked = False
-        return
 
     @property
     def shape(self):
         return self.real_shape
 
-    def __new__(cls, tensor=None, requires_grad=False, no_init=False):
-        return super().__new__(cls, torch.tensor(tensor.data), requires_grad=requires_grad)
+    def __new__(cls, torch_tensor, *, tensor_type=None, tensor_shape=None, no_init=False):
+        return super().__new__(cls, torch_tensor, requires_grad=False)
 
     def dequantize_as_pytorch_parameter(self):
         if self.gguf_cls is not None:
@@ -55,16 +55,14 @@ class ParameterGGUF(torch.nn.Parameter):
         return self.copy_with_data(torch.Tensor.pin_memory(self, device=device))
 
 
-def dequantize_tensor(tensor):
+def dequantize_tensor(tensor: "ParameterGGUF") -> torch.Tensor:
     if tensor is None:
         return None
 
-    if not hasattr(tensor, 'gguf_cls'):
+    if not hasattr(tensor, "gguf_cls"):
         return tensor
 
-    gguf_cls = tensor.gguf_cls
+    if (gguf_cls := tensor.gguf_cls) is not None:
+        return gguf_cls.dequantize_pytorch(tensor)
 
-    if gguf_cls is None:
-        return tensor
-
-    return gguf_cls.dequantize_pytorch(tensor)
+    return tensor

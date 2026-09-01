@@ -538,3 +538,57 @@ def makedirs_with_log(path):
 
 def get_enabled_loras(loras: list) -> list:
     return [[lora[1], lora[2]] for lora in loras if lora[0]]
+
+def apply_native_tiling(model, enable=False):
+    """
+    Natively enables or disables seamless
+    circular padding on all Conv2D layers.
+    Recursively unpacks any custom wrapper
+    classes down to the core PyTorch module.
+    """
+    if model is None:
+        return
+
+    # 1. Recursively unpack any nesting
+    # (StableDiffusionModel -> ModelPatcher -> BaseModel)
+    # until we locate the actual PyTorch nn.Module
+    # (the diffusion_model)
+    active_module = model
+    while hasattr(active_module, 'unet') or hasattr(active_module, 'model') or hasattr(active_module, 'inner_model') or hasattr(active_module, 'diffusion_model'):
+        if hasattr(active_module, 'diffusion_model'):
+            active_module = active_module.diffusion_model
+            break
+        elif hasattr(active_module, 'inner_model'):
+            active_module = active_module.inner_model
+        elif hasattr(active_module, 'unet'):
+            active_module = active_module.unet
+        elif hasattr(active_module, 'model'):
+            active_module = active_module.model
+        else:
+            break
+
+    # 2. Ensure the resolved object actually
+    # has the .modules() method
+    if not hasattr(active_module, 'modules'):
+        print(f"[Utility] Apply_native_tiling could not resolve PyTorch modules from {type(model)}")
+        try:
+            available_attrs = dir(model)
+            print('Available attributes on', f'{type(model).__name__}: {available_attrs}')
+        except Exception as e:
+            print(f'Failed to extract any attributes:', e)
+        return
+
+    if enable:
+        target_mode = 'circular'
+        print('[Utility] Tiling enabled')
+    else:
+        target_mode = 'zeros'
+
+    # 3. Safely apply the padding mode
+    count = 0
+    for module in active_module.modules():
+        if isinstance(module, torch.nn.Conv2d):
+            module.padding_mode = target_mode
+            count += 1
+
+    return

@@ -1,14 +1,16 @@
 import math
+
 import torch
-from torch import nn
-from einops import rearrange, repeat
-from backend.attention import attention_function
 from diffusers.configuration_utils import ConfigMixin, register_to_config
+from einops import rearrange, repeat
+from torch import nn
+
+from backend.attention import attention_function
 
 
 def checkpoint(f, args, parameters, enable=False):
     if enable:
-        raise NotImplementedError('Gradient Checkpointing is not implemented.')
+        raise NotImplementedError("Gradient Checkpointing is not implemented.")
     return f(*args)
 
 
@@ -63,7 +65,7 @@ def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
         if dim % 2:
             embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
     else:
-        embedding = repeat(timesteps, 'b -> b d', d=dim)
+        embedding = repeat(timesteps, "b -> b d", d=dim)
     return embedding
 
 
@@ -76,7 +78,7 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
         block_inner_modifiers = transformer_options.get("block_inner_modifiers", [])
         for layer_index, layer in enumerate(self):
             for modifier in block_inner_modifiers:
-                x = modifier(x, 'before', layer, layer_index, self, transformer_options)
+                x = modifier(x, "before", layer, layer_index, self, transformer_options)
             if isinstance(layer, TimestepBlock):
                 x = layer(x, emb, transformer_options)
             elif isinstance(layer, SpatialTransformer):
@@ -88,7 +90,7 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
             else:
                 x = layer(x)
             for modifier in block_inner_modifiers:
-                x = modifier(x, 'after', layer, layer_index, self, transformer_options)
+                x = modifier(x, "after", layer, layer_index, self, transformer_options)
         return x
 
 
@@ -112,26 +114,19 @@ class GEGLU(nn.Module):
 
 
 class FeedForward(nn.Module):
-    def __init__(self, dim, dim_out=None, mult=4, glu=False, dropout=0.):
+    def __init__(self, dim, dim_out=None, mult=4, glu=False, dropout=0.0):
         super().__init__()
         inner_dim = int(dim * mult)
         dim_out = default(dim_out, dim)
-        project_in = nn.Sequential(
-            nn.Linear(dim, inner_dim),
-            nn.GELU()
-        ) if not glu else GEGLU(dim, inner_dim)
-        self.net = nn.Sequential(
-            project_in,
-            nn.Dropout(dropout),
-            nn.Linear(inner_dim, dim_out)
-        )
+        project_in = nn.Sequential(nn.Linear(dim, inner_dim), nn.GELU()) if not glu else GEGLU(dim, inner_dim)
+        self.net = nn.Sequential(project_in, nn.Dropout(dropout), nn.Linear(inner_dim, dim_out))
 
     def forward(self, x):
         return self.net(x)
 
 
 class CrossAttention(nn.Module):
-    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.):
+    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.0):
         super().__init__()
         inner_dim = dim_head * heads
         context_dim = default(context_dim, query_dim)
@@ -156,8 +151,7 @@ class CrossAttention(nn.Module):
 
 
 class BasicTransformerBlock(nn.Module):
-    def __init__(self, dim, n_heads, d_head, dropout=0., context_dim=None, gated_ff=True, checkpoint=True, ff_in=False,
-                 inner_dim=None, disable_self_attn=False):
+    def __init__(self, dim, n_heads, d_head, dropout=0.0, context_dim=None, gated_ff=True, checkpoint=True, ff_in=False, inner_dim=None, disable_self_attn=False):
         super().__init__()
         self.ff_in = ff_in or inner_dim is not None
         if inner_dim is None:
@@ -280,10 +274,7 @@ class BasicTransformerBlock(nn.Module):
 
 
 class SpatialTransformer(nn.Module):
-    def __init__(self, in_channels, n_heads, d_head,
-                 depth=1, dropout=0., context_dim=None,
-                 disable_self_attn=False, use_linear=False,
-                 use_checkpoint=True):
+    def __init__(self, in_channels, n_heads, d_head, depth=1, dropout=0.0, context_dim=None, disable_self_attn=False, use_linear=False, use_checkpoint=True):
         super().__init__()
         if exists(context_dim) and not isinstance(context_dim, list):
             context_dim = [context_dim] * depth
@@ -294,11 +285,7 @@ class SpatialTransformer(nn.Module):
             self.proj_in = nn.Conv2d(in_channels, inner_dim, kernel_size=1, stride=1, padding=0)
         else:
             self.proj_in = nn.Linear(in_channels, inner_dim)
-        self.transformer_blocks = nn.ModuleList(
-            [BasicTransformerBlock(inner_dim, n_heads, d_head, dropout=dropout, context_dim=context_dim[d],
-                                   disable_self_attn=disable_self_attn, checkpoint=use_checkpoint)
-             for d in range(depth)]
-        )
+        self.transformer_blocks = nn.ModuleList([BasicTransformerBlock(inner_dim, n_heads, d_head, dropout=dropout, context_dim=context_dim[d], disable_self_attn=disable_self_attn, checkpoint=use_checkpoint) for d in range(depth)])
         if not use_linear:
             self.proj_out = nn.Conv2d(inner_dim, in_channels, kernel_size=1, stride=1, padding=0)
         else:
@@ -313,7 +300,7 @@ class SpatialTransformer(nn.Module):
         x = self.norm(x)
         if not self.use_linear:
             x = self.proj_in(x)
-        x = rearrange(x, 'b c h w -> b (h w) c').contiguous()
+        x = rearrange(x, "b c h w -> b (h w) c").contiguous()
         if self.use_linear:
             x = self.proj_in(x)
         for i, block in enumerate(self.transformer_blocks):
@@ -321,7 +308,7 @@ class SpatialTransformer(nn.Module):
             x = block(x, context=context[i], transformer_options=transformer_options)
         if self.use_linear:
             x = self.proj_out(x)
-        x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w).contiguous()
+        x = rearrange(x, "b (h w) c -> b c h w", h=h, w=w).contiguous()
         if not self.use_linear:
             x = self.proj_out(x)
         return x + x_in
@@ -375,9 +362,7 @@ class Downsample(nn.Module):
 
 
 class ResBlock(TimestepBlock):
-    def __init__(self, channels, emb_channels, dropout, out_channels=None, use_conv=False, use_scale_shift_norm=False,
-                 dims=2, use_checkpoint=False, up=False, down=False, kernel_size=3, exchange_temb_dims=False,
-                 skip_t_emb=False):
+    def __init__(self, channels, emb_channels, dropout, out_channels=None, use_conv=False, use_scale_shift_norm=False, dims=2, use_checkpoint=False, up=False, down=False, kernel_size=3, exchange_temb_dims=False, skip_t_emb=False):
         super().__init__()
         self.channels = channels
         self.emb_channels = emb_channels
@@ -414,12 +399,7 @@ class ResBlock(TimestepBlock):
                 nn.SiLU(),
                 nn.Linear(emb_channels, 2 * self.out_channels if use_scale_shift_norm else self.out_channels),
             )
-        self.out_layers = nn.Sequential(
-            nn.GroupNorm(32, self.out_channels),
-            nn.SiLU(),
-            nn.Dropout(p=dropout),
-            conv_nd(dims, self.out_channels, self.out_channels, kernel_size, padding=padding)
-        )
+        self.out_layers = nn.Sequential(nn.GroupNorm(32, self.out_channels), nn.SiLU(), nn.Dropout(p=dropout), conv_nd(dims, self.out_channels, self.out_channels, kernel_size, padding=padding))
         if self.out_channels == channels:
             self.skip_connection = nn.Identity()
         elif use_conv:
@@ -462,7 +442,7 @@ class ResBlock(TimestepBlock):
                 h = out_norm(h)
             if emb_out is not None:
                 scale, shift = torch.chunk(emb_out, 2, dim=1)
-                h *= (1 + scale)
+                h *= 1 + scale
                 h += shift
             h = out_rest(h)
         else:
@@ -479,15 +459,10 @@ class ResBlock(TimestepBlock):
 
 
 class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
-    config_name = 'config.json'
+    config_name = "config.json"
 
     @register_to_config
-    def __init__(self, in_channels, model_channels, out_channels, num_res_blocks, dropout=0, channel_mult=(1, 2, 4, 8),
-                 conv_resample=True, dims=2, num_classes=None, use_checkpoint=False,dtype=torch.float32, num_heads=-1, num_head_channels=-1,
-                 use_scale_shift_norm=False, resblock_updown=False, use_spatial_transformer=False, transformer_depth=1,
-                 context_dim=None, disable_self_attentions=None, num_attention_blocks=None,
-                 disable_middle_self_attn=False, use_linear_in_transformer=False, adm_in_channels=None,
-                 transformer_depth_middle=None, transformer_depth_output=None):
+    def __init__(self, in_channels, model_channels, out_channels, num_res_blocks, dropout=0, channel_mult=(1, 2, 4, 8), conv_resample=True, dims=2, num_classes=None, use_checkpoint=False, num_heads=-1, num_head_channels=-1, use_scale_shift_norm=False, resblock_updown=False, use_spatial_transformer=False, transformer_depth=1, context_dim=None, disable_self_attentions=None, num_attention_blocks=None, disable_middle_self_attn=False, use_linear_in_transformer=False, adm_in_channels=None, transformer_depth_middle=None, transformer_depth_output=None):
         super().__init__()
         if context_dim is not None:
             assert use_spatial_transformer
@@ -513,7 +488,6 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
         self.conv_resample = conv_resample
         self.num_classes = num_classes
         self.use_checkpoint = use_checkpoint
-        self.dtype = dtype
         self.num_heads = num_heads
         self.num_head_channels = num_head_channels
         time_embed_dim = model_channels * 4
@@ -537,10 +511,8 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
                     )
                 )
             else:
-                raise ValueError('Bad ADM')
-        self.input_blocks = nn.ModuleList(
-            [TimestepEmbedSequential(conv_nd(dims, in_channels, model_channels, 3, padding=1))]
-        )
+                raise ValueError("Bad ADM")
+        self.input_blocks = nn.ModuleList([TimestepEmbedSequential(conv_nd(dims, in_channels, model_channels, 3, padding=1))])
         self._feature_size = model_channels
         input_block_chans = [model_channels]
         ch = model_channels
@@ -571,11 +543,7 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
                     else:
                         disabled_sa = False
                     if not exists(num_attention_blocks) or nr < num_attention_blocks[level]:
-                        layers.append(SpatialTransformer(
-                            ch, num_heads, dim_head, depth=num_transformers, context_dim=context_dim,
-                            disable_self_attn=disabled_sa, use_checkpoint=use_checkpoint,
-                            use_linear=use_linear_in_transformer)
-                        )
+                        layers.append(SpatialTransformer(ch, num_heads, dim_head, depth=num_transformers, context_dim=context_dim, disable_self_attn=disabled_sa, use_checkpoint=use_checkpoint, use_linear=use_linear_in_transformer))
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
                 input_block_chans.append(ch)
@@ -594,8 +562,7 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
                             down=True,
                         )
                         if resblock_updown
-                        else Downsample(
-                            ch, conv_resample, dims=dims, out_channels=out_ch)
+                        else Downsample(ch, conv_resample, dims=dims, out_channels=out_ch)
                     )
                 )
                 ch = out_ch
@@ -616,13 +583,11 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
                 dims=dims,
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
-            )]
+            )
+        ]
         if transformer_depth_middle >= 0:
             mid_block += [
-                SpatialTransformer(
-                    ch, num_heads, dim_head, depth=transformer_depth_middle, context_dim=context_dim,
-                    disable_self_attn=disable_middle_self_attn, use_checkpoint=use_checkpoint,
-                    use_linear=use_linear_in_transformer),
+                SpatialTransformer(ch, num_heads, dim_head, depth=transformer_depth_middle, context_dim=context_dim, disable_self_attn=disable_middle_self_attn, use_checkpoint=use_checkpoint, use_linear=use_linear_in_transformer),
                 ResBlock(
                     channels=ch,
                     emb_channels=time_embed_dim,
@@ -631,7 +596,8 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
                     dims=dims,
                     use_checkpoint=use_checkpoint,
                     use_scale_shift_norm=use_scale_shift_norm,
-                )]
+                ),
+            ]
         self.middle_block = TimestepEmbedSequential(*mid_block)
         self._feature_size += ch
         self.output_blocks = nn.ModuleList([])
@@ -662,13 +628,7 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
                     else:
                         disabled_sa = False
                     if not exists(num_attention_blocks) or i < num_attention_blocks[level]:
-                        layers.append(
-                            SpatialTransformer(
-                                ch, num_heads, dim_head, depth=num_transformers, context_dim=context_dim,
-                                disable_self_attn=disabled_sa, use_checkpoint=use_checkpoint,
-                                use_linear=use_linear_in_transformer
-                            )
-                        )
+                        layers.append(SpatialTransformer(ch, num_heads, dim_head, depth=num_transformers, context_dim=context_dim, disable_self_attn=disabled_sa, use_checkpoint=use_checkpoint, use_linear=use_linear_in_transformer))
                 if level and i == self.num_res_blocks[level]:
                     out_ch = ch
                     layers.append(
@@ -710,11 +670,11 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
         for id, module in enumerate(self.input_blocks):
             transformer_options["block"] = ("input", id)
             for block_modifier in block_modifiers:
-                h = block_modifier(h, 'before', transformer_options)
+                h = block_modifier(h, "before", transformer_options)
             h = module(h, emb, context, transformer_options)
-            h = apply_control(h, control, 'input')
+            h = apply_control(h, control, "input")
             for block_modifier in block_modifiers:
-                h = block_modifier(h, 'after', transformer_options)
+                h = block_modifier(h, "after", transformer_options)
             if "input_block_patch" in transformer_patches:
                 patch = transformer_patches["input_block_patch"]
                 for p in patch:
@@ -726,15 +686,15 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
                     h = p(h, transformer_options)
         transformer_options["block"] = ("middle", 0)
         for block_modifier in block_modifiers:
-            h = block_modifier(h, 'before', transformer_options)
+            h = block_modifier(h, "before", transformer_options)
         h = self.middle_block(h, emb, context, transformer_options)
-        h = apply_control(h, control, 'middle')
+        h = apply_control(h, control, "middle")
         for block_modifier in block_modifiers:
-            h = block_modifier(h, 'after', transformer_options)
+            h = block_modifier(h, "after", transformer_options)
         for id, module in enumerate(self.output_blocks):
             transformer_options["block"] = ("output", id)
             hsp = hs.pop()
-            hsp = apply_control(hsp, control, 'output')
+            hsp = apply_control(hsp, control, "output")
             if "output_block_patch" in transformer_patches:
                 patch = transformer_patches["output_block_patch"]
                 for p in patch:
@@ -746,13 +706,13 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
             else:
                 output_shape = None
             for block_modifier in block_modifiers:
-                h = block_modifier(h, 'before', transformer_options)
+                h = block_modifier(h, "before", transformer_options)
             h = module(h, emb, context, transformer_options, output_shape)
             for block_modifier in block_modifiers:
-                h = block_modifier(h, 'after', transformer_options)
+                h = block_modifier(h, "after", transformer_options)
         transformer_options["block"] = ("last", 0)
         for block_modifier in block_modifiers:
-            h = block_modifier(h, 'before', transformer_options)
+            h = block_modifier(h, "before", transformer_options)
         if "group_norm_wrapper" in transformer_options:
             out_norm, out_rest = self.out[0], self.out[1:]
             h = transformer_options["group_norm_wrapper"](out_norm, h, transformer_options)
@@ -760,5 +720,5 @@ class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
         else:
             h = self.out(h)
         for block_modifier in block_modifiers:
-            h = block_modifier(h, 'after', transformer_options)
+            h = block_modifier(h, "after", transformer_options)
         return h.type(x.dtype)

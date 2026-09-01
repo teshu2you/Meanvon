@@ -1,7 +1,7 @@
+from collections import OrderedDict
+
 import torch
 import torch.nn as nn
-
-from collections import OrderedDict
 
 
 def conv_nd(dims, *args, **kwargs):
@@ -47,9 +47,7 @@ class Downsample(nn.Module):
         self.dims = dims
         stride = 2 if dims != 3 else (1, 2, 2)
         if use_conv:
-            self.op = conv_nd(
-                dims, self.channels, self.out_channels, 3, stride=stride, padding=padding
-            )
+            self.op = conv_nd(dims, self.channels, self.out_channels, 3, stride=stride, padding=padding)
         else:
             assert self.channels == self.out_channels
             self.op = avg_pool_nd(dims, kernel_size=stride, stride=stride)
@@ -68,7 +66,7 @@ class ResnetBlock(nn.Module):
     def __init__(self, in_c, out_c, down, ksize=3, sk=False, use_conv=True):
         super().__init__()
         ps = ksize // 2
-        if in_c != out_c or sk == False:
+        if in_c != out_c or not sk:
             self.in_conv = nn.Conv2d(in_c, out_c, ksize, 1, ps)
         else:
             # print('n_in')
@@ -76,17 +74,17 @@ class ResnetBlock(nn.Module):
         self.block1 = nn.Conv2d(out_c, out_c, 3, 1, 1)
         self.act = nn.ReLU()
         self.block2 = nn.Conv2d(out_c, out_c, ksize, 1, ps)
-        if sk == False:
+        if not sk:
             self.skep = nn.Conv2d(in_c, out_c, ksize, 1, ps)
         else:
             self.skep = None
 
         self.down = down
-        if self.down == True:
+        if self.down:
             self.down_opt = Downsample(in_c, use_conv=use_conv)
 
     def forward(self, x):
-        if self.down == True:
+        if self.down:
             x = self.down_opt(x)
         if self.in_conv is not None:  # edit
             x = self.in_conv(x)
@@ -95,9 +93,9 @@ class ResnetBlock(nn.Module):
         h = self.act(h)
         h = self.block2(h)
         if self.skep is not None:
-            return h + self.skep(x)
+            return h.add_(self.skep(x))
         else:
-            return h + x
+            return h.add_(x)
 
 
 class Adapter(nn.Module):
@@ -120,14 +118,11 @@ class Adapter(nn.Module):
         for i in range(len(channels)):
             for j in range(nums_rb):
                 if (i in resblock_downsample) and (j == 0):
-                    self.body.append(
-                        ResnetBlock(channels[i - 1], channels[i], down=True, ksize=ksize, sk=sk, use_conv=use_conv))
+                    self.body.append(ResnetBlock(channels[i - 1], channels[i], down=True, ksize=ksize, sk=sk, use_conv=use_conv))
                 elif (i in resblock_no_downsample) and (j == 0):
-                    self.body.append(
-                        ResnetBlock(channels[i - 1], channels[i], down=False, ksize=ksize, sk=sk, use_conv=use_conv))
+                    self.body.append(ResnetBlock(channels[i - 1], channels[i], down=False, ksize=ksize, sk=sk, use_conv=use_conv))
                 else:
-                    self.body.append(
-                        ResnetBlock(channels[i], channels[i], down=False, ksize=ksize, sk=sk, use_conv=use_conv))
+                    self.body.append(ResnetBlock(channels[i], channels[i], down=False, ksize=ksize, sk=sk, use_conv=use_conv))
         self.body = nn.ModuleList(self.body)
         self.conv_in = nn.Conv2d(cin, channels[0], 3, 1, 1)
 
@@ -178,9 +173,7 @@ class ResidualAttentionBlock(nn.Module):
 
         self.attn = nn.MultiheadAttention(d_model, n_head)
         self.ln_1 = LayerNorm(d_model)
-        self.mlp = nn.Sequential(
-            OrderedDict([("c_fc", nn.Linear(d_model, d_model * 4)), ("gelu", QuickGELU()),
-                         ("c_proj", nn.Linear(d_model * 4, d_model))]))
+        self.mlp = nn.Sequential(OrderedDict([("c_fc", nn.Linear(d_model, d_model * 4)), ("gelu", QuickGELU()), ("c_proj", nn.Linear(d_model * 4, d_model))]))
         self.ln_2 = LayerNorm(d_model)
         self.attn_mask = attn_mask
 
@@ -189,8 +182,8 @@ class ResidualAttentionBlock(nn.Module):
         return self.attn(x, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
 
     def forward(self, x: torch.Tensor):
-        x = x + self.attention(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
+        x.add_(self.attention(self.ln_1(x)))
+        x.add_(self.mlp(self.ln_2(x)))
         return x
 
 
@@ -199,7 +192,7 @@ class StyleAdapter(nn.Module):
     def __init__(self, width=1024, context_dim=768, num_head=8, n_layes=3, num_token=4):
         super().__init__()
 
-        scale = width ** -0.5
+        scale = width**-0.5
         self.transformer_layes = nn.Sequential(*[ResidualAttentionBlock(width, num_head) for _ in range(n_layes)])
         self.num_token = num_token
         self.style_embedding = nn.Parameter(torch.randn(1, num_token, width) * scale)
@@ -209,15 +202,14 @@ class StyleAdapter(nn.Module):
 
     def forward(self, x):
         # x shape [N, HW+1, C]
-        style_embedding = self.style_embedding + torch.zeros(
-            (x.shape[0], self.num_token, self.style_embedding.shape[-1]), device=x.device)
+        style_embedding = self.style_embedding + torch.zeros((x.shape[0], self.num_token, self.style_embedding.shape[-1]), device=x.device)
         x = torch.cat([x, style_embedding], dim=1)
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
         x = self.transformer_layes(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
 
-        x = self.ln_post(x[:, -self.num_token:, :])
+        x = self.ln_post(x[:, -self.num_token :, :])
         x = x @ self.proj
 
         return x
@@ -235,7 +227,7 @@ class ResnetBlock_light(nn.Module):
         h = self.act(h)
         h = self.block2(h)
 
-        return h + x
+        return h.add_(x)
 
 
 class extractor(nn.Module):
@@ -248,11 +240,11 @@ class extractor(nn.Module):
         self.body = nn.Sequential(*self.body)
         self.out_conv = nn.Conv2d(inter_c, out_c, 1, 1, 0)
         self.down = down
-        if self.down == True:
+        if self.down:
             self.down_opt = Downsample(in_c, use_conv=False)
 
     def forward(self, x):
-        if self.down == True:
+        if self.down:
             x = self.down_opt(x)
         x = self.in_conv(x)
         x = self.body(x)

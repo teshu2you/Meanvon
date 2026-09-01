@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT TRAINED",
+	"NSFW": "True",
+	"Update_Date":"May 9, 2026",
+	"Base": "SDXL 1.0",
+	"Links": "https://hf-mirror.com/RunDiffusion/Juggernaut-XI-v11",
+	"Version": "Juggernaut XI v11 by RunDiffusion",
+	"Tags": "ASE MODEL PHOTOREALISTIC PHOTO CINEMATIC CHARACTERS NSFW",
+	"Usage_Tips": "Resolution	832 × 1216 (portrait) · 1216 × 832 (landscape) Sampler	DPM++ 2M Karras Steps	30 – 40 CFG scale	3 – 7 (lower = more realistic) VAE	Already baked in — no external VAE required",
+	"Author": "RunDiffusion",
+	"ReMark": "Juggernaut XI is the latest evolution of the Juggernaut SDXL line. Like Juggernaut X, it was trained from the ground up with GPT-4 Vision captioning — but with another pass of dataset cleanup, refined shot-type classification, and improved aesthetic targeting on top. Sharper hands, faces, eyes, and composition; stronger prompt adherence; native text rendering; and the same RunDiffusion Photo detail refinement that made earlier versions popular."
+}

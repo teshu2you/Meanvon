@@ -44,7 +44,7 @@ def sort_styles(selected):
         print('Write style sorting failed.')
         print(e)
     all_styles = sorted_styles
-    return gr.CheckboxGroup.update(choices=sorted_styles)
+    return gr.update(choices=sorted_styles)
 
 
 def localization_key(x):
@@ -56,4 +56,4 @@ def search_styles(selected, query):
     matched = [y for y in unselected if query.lower() in localization_key(y).lower()] if len(query.replace(' ', '')) > 0 else []
     unmatched = [y for y in unselected if y not in matched]
     sorted_styles = matched + selected + unmatched
-    return gr.CheckboxGroup.update(choices=sorted_styles)
+    return gr.update(choices=sorted_styles)

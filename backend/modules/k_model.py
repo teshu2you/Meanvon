@@ -1,29 +1,35 @@
+import math
+
 import torch
-import backend
-from backend import memory_management, attention
+
+from backend import args, memory_management
 from backend.modules.k_prediction import k_prediction_from_diffusers_scheduler
-from util.printf import printF, MasterName
-import ldm_patched
-from enum import Enum
-from ldm_patched.ldm.modules.diffusionmodules.openaimodel import UNetModel, Timestep
-from ldm_patched.modules.model_sampling import EPS, V_PREDICTION, EDM, ModelSamplingDiscrete, ModelSamplingContinuousEDM, StableCascadeSampling, ModelSamplingContinuousV
-from ldm_patched.modules.model_base import BaseModel, model_sampling, ModelType, SDXL, SDXLRefiner, HunyuanDiT, Flux, SD15_instructpix2pix, SD21UNCLIP, SD3
+
 
 class KModel(torch.nn.Module):
-    def __init__(self, model, diffusers_scheduler, k_predictor=None, config=None):
+    def __init__(self, model: torch.nn.Module, diffusers_scheduler, config, k_predictor):
         super().__init__()
 
         self.config = config
-        self.model_config = self.config
+
         self.storage_dtype = model.storage_dtype
         self.computation_dtype = model.computation_dtype
 
-        printF(name=MasterName.get_master_name(),
-               info="K-Model Created: {}".format(dict(storage_dtype=self.storage_dtype, computation_dtype=self.computation_dtype))).printf()
+        _store = f"storage: {self.storage_dtype}"
+        _compute = f"computation: {self.computation_dtype}"
+
+        if args.dynamic_args.ops.endswith("FP8"):
+            _compute += f" + {torch.float8_e4m3fn}"
+        if args.dynamic_args.ops.startswith("Mixed"):
+            _compute = "computation: Mixed"
+
+        memory_management.logger.info(f"Diffusion Model: {{{_store}, {_compute}}}")
 
         self.diffusion_model = model
+        self.diffusion_model.eval()
+        self.diffusion_model.requires_grad_(False)
 
-        if k_predictor is None:
+        if diffusers_scheduler is not None:
             self.predictor = k_prediction_from_diffusers_scheduler(diffusers_scheduler)
         else:
             self.predictor = k_predictor
@@ -48,27 +54,15 @@ class KModel(torch.nn.Module):
                     extra = extra.to(dtype)
             extra_conds[o] = extra
 
-        model_output = self.diffusion_model(xc, t, context=context, control=control,
-                                            transformer_options=transformer_options, **extra_conds).float()
+        model_output = self.diffusion_model(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds).float()
         return self.predictor.calculate_denoised(sigma, model_output, x)
 
-    def memory_required(self, input_shape):
-        area = input_shape[0] * input_shape[2] * input_shape[3]
-        dtype_size = memory_management.dtype_size(self.computation_dtype)
+    def memory_required(self, input_shape: list[int]) -> float:
+        """https://github.com/comfyanonymous/ComfyUI/blob/v0.3.64/comfy/model_base.py#L354"""
+        input_shapes = [input_shape]
+        area = sum(map(lambda input_shape: input_shape[0] * math.prod(input_shape[2:]), input_shapes))
 
-        if attention.attention_function in [attention.attention_pytorch, attention.attention_xformers]:
-            scaler = 1.28
+        if memory_management.xformers_enabled() or memory_management.pytorch_attention_flash_attention():
+            return (area * memory_management.dtype_size(self.computation_dtype) * 0.01 * self.config.memory_usage_factor) * (1024 * 1024)
         else:
-            scaler = 1.65
-            if attention.get_attn_precision() == torch.float32:
-                dtype_size = 4
-
-        return scaler * area * dtype_size * 16384
-
-    def extra_conds(self, **kwargs):
-        out = {}
-        cross_attn = kwargs.get("cross_attn", None)
-        if cross_attn is not None:
-            out['c_crossattn'] = ldm_patched.modules.conds.CONDRegular(cross_attn)
-        out['guidance'] = ldm_patched.modules.conds.CONDRegular(torch.FloatTensor([kwargs.get("guidance", 3.5)]))
-        return out
+            return (area * 0.15 * self.config.memory_usage_factor) * (1024 * 1024)

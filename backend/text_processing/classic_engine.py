@@ -80,8 +80,19 @@ class ClassicTextProcessingEngine:
         self.id_end = self.tokenizer.eos_token_id
         self.id_pad = self.tokenizer.pad_token_id
 
-        model_embeddings = text_encoder.transformer.text_model.embeddings
-        model_embeddings.token_embedding = CLIPEmbeddingForTextualInversion(model_embeddings.token_embedding, self.embeddings, textual_inversion_key=embedding_key)
+        self.text_encoder_model = getattr(text_encoder, "transformer", text_encoder)
+        self.text_model = getattr(
+            self.text_encoder_model,
+            "text_model",
+            self.text_encoder_model,
+        )
+
+        model_embeddings = self.text_model.embeddings
+        model_embeddings.token_embedding = CLIPEmbeddingForTextualInversion(
+            model_embeddings.token_embedding,
+            self.embeddings,
+            textual_inversion_key=embedding_key,
+        )
 
         vocab = self.tokenizer.get_vocab()
 
@@ -122,107 +133,156 @@ class ClassicTextProcessingEngine:
     def encode_with_transformers(self, tokens):
         target_device = memory_management.text_encoder_device()
 
-        self.text_encoder.transformer.text_model.embeddings.position_ids = self.text_encoder.transformer.text_model.embeddings.position_ids.to(device=target_device)
-        self.text_encoder.transformer.text_model.embeddings.position_embedding = self.text_encoder.transformer.text_model.embeddings.position_embedding.to(dtype=torch.float32)
-        self.text_encoder.transformer.text_model.embeddings.token_embedding = self.text_encoder.transformer.text_model.embeddings.token_embedding.to(dtype=torch.float32)
+        # self.text_encoder.transformer.text_model.embeddings.position_ids = self.text_encoder.transformer.text_model.embeddings.position_ids.to(device=target_device)
+        # self.text_encoder.transformer.text_model.embeddings.position_embedding = self.text_encoder.transformer.text_model.embeddings.position_embedding.to(dtype=torch.float32)
+        # self.text_encoder.transformer.text_model.embeddings.token_embedding = self.text_encoder.transformer.text_model.embeddings.token_embedding.to(dtype=torch.float32)
+
+        text_encoder_model = self.text_encoder_model
+        text_model = self.text_model
+        embeddings = text_model.embeddings
+
+        embeddings.position_ids = embeddings.position_ids.to(device=target_device)
+        embeddings.position_embedding = embeddings.position_embedding.to(dtype=torch.float32)
+        embeddings.token_embedding = embeddings.token_embedding.to(dtype=torch.float32)
 
         tokens = tokens.to(target_device)
+        outputs = text_encoder_model(tokens, output_hidden_states=True)
 
-        outputs = self.text_encoder.transformer(tokens, output_hidden_states=True)
-
-        layer_id = - max(self.clip_skip, self.minimal_clip_skip)
+        layer_id = -max(self.clip_skip, self.minimal_clip_skip)
         z = outputs.hidden_states[layer_id]
 
         if self.final_layer_norm:
-            z = self.text_encoder.transformer.text_model.final_layer_norm(z)
+            z = text_model.final_layer_norm(z)
 
         if self.return_pooled:
             pooled_output = outputs.pooler_output
 
             if self.text_projection:
-                pooled_output = self.text_encoder.transformer.text_projection(pooled_output)
+                pooled_output = text_encoder_model.text_projection(pooled_output)
 
             z.pooled = pooled_output
+            
         return z
 
     def tokenize_line(self, line):
         parsed = parsing.parse_prompt_attention(line)
-
         tokenized = self.tokenize([text for text, _ in parsed])
 
         chunks = []
         chunk = PromptChunk()
         token_count = 0
         last_comma = -1
+        comma_padding_backtrack = 20
 
         def next_chunk(is_last=False):
+            nonlocal chunk
             nonlocal token_count
             nonlocal last_comma
-            nonlocal chunk
 
-            if is_last:
-                token_count += len(chunk.tokens)
-            else:
-                token_count += self.chunk_length
+            # 避免连续 BREAK 或边界检查产生空 chunk。
+            # 空文本仍需要保留一个合法的空 chunk。
+            if not chunk.tokens and chunks and not is_last:
+                last_comma = -1
+                return False
 
-            to_add = self.chunk_length - len(chunk.tokens)
-            if to_add > 0:
-                chunk.tokens += [self.id_end] * to_add
-                chunk.multipliers += [1.0] * to_add
+            if len(chunk.tokens) > self.chunk_length:
+                raise ValueError(
+                    f"CLIP chunk is too long: {len(chunk.tokens)} > {self.chunk_length}"
+                )
 
+            original_length = len(chunk.tokens)
+            token_count += original_length
+
+            padding_count = self.chunk_length - original_length
+            if padding_count:
+                chunk.tokens.extend([self.id_end] * padding_count)
+                chunk.multipliers.extend([1.0] * padding_count)
+
+            # CLIP 输入长度固定为 chunk_length + BOS + EOS。
             chunk.tokens = [self.id_start] + chunk.tokens + [self.id_end]
             chunk.multipliers = [1.0] + chunk.multipliers + [1.0]
 
-            last_comma = -1
+            if len(chunk.tokens) != self.chunk_length + 2:
+                raise RuntimeError(
+                    f"Invalid CLIP chunk length: {len(chunk.tokens)}"
+                )
+
             chunks.append(chunk)
             chunk = PromptChunk()
+            last_comma = -1
+            return True
+
+        def move_recent_tokens_to_next_chunk():
+            nonlocal chunk
+            nonlocal last_comma
+
+            if last_comma < 0:
+                return False
+
+            if len(chunk.tokens) - last_comma > comma_padding_backtrack:
+                return False
+
+            moved_tokens = chunk.tokens[last_comma + 1:]
+            moved_multipliers = chunk.multipliers[last_comma + 1:]
+
+            chunk.tokens = chunk.tokens[:last_comma + 1]
+            chunk.multipliers = chunk.multipliers[:last_comma + 1]
+
+            next_chunk(is_last=False)
+            chunk.tokens = moved_tokens
+            chunk.multipliers = moved_multipliers
+            return True
 
         for tokens, (text, weight) in zip(tokenized, parsed):
-            if text == 'BREAK' and weight == -1:
-                next_chunk()
+            if text == "BREAK" and weight == -1:
+                if chunk.tokens:
+                    next_chunk(is_last=False)
                 continue
 
             position = 0
+
             while position < len(tokens):
-                token = tokens[position]
+                embedding, embedding_length = self.embeddings.find_embedding_at_position(
+                    tokens,
+                    position,
+                )
 
-                comma_padding_backtrack = 20
-
-                if token == self.comma_token:
-                    last_comma = len(chunk.tokens)
-
-                elif comma_padding_backtrack != 0 and len(chunk.tokens) == self.chunk_length and last_comma != -1 and len(chunk.tokens) - last_comma <= comma_padding_backtrack:
-                    break_location = last_comma + 1
-
-                    reloc_tokens = chunk.tokens[break_location:]
-                    reloc_mults = chunk.multipliers[break_location:]
-
-                    chunk.tokens = chunk.tokens[:break_location]
-                    chunk.multipliers = chunk.multipliers[:break_location]
-
-                    next_chunk()
-                    chunk.tokens = reloc_tokens
-                    chunk.multipliers = reloc_mults
-
-                if len(chunk.tokens) == self.chunk_length:
-                    next_chunk()
-
-                embedding, embedding_length_in_tokens = self.embeddings.find_embedding_at_position(tokens, position)
                 if embedding is None:
+                    if len(chunk.tokens) >= self.chunk_length:
+                       next_chunk(is_last=False)
+
+                    token = tokens[position]
                     chunk.tokens.append(token)
                     chunk.multipliers.append(weight)
                     position += 1
+
+                    if token == self.comma_token:
+                        last_comma = len(chunk.tokens) - 1
+
+                    if len(chunk.tokens) >= self.chunk_length:
+                        if not move_recent_tokens_to_next_chunk():
+                            next_chunk(is_last=False)
+
                     continue
 
-                emb_len = int(embedding.vectors)
-                if len(chunk.tokens) + emb_len > self.chunk_length:
-                    next_chunk()
+                embedding_length = int(embedding_length)
+                embedding_vectors = int(embedding.vectors)
 
-                chunk.fixes.append(PromptChunkFix(len(chunk.tokens), embedding))
+                if len(chunk.tokens) + embedding_vectors > self.chunk_length:
+                    next_chunk(is_last=False)
 
-                chunk.tokens += [0] * emb_len
-                chunk.multipliers += [weight] * emb_len
-                position += embedding_length_in_tokens
+                chunk.fixes.append(
+                    PromptChunkFix(
+                        offset=len(chunk.tokens),
+                        embedding=embedding,
+                    )
+                )
+                chunk.tokens.extend([0] * embedding_vectors)
+                chunk.multipliers.extend([weight] * embedding_vectors)
+                position += embedding_length
+
+                if len(chunk.tokens) >= self.chunk_length:
+                    next_chunk(is_last=False)
 
         if chunk.tokens or not chunks:
             next_chunk(is_last=True)

@@ -171,11 +171,11 @@ def refresh_base_model(name, performance_selection=None):
     # model_base = core.StableDiffusionModel()
     # vae_filename is in valid only when model is Flux or Kolors, other model type use old method
     model_file_type = get_model_file_type(name)
-    if model_file_type == constants.TYPE_Flux:
-        vae_filename = [get_file_from_folder_list(modules.config.default_flux_vae_name, modules.config.path_vae),
-                        get_file_from_folder_list(modules.config.default_flux_text_encoder_clip,
+    if model_file_type == constants.TYPE_Flux1:
+        vae_filename = [get_file_from_folder_list(modules.config.default_flux1_vae_name, modules.config.path_vae),
+                        get_file_from_folder_list(modules.config.default_flux1_text_encoder_clip,
                                                   modules.config.path_text_encoder),
-                        get_file_from_folder_list(modules.config.default_flux_text_encoder_t5xxl,
+                        get_file_from_folder_list(modules.config.default_flux1_text_encoder_t5xxl,
                                                   modules.config.path_text_encoder)]
     elif model_file_type == constants.TYPE_Kolors:
         vae_filename = [get_file_from_folder_list(modules.config.default_kolors_chatglm_name, modules.config.path_llm)]
@@ -550,15 +550,20 @@ def clear_all_caches():
 @torch.no_grad()
 @torch.inference_mode()
 def prepare_text_encoder(async_call=True):
+    from backend.patcher.base import ModelPatcher as BackendModelPatcher
     if async_call:
         # TODO: make sure that this is always called in an async way so that users cannot feel it.
         pass
     assert_model_integrity()
     if final_clip is not None:
-        if isinstance(final_clip, backend.patcher.vae.ModelPatcher):
-            backend.memory_management.load_models_gpu([final_clip.patcher, final_expansion.patcher])
+        if isinstance(final_clip.patcher, BackendModelPatcher):
+            backend.memory_management.load_models_gpu(
+                [final_clip.patcher, final_expansion.patcher]
+            )
         else:
-            ldm_patched.modules.model_management.load_models_gpu([final_clip.patcher, final_expansion.patcher])
+            ldm_patched.modules.model_management.load_models_gpu(
+                [final_clip.patcher, final_expansion.patcher]
+            )
     else:
         printF(name=MasterName.get_master_name(), info="[final_clip] = {}".format(final_clip)).printf()
     return
