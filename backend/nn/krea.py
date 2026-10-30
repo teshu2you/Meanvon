@@ -15,8 +15,6 @@ from backend.misc.image_resize import adaptive_resize
 from backend.nn.flux import EmbedND, timestep_embedding
 from backend.quant_ops import ck
 from backend.utils import pad_to_patch_size
-from modules.config import MasterName
-from modules.util import printF
 
 
 def _imgids(bs: int, frame: int, h_: int, w_: int, device: torch.device) -> torch.Tensor:
@@ -141,15 +139,7 @@ class TextFusionTransformer(nn.Module):
         self.projector = nn.Linear(num_txt_layers, 1, bias=False)
         self.refiner_blocks = nn.ModuleList([TextFusionBlock(txt_dim, heads, multiplier, bias, kvheads) for _ in range(2)])
 
-    def forward(self, x, mask=None, transformer_options=None):
-        printF(name=MasterName.get_master_name(),
-               info="[KREA-FWD/in] x={} dim={}".format(tuple(x.shape), x.dim())).printf()
-        # x 可能是 3D (L, N, D)：L=token 数、N=stacked hidden 层数、D=hidden dim。
-        # Krea2 的 Qwen3-VL-4B 文本编码器把最后 N 层 hidden 一起喂进来，
-        # txtfusion 负责把它们融成单一 context，输出回到 3D (B, L, D)。
-        # 入口补 batch=1 即可：
-        if x.dim() == 3:
-            x = x.unsqueeze(0)          # (L, N, D) -> (1, L, N, D)
+    def forward(self, x, mask=None, transformer_options={}):
         b, l, n, d = x.shape
         x = x.reshape(b * l, n, d)
         for block in self.layerwise_blocks:
@@ -158,8 +148,6 @@ class TextFusionTransformer(nn.Module):
         x = self.projector(x).squeeze(-1)
         for block in self.refiner_blocks:
             x = block(x, mask=mask, transformer_options=transformer_options)
-        printF(name=MasterName.get_master_name(),
-               info="[KREA-FWD/out] x={} dim={}".format(tuple(x.shape), x.dim())).printf()
         return x
 
 
@@ -248,46 +236,6 @@ class SingleStreamDiT(nn.Module):
         )
 
     def forward(self, x, timesteps, context, attention_mask=None, transformer_options={}, **kwargs):
-        if not hasattr(self, "_weights_logged"):
-            self._weights_logged = True
-            _keys = (
-                "first.weight", "first.bias",
-                "txtfusion.projector.weight",
-                "txtfusion.layerwise_blocks.0.attn.wq.weight",
-                "txtfusion.refiner_blocks.0.attn.wq.weight",
-                "txtmlp.0.scale",              # RMSNorm.scale
-                "txtmlp.1.weight",             # Linear(txtdim, features)
-                "txtmlp.3.weight",             # Linear(features, features)
-                "tmlp.0.weight", "tmlp.2.weight",
-                "tproj.1.weight",              # Linear(features, features*6)
-                "last.linear.weight",
-                "last.modulation.lin",
-                "blocks.0.mod.lin",
-            )
-            for _k in _keys:
-                try:
-                    _p = self.get_parameter(_k)
-                    printF(name=MasterName.get_master_name(),
-                           info="[KREA-W] {} shape={} std={:.6f} "
-                                "absmax={:.6f} absmin={:.4e}".format(
-                                    _k, tuple(_p.shape),
-                                    float(_p.std()), float(_p.abs().max()),
-                                    float(_p.abs().min()))).printf()
-                except Exception:
-                    printF(name=MasterName.get_master_name(),
-                           info="[KREA-W] {:<40s} ***MISSING***".format(_k)).printf()
-
-        printF(name=MasterName.get_master_name(),
-               info="[KREA-FWD/in] x={} dim={} | context={} | t={} | "
-                    "t_val[0]={:.6f} t_min={:.6f} t_max={:.6f}".format(
-                   tuple(x.shape), x.dim(),
-                   tuple(context.shape) if isinstance(context, torch.Tensor) else type(context).__name__,
-                   tuple(timesteps.shape) if isinstance(timesteps, torch.Tensor) else timesteps,
-                   float(timesteps.flatten()[0]) if isinstance(timesteps, torch.Tensor) and timesteps.numel() > 0 else -1.0,
-                   float(timesteps.min()) if isinstance(timesteps, torch.Tensor) and timesteps.numel() > 0 else -1.0,
-                   float(timesteps.max()) if isinstance(timesteps, torch.Tensor) and timesteps.numel() > 0 else -1.0)).printf()
-
-        _input_was_5d = (x.dim() == 5)
         x = x.squeeze(2)
         bs, c, H_orig, W_orig = x.shape
         patch = self.patch
@@ -352,11 +300,6 @@ class SingleStreamDiT(nn.Module):
         final = self.last(combined, t)
         out = final[:, txtlen + reflen : txtlen + reflen + imglen, :]
         out = rearrange(out, "b (h w) (c ph pw) -> b c (h ph) (w pw)", h=h_, w=w_, ph=patch, pw=patch, c=self.channels)
-        
         out = out[:, :, :H_orig, :W_orig]
-        out = out.unsqueeze(2) if _input_was_5d else out
 
-        printF(name=MasterName.get_master_name(),
-               info="[KREA-FWD/out] x={} dim={} (input_was_5d={})".format(
-                   tuple(out.shape), out.dim(), _input_was_5d)).printf()
-        return out
+        return out.unsqueeze(2)

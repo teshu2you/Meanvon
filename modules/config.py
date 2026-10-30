@@ -466,7 +466,7 @@ model_types = [
     # "StableAudio",
     # "AuraFlow",
     # "QwenImage",
-    # "HunyuanDiT",
+    "HunyuanDiT",
     "Krea2",
     # "Flux3",
     "Flux1_Schnell",

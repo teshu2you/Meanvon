@@ -107,13 +107,15 @@ class Wan21(LatentFormat):
         self.latents_std = torch.tensor([2.8184, 1.4541, 2.3275, 2.6558, 1.2196, 1.7708, 2.6052, 2.0743, 3.2687, 2.1526, 2.8652, 1.5579, 1.6382, 1.1253, 2.8251, 1.9160]).view(1, self.latent_channels, 1, 1, 1)
 
     def process_in(self, latent):
-        latents_mean = self.latents_mean.to(latent.device, latent.dtype)
-        latents_std = self.latents_std.to(latent.device, latent.dtype)
+        shape = (1, self.latent_channels) + (1,) * (latent.ndim - 2)
+        latents_mean = self.latents_mean.to(latent.device, latent.dtype).view(shape)
+        latents_std = self.latents_std.to(latent.device, latent.dtype).view(shape)
         return (latent - latents_mean) * self.scale_factor / latents_std
 
     def process_out(self, latent):
-        latents_mean = self.latents_mean.to(latent.device, latent.dtype)
-        latents_std = self.latents_std.to(latent.device, latent.dtype)
+        shape = (1, self.latent_channels) + (1,) * (latent.ndim - 2)
+        latents_mean = self.latents_mean.to(latent.device, latent.dtype).view(shape)
+        latents_std = self.latents_std.to(latent.device, latent.dtype).view(shape)
         return latent * latents_std / self.scale_factor + latents_mean
 
 

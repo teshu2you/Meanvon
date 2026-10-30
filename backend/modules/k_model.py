@@ -99,11 +99,15 @@ class KModel(torch.nn.Module):
         # 形状守卫：视频 DiT 有时会在出口对图像路径也补上 T 轴，
         # 造成 apply_model 返回 5D，而 xc 是 4D，calculate_denoised
         # 与 calc_cond_batch 的广播就会造出幽灵维。这里把多余的 1 维挤掉：
-        if isinstance(model_output, torch.Tensor) and model_output.dim() > xc.dim():
-            for d in range(model_output.dim()):
-                if model_output.shape[d] == 1:
-                    model_output = model_output.squeeze(d)
-                    break
+        if (
+            isinstance(model_output, torch.Tensor)
+            and xc.dim() == 4
+            and model_output.dim() == 5
+            and model_output.shape[:2] == xc.shape[:2]
+            and model_output.shape[2] == 1
+            and model_output.shape[3:] == xc.shape[2:]
+        ):
+            model_output = model_output.squeeze(2)
 
         return self.predictor.calculate_denoised(sigma, model_output, x)
 

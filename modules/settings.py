@@ -19,7 +19,7 @@ def load_settings():
     settings['prompt'] = ''
     settings['negative_prompt'] = ''
     settings['performance'] = 'Speed'
-    settings['fixed_steps'] = 30
+    settings['fixed_steps'] = 28
     settings['custom_steps'] = 24
     settings['custom_switch'] = 0.75
     settings['img2img_mode'] = False
