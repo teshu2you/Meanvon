@@ -6,7 +6,7 @@ import gradio as gr
 
 from modules import errors
 from modules.paths_internal import script_path
-# from modules.shared_cmd_options import cmd_opts
+from modules.shared_cmd_options import cmd_opts
 from modules.ui_components import FormRow
 
 
@@ -95,10 +95,20 @@ options_builtin_fields = {"data_labels", "data", "restricted_opts", "typemap"}
 
 class Options:
     typemap = {int: float}
+    
+    def __init__(self, data_labels=None, restricted_opts=None):
+        from modules import shared
 
-    def __init__(self, data_labels: dict[str, OptionInfo], restricted_opts):
-        self.data_labels = data_labels
-        self.data = {k: v.default for k, v in self.data_labels.items() if not v.do_not_save}
+        # 同时兼容上游 Options() 与 Forge 的 Options(data_labels, restricted_opts)。
+        # 注意：getattr(..., default) 在属性存在但值为 None 时返回 None，
+        # 所以此处必须用 `or {}`，不能只靠 default 参数。
+        if data_labels is None:
+            data_labels = getattr(shared, "options_templates", None) or {}
+        if restricted_opts is None:
+            restricted_opts = getattr(shared, "restricted_opts", None) or set()
+
+        self.data = {}
+        self.data_labels = data_labels              # 保持引用（对齐 Forge 语义）
         self.restricted_opts = restricted_opts
 
     def __setattr__(self, key, value):
@@ -287,10 +297,7 @@ class Options:
         def sort_key(x):
             item: OptionInfo = x[1]
             category_order = category_ids.get(item.category_id, len(category_ids))
-            # Some options (e.g. dynamically registered ones) may not have a
-            # section assigned; treat them as a final fallback group instead of
-            # crashing with 'NoneType' object is not subscriptable.
-            section_order = item.section[1] if item.section is not None else float('inf')
+            section_order = item.section[1]
 
             return category_order, section_order
 

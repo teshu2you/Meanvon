@@ -45,9 +45,9 @@ fpunet_group.add_argument("--fp8_e5m2-unet", action="store_true", help="Store th
 fpunet_group.add_argument("--fp8_e8m0fnu-unet", action="store_true", help="Store the diffusion model in fp8_e8m0fnu")
 
 fpvae_group = parser.add_mutually_exclusive_group()
-fpvae_group.add_argument("--fp32-vae", action="store_true", help="Run the VAE in full precision fp32")
-fpvae_group.add_argument("--bf16-vae", action="store_true", help="Run the VAE in bf16")
-fpvae_group.add_argument("--fp16-vae", action="store_true", help="Run the VAE in fp16 (might cause black images)")
+fpvae_group.add_argument("--fp32-vae", action="store_true", help="Store the VAE in full precision fp32")
+fpvae_group.add_argument("--bf16-vae", action="store_true", help="Store the VAE in bf16")
+fpvae_group.add_argument("--fp16-vae", action="store_true", help="Store the VAE in fp16 (might cause black images)")
 
 parser.add_argument("--cpu-vae", action="store_true", help="Run the VAE on the CPU")
 
@@ -60,16 +60,16 @@ fpte_group.add_argument("--fp8_e5m2-text-enc", action="store_true", help="Store 
 
 parser.add_argument("--cpu-text-enc", action="store_true", help="Run the text encoder on the CPU")
 
+parser.add_argument("--use-ck-attention", action="store_true", help="use Comfy-Kitchen attention")
 parser.add_argument("--use-pytorch-cross-attention", action="store_true", help="Use the PyTorch cross attention (override sageattention/flash_attn/xformers)")
-parser.add_argument("--force-xformers-vae", action="store_true", help="Force VAE to use xformers attention (meant to use with PyTorch cross attention)")
+parser.add_argument("--force-xformers-vae", action="store_true", help="Force VAE to use xformers attention (meant to be used with --use-pytorch-cross-attention)")
 parser.add_argument("--force-upcast-attention", action="store_true", help="Always upcast to fp32 during attention")
 
 parser.add_argument("--sage", action="store_true", help="install sageattention")
 parser.add_argument("--flash", action="store_true", help="install flash_attn")
 parser.add_argument("--xformers", action="store_true", help="install xformers")
 parser.add_argument("--nunchaku", action="store_true", help="install nunchaku for SVDQ inference")
-parser.add_argument("--bnb", action="store_true", help="install bitsandbytes for 4-bit inference")
-parser.add_argument("--onnxruntime-gpu", action="store_true", help="install nightly onnxruntime-gpu with cu130 support")
+parser.add_argument("--pynvml", action="store_true", help="install pyNVML for accurate VRAM tracking")
 
 parser.add_argument("--disable-sage", action="store_true", help="disable sageattention")
 parser.add_argument("--disable-flash", action="store_true", help="disable flash_attn")
@@ -81,7 +81,6 @@ parser.add_argument("--deterministic", action="store_true", help="Use slower det
 vram_group = parser.add_mutually_exclusive_group()
 vram_group.add_argument("--gpu-only", action="store_true", help="Store and run everything on the GPU")
 vram_group.add_argument("--highvram", action="store_true", help="Keeps models in VRAM after usage")
-vram_group.add_argument("--normalvram", action="store_true", help="Force NORMAL_VRAM in case LOW_VRAM gets automatically enabled")
 vram_group.add_argument("--lowvram", action="store_true", help="Split the diffusion model in parts to use less VRAM")
 vram_group.add_argument("--novram", action="store_true", help="When even LOW_VRAM is still not enough")
 vram_group.add_argument("--cpu", action="store_true", help="Use the CPU for everything (slow)")
@@ -103,7 +102,7 @@ parser.add_argument("--mmap-torch-files", action="store_true", help="Use mmap wh
 parser.add_argument("--disable-mmap", action="store_true", help="Don't use mmap when loading safetensors")
 
 parser.add_argument("--tiled-conv2d", type=int, default=0, metavar="TILE_SIZE", choices=[0, 64, 128, 256, 512], help="reduce VAE memory usage ; increase processing time")
-parser.add_argument("--disable-triton-backend", action="store_true", help="Disable the use of Triton backend in comfy-kitchen")
+parser.add_argument("--enable-triton-backend", action="store_true", help="Enable the use of Triton backend in comfy-kitchen")
 
 
 class SageAttentionFuncs(enum.Enum):
@@ -158,6 +157,8 @@ class dynamic_args(metaclass=_DynamicArgsMeta):
     """Flux Kontext"""
     edit: bool = False
     """Qwen-Image-Edit"""
+    qwen21: bool = False
+    """Qwen-Image-2.1"""
     nunchaku: bool = False
     """Nunchaku (SVDQ) Models"""
     klein: bool = False
@@ -166,16 +167,22 @@ class dynamic_args(metaclass=_DynamicArgsMeta):
     """Wan 2.2"""
     pid: bool = False
     """PiD"""
+    anima: bool = False
+    """Anima"""
     krea2: bool = False
     """Krea 2"""
+    moss: bool = False
+    """Moss-Image"""
     ref_latents: list["torch.Tensor"] = []
-    """Reference Latent(s) for Flux Kontext / Qwen-Image-Edit / Flux.2 Klein / Krea 2"""
+    """Reference Latent(s) for Flux Kontext / Qwen-Image-Edit / Flux.2 Klein"""
     concat_latent: "torch.Tensor" = None
     """Input Latent for Wan 2.2 I2V"""
     lq_latent: list["torch.Tensor", "torch.Tensor"] = [None, None]
     """lq_latent & degrade_sigma for PiD"""
     context_handler: "IndexListContextHandler" = None
     """Context Handler for PiD"""
+    image_slots: list[int] = None
+    """Image Slots for Qwen-Image-2.1"""
     is_referencing: bool = False
     """Appending Reference Latent(s) (by. ImageStitch)"""
     ops: str = None
@@ -194,3 +201,8 @@ class dynamic_args(metaclass=_DynamicArgsMeta):
         cls.concat_latent = None
         cls.lq_latent = [None, None]
         cls.context_handler = None
+        cls.image_slots = None
+
+    @classmethod
+    def can_reference(cls) -> bool:
+        return any(getattr(cls, key) for key in ("kontext", "edit", "qwen21", "klein", "wan", "anima", "krea2"))

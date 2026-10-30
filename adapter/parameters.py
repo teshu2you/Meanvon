@@ -10,8 +10,6 @@ default_inpaint_engine_version = 'v2.6'
 
 default_styles = config.default_styles
 default_base_model_name = config.default_base_model_name
-default_refiner_model_name = config.default_refiner_model_name
-default_refiner_switch = config.default_refiner_switch
 default_loras = config.default_loras
 default_cfg_scale = config.default_cfg_scale
 default_prompt_negative = config.default_prompt_negative

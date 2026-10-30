@@ -2,7 +2,9 @@
 import torch
 from enum import Enum
 import math
-
+import os
+import torch
+from enum import Enum
 from backend import memory_management
 from backend.loader import forge_loader
 from ldm_patched.modules import model_management
@@ -567,26 +569,95 @@ forge_unet_storage_dtype_options = {
     'float8-e5m2': (torch.float8_e5m2, False),
     'float8-e5m2 (fp16 LoRA)': (torch.float8_e5m2, True),
 }
-def load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, output_clipvision=False, embedding_directory=None, output_model=True, model_options={}, te_model_options={},model_file_type=None, vae_filename_param=None):
-    if model_file_type in [constants.TYPE_Flux, constants.TYPE_Kolors]:
-        sd_model = forge_loader(sd=ckpt_path, additional_state_dicts=vae_filename_param)
-        model_data.set_sd_model(sd_model)
 
-        sd_model.forge_objects = sd_model.forge_objects_original.shallow_copy()
-        sd_fo = sd_model.forge_objects
 
-        if sd_fo.unet.current_device != torch.device("cpu"):
+def _is_forge_engine_type(model_file_type) -> bool:
+    """判断该 model_file_type 是否必须由 backend forge_loader 加载。
+    Flux1 / Flux2 / Flux3 / Kolors / ZImage / QwenImage / HunyuanDiT / Krea2 都是
+    unet-only checkpoint，VAE 与文本编码器需要从 additional_state_dicts 补齐。
+    """
+    if not isinstance(model_file_type, str):
+        return False
+    return model_file_type in getattr(constants, "TYPE_FORGE_ENGINES", ())
+
+
+# 文件名关键词 → 走 forge_loader。
+# 加在这里而不是内联，是为了以后 Krea2 / 新族加词表只动一处。
+_FORGE_ENGINE_NAME_KEYWORDS = (
+    "zimage", "z-image",
+    "qwen", "qwenimage", "qwen-image", "qwen_image",
+    "flux",
+    "krea2", "krea-2", "krea_2",
+    "kolors",
+    "hunyuan",
+)
+
+def _load_with_forge_loader(ckpt_path, vae_filename_param):
+    sd_model = forge_loader(sd=ckpt_path, additional_state_dicts=vae_filename_param)
+    model_data.set_sd_model(sd_model)
+
+    sd_model.forge_objects = sd_model.forge_objects_original.shallow_copy()
+    sd_fo = sd_model.forge_objects
+
+    if sd_fo.unet.current_device != torch.device("cpu"):
+        printF(name=MasterName.get_master_name(), info="loaded straight to GPU").printf()
+        memory_management.load_model_gpu(sd_fo.clip.patcher)
+
+    return sd_fo.unet, sd_fo.clip, sd_fo.vae, vae_filename_param, sd_fo.clipvision, sd_model
+
+
+def load_checkpoint_guess_config(
+        ckpt_path, output_vae=True, output_clip=True, output_clipvision=False,
+        embedding_directory=None, output_model=True, model_options={},
+        te_model_options={}, model_file_type=None, vae_filename_param=None):
+
+    # ---------- 新式引擎：Flux1 / Flux2 / ZImage / QwenImage / Kolors / HunyuanDiT / Krea2 ----------
+    # 两条独立通道：
+    #   1) model_file_type 明确指向 forge engines（TYPE_FLUX / TYPE_ZIMAGE ...）
+    #   2) 文件名命中关键词表
+    # 二者任一为真就走 forge_loader。
+    #
+    # 原来的写法是 `_is_forge_engine_type(model_file_type) or (_guess_by_name and model_file_type is None)`，
+    # 只要调用方传了 constants.TYPE_NORMAL（refresh_base_model 的默认路径就是这个），
+    # 文件名命中也无法触发 forge_loader —— 这就是 Krea2 一直报
+    # "Could not detect model type" 的直接原因。
+    _basename_lower = os.path.basename(str(ckpt_path)).lower()
+    _by_type = _is_forge_engine_type(model_file_type)
+    _by_name = any(k in _basename_lower for k in _FORGE_ENGINE_NAME_KEYWORDS)
+
+    if _by_type or _by_name:
+        printF(name=MasterName.get_master_name(),
+               info="Loading via forge_loader "
+                    "(type={}, by_type={}, by_name={}, file={})".format(
+                        model_file_type, _by_type, _by_name,
+                        os.path.basename(str(ckpt_path)))).printf()
+        try:
+            return _load_with_forge_loader(ckpt_path, vae_filename_param)
+        except Exception as e:
+            # 关键：把文件名带上，否则多轮 aux 循环里看不出是哪个文件挂的。
+            import traceback
             printF(name=MasterName.get_master_name(),
-                   info="loaded straight to GPU").printf()
-            memory_management.load_model_gpu(sd_fo.clip.patcher)
+                   info="forge_loader failed (file={}): {!r}".format(
+                       os.path.basename(str(ckpt_path)), e)).printf()
+            traceback.print_exc()
+            # 保留 fallback 到旧式加载（兼容文件名为 SDXL 但恰好含 flux 的老 ckpt）。
+            # 如果后面仍 raise "Could not detect model type"，
+            # 上面的 traceback 才是真正的失败原因。
 
-        out = sd_fo.unet, sd_fo.clip, sd_fo.vae, vae_filename_param, sd_fo.clipvision, sd_model
-    else:
-        sd = ldm_patched.modules.utils.load_torch_file(ckpt_path)
-        out = load_state_dict_guess_config(sd, output_vae, output_clip, output_clipvision, embedding_directory, output_model, model_options, te_model_options=te_model_options,model_file_type=model_file_type, vae_filename_param=vae_filename_param)
+    # ---------- 旧式 checkpoint（SD15 / SDXL / 一体化 ckpt）----------
+    sd = ldm_patched.modules.utils.load_torch_file(ckpt_path)
+    out = load_state_dict_guess_config(
+        sd, output_vae, output_clip, output_clipvision, embedding_directory,
+        output_model, model_options,
+        te_model_options=te_model_options,
+        model_file_type=model_file_type,
+        vae_filename_param=vae_filename_param)
+
     if out is None:
         raise RuntimeError("ERROR: Could not detect model type of: {}".format(ckpt_path))
     return out
+
+
 
 def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_clipvision=False, embedding_directory=None, output_model=True, model_options={}, te_model_options={}, model_file_type=None, vae_filename_param=None):
     clip = None

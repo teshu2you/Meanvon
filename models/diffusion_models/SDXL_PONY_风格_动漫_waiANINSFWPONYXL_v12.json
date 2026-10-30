@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"Dec 18, 2024",
+	"Base": "Pony",
+	"Links": "https://civitai.work/models/404154?modelVersionId=1177000",
+	"Version": "v12",
+	"Tags": "style anime sexy",
+	"Usage_Tips": "Clip Skip: 2 Steps: 30 CFG scale: 7 Sampler: Euler a/DPM++ 2M Karras ADetailer face_yolov8n/s.pt use can fix eyes",
+	"Author": "WAI0731",
+	"ReMark": "V12 released.Style adjustment, background adjustment, and increased stability. Added more compositions"
+}

@@ -117,6 +117,11 @@ def detect_unet_config(state_dict, key_prefix):
         unet_config["n_layers"] = double_layers + single_layers
         return unet_config
 
+    if '{}xxx.0.yyy.weight'.format(key_prefix) in state_dict_keys:  # MOSS
+        unet_config = {}
+        unet_config["image_model"] = "moss_image"
+        return unet_config
+    
     if '{}mlp_t5.0.weight'.format(key_prefix) in state_dict_keys:  # Hunyuan DiT
         unet_config = {}
         unet_config["image_model"] = "hydit"

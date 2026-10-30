@@ -28,7 +28,6 @@ import ldm_patched.ldm.hydit.models
 import ldm_patched.ldm.audio.dit
 import ldm_patched.ldm.audio.embedders
 import ldm_patched.ldm.flux.model
-
 import ldm_patched.modules.model_management
 import ldm_patched.modules.conds
 import ldm_patched.modules.ops
@@ -721,4 +720,29 @@ class Flux(BaseModel):
         if cross_attn is not None:
             out['c_crossattn'] = ldm_patched.modules.conds.CONDRegular(cross_attn)
         out['guidance'] = ldm_patched.modules.conds.CONDRegular(torch.FloatTensor([kwargs.get("guidance", 3.5)]))
+        return out
+
+class ZImage(BaseModel):
+    """Z-Image 家族（ZImage_Turbo / ZImage_Base）。
+
+    两者是同一套 flow-matching DiT 架构，
+    区别只在于采样参数（步数 / CFG / shift），
+    由 flags.zimage_branch_configs 提供，不在这里分支。
+    """
+    def __init__(self, model_config, model_type=ModelType.FLUX, device=None):
+        super().__init__(
+            model_config,
+            model_type,
+            device=device,
+            unet_model=ldm_patched.ldm.zimage.model.ZImage,
+        )
+
+    def encode_adm(self, **kwargs):
+        return None
+
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        if cross_attn is not None:
+            out['c_crossattn'] = ldm_patched.modules.conds.CONDRegular(cross_attn)
         return out

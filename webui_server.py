@@ -35,13 +35,45 @@ from modules.auth import auth_enabled, check_auth
 import ast
 from resources import *
 import socket
-from procedure.worker_ui_patch import task_manager
+import re 
+import shared                                  # Fooocus root —— 保留这个名字
+
+from modules.initialize import initialize
+initialize()
+
+# only import the rest of the tree AFTER this
+from procedure.worker_ui_patch import *           # your existing line ~38
 from adapter.task_queue import QueueTask, TaskQueue
 from config import *
 
 worker_queue: TaskQueue = None
 queue_task: QueueTask = None
 last_model_name = None
+
+import base64
+import os
+
+
+def _image_to_data_uri(path: str) -> str:
+    """把本地图片转成 data URI，绕过 gradio 静态路由。"""
+    if not path or not os.path.isfile(path):
+        return ""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".jpg", ".jpeg"):
+        mime = "image/jpeg"
+    elif ext == ".webp":
+        mime = "image/webp"
+    elif ext in (".tif", ".tiff", ".jp2"):
+        from PIL import Image
+        import io
+        with Image.open(path) as img:
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    else:
+        mime = "image/png"
+    with open(path, "rb") as f:
+        return f"data:{mime};base64,{base64.b64encode(f.read()).decode('ascii')}"
 
 warnings.filterwarnings('ignore')
 GALLERY_ID_INPUT = 0
@@ -112,6 +144,9 @@ def local_ip():
 
 tmp_bug = "./.tmp"
 os.makedirs(tmp_bug, exist_ok=True)
+
+# Fooocus 的 modules/ui_tempdir.py:save_pil_to_file 用 ./tmp
+os.makedirs("./tmp", exist_ok=True)   # ← 补这一行
 
 blankfile_common = "./.tmp/blank.txt"
 with open(blankfile_common, 'w') as savefile:
@@ -356,26 +391,10 @@ def metadata_to_ctrls(metadata, ctrls):
             ctrls[17] = _tmp + ".safetensors"
         else:
             ctrls[17] = _tmp
-    if 'refiner_model' in metadata:
-        _tmp = metadata.get('refiner_model')
-        if ".safetensors" not in _tmp and ".gguf" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
-            ctrls[18] = _tmp + ".safetensors"
-        else:
-            ctrls[18] = _tmp
-    elif 'refiner_model_name' in metadata:
-        _tmp = metadata.get('refiner_model_name')
-        if ".safetensors" not in _tmp and ".gguf" not in _tmp and _tmp not in ['None', 'none', 'Not Exist!->']:
-            ctrls[18] = _tmp + ".safetensors"
-        else:
-            ctrls[18] = _tmp
     if 'base_clip_skip' in metadata:
-        ctrls[19] = _clamp_int(metadata.get('base_clip_skip'), -10, -1, ctrls[19])
-    if 'refiner_clip_skip' in metadata:
-        ctrls[20] = _clamp_int(metadata.get('refiner_clip_skip'), -10, -1, ctrls[20])
-    if 'refiner_switch' in metadata:
-        ctrls[21] = _clamp(metadata.get('refiner_switch'), 0.1, 1.0, ctrls[21])
+        ctrls[18] = _clamp_int(metadata.get('base_clip_skip'), -10, -1, ctrls[18])      # 原 19
 
-    lora_begin_idx = 22
+    lora_begin_idx = 19
     lora_num = 5
     for lrn in range(lora_num):
         index = 'lora_combined_' + str(lrn + 1)
@@ -402,10 +421,13 @@ def metadata_to_ctrls(metadata, ctrls):
             ctrls[lora_begin_idx + 2] = 1
         lora_begin_idx += 3
 
-    if 'model_type_selector' in metadata and len(ctrls) > 122:
-        ctrls[122] = metadata.get('model_type_selector')
-    if 'seed_random' in metadata and len(ctrls) > 123:
-        ctrls[123] = _to_bool(metadata.get('seed_random'), ctrls[123])
+    # 末尾三格固定为：model_type_selector / nsfw_filter / seed_random
+    # （load_prompt_handler / load_last_prompt_handler 都是 ctrls + [seed_random] 传入）
+    if len(ctrls) >= 3:
+        if 'model_type_selector' in metadata:
+            ctrls[-3] = metadata.get('model_type_selector')
+        if 'seed_random' in metadata:
+            ctrls[-1] = _to_bool(metadata.get('seed_random'), ctrls[-1])
 
     printF(name=MasterName.get_master_name(),
            info="[Parameters] AFTER--> ctrls: {} - {}".format(len(ctrls), ctrls)).printf()
@@ -496,6 +518,159 @@ def output_to_revision_handler(gallery):
         return gr.update(value=True), list(map(lambda x: x['name'], gallery[:4])), gr.update(
             selected=GALLERY_ID_REVISION)
 
+# =========================================================================
+# 模型类型 -> 生成参数预设
+#   keys:        归一化名称下需全部包含的关键字（越具体的放越前）
+#   ratios:      优先比例列表，取第一个在 available_aspect_ratios 里真实存在的
+#   sampler_pairs: [(sampler, scheduler), ...] 成对定义；
+#                  只取第一对两个值都在 flags 列表里真实存在的，避免错配
+# =========================================================================
+MODEL_TYPE_PRESETS = [
+    {
+        "label": "FLUX.2 Klein 4B / 9B",
+        "keys": [("flux", "klein")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768), (1024, 576), (1216, 704)],
+        "steps": 20, "cfg": 5.0, "adaptive_cfg": 5.0,
+        "sampler_pairs": [("euler", "simple"), ("dpmpp_2m", "normal")],
+    },
+    {
+        "label": "FLUX.2 [dev]",
+        "keys": [("flux", "2", "dev")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768), (1216, 704), (1024, 576)],
+        "steps": 20, "cfg": 3.5, "adaptive_cfg": 3.5,
+        "sampler_pairs": [("euler", "simple"), ("dpmpp_2m", "normal")],
+    },
+    {
+        "label": "FLUX.1 [dev]",
+        "keys": [("flux", "1", "dev")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768)],
+        "steps": 20, "cfg": 3.5, "adaptive_cfg": 3.5,
+        "sampler_pairs": [("dpmpp_2m", "simple"), ("euler", "simple")],
+    },
+    {
+        "label": "FLUX.1 [Schnell]",
+        "keys": [("flux", "1", "schnell")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768)],
+        "steps": 4, "cfg": 1.0, "adaptive_cfg": 1.0,
+        "sampler_pairs": [("euler", "simple")],
+    },
+    {
+        "label": "Qwen-Image 3.0",
+        "keys": [("qwen", "3")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768)],
+        "steps": 25, "cfg": 5.0, "adaptive_cfg": 5.0,
+        "sampler_pairs": [("dpmpp_2m", "karras"), ("euler", "normal")],
+    },
+    {
+        "label": "Qwen-Image 2.1",
+        "keys": [("qwen", "2")],
+        "ratios": [(1024, 1024), (768, 768), (720, 720)],
+        "steps": 22, "cfg": 2.0, "adaptive_cfg": 2.0,
+        "sampler_pairs": [("euler", "normal"), ("dpmpp_2m", "simple")],
+    },
+    {
+        "label": "Z-Image Turbo",
+        "keys": [("zimage", "turbo"), ("zimage", "lcm")],
+        "ratios": [(1024, 1024), (1280, 720), (720, 1280)],
+        "steps": 8, "cfg": 1.0, "adaptive_cfg": 1.0,
+        "sampler_pairs": [("euler", "sgm_uniform"), ("euler", "simple"), ("euler", "normal")],
+    },
+    {
+        "label": "Z-Image Base",
+        "keys": [("zimage", "base")],
+        "ratios": [(1024, 1024), (768, 768)],
+        "steps": 24, "cfg": 6.0, "adaptive_cfg": 6.0,
+        "sampler_pairs": [("dpmpp_2m", "karras"), ("dpmpp_sde", "karras"), ("euler_ancestral", "normal")],
+    },
+    {
+        "label": "HunyuanImage 3.0 Lite / Distilled",
+        "keys": [("hunyuan", "lite"), ("hunyuan", "distill")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768)],
+        "steps": 8, "cfg": 1.0, "adaptive_cfg": 1.0,
+        "sampler_pairs": [("euler", "simple")],
+    },
+    {
+        "label": "HunyuanImage 3.0",
+        "keys": [("hunyuan", "3")],
+        "ratios": [(1024, 1024), (896, 1152), (768, 1280)],
+        "steps": 13, "cfg": 2.0, "adaptive_cfg": 2.0,
+        "sampler_pairs": [("dpmpp_2m", "karras")],
+    },
+    {
+        "label": "SD 3.5 Large / Medium",
+        "keys": [("sd", "35"), ("stable", "3", "5"), ("sd", "3", "5")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768)],
+        "steps": 28, "cfg": 5.0, "adaptive_cfg": 5.0,
+        "sampler_pairs": [("euler", "normal"), ("dpmpp_2m", "simple")],
+    },
+    {
+        "label": "Ideogram 4",
+        "keys": [("ideogram", "4")],
+        "ratios": [(1024, 1024), (1280, 720), (1152, 864)],
+        "steps": 26, "cfg": 5.0, "adaptive_cfg": 5.0,
+        "sampler_pairs": [("euler", "normal"), ("dpmpp_2m", "simple")],
+    },
+    {
+        "label": "Krea2",
+        "keys": [("krea", "2")],
+        "ratios": [(1024, 1024), (896, 1152), (1152, 896)],
+        "steps": 24, "cfg": 5.0, "adaptive_cfg": 5.0,
+        "sampler_pairs": [("euler", "normal"), ("dpmpp_2m", "simple")]
+    },
+    {
+        "label": "SDXL / SDXL family",
+        "keys": [("sdxl",), ("sd", "xl"), ("pony",), ("illustrious",), ("noobai",), ("animagine",)],
+        "ratios": [(1024, 1024), (1152, 896), (1280, 720), (896, 1152), (768, 1024)],
+        "steps": 28, "cfg": 6.0, "adaptive_cfg": 7.0,
+        "sampler_pairs": [("dpmpp_2m", "karras"), ("dpmpp_sde", "karras")],
+    },
+]
+
+
+def _norm_model_type(text):
+    """'FLUX.2 [dev]' -> 'flux2dev'，做关键字匹配用。"""
+    return re.sub(r'[^a-z0-9]+', '', str(text or '').lower())
+
+
+def _match_model_type_preset(model_type):
+    norm = _norm_model_type(model_type)
+    if not norm:
+        return None
+    for spec in MODEL_TYPE_PRESETS:
+        for keys in spec["keys"]:
+            if all(k in norm for k in keys):
+                return spec
+    return None
+
+
+def _pick_aspect_ratio(candidates):
+    """把 (w, h) 候选映射到 available_aspect_ratios 里真实存在的字符串。"""
+    available = list(getattr(modules.config, "available_aspect_ratios", []) or [])
+    mapping = {}
+    for item in available:
+        nums = re.findall(r'\d+', str(item))
+        if len(nums) >= 2:
+            mapping.setdefault((int(nums[0]), int(nums[1])), item)
+    for w, h in candidates:
+        if (w, h) in mapping:
+            return mapping[(w, h)]
+    return None
+
+
+def _pick_sampler_pair(pairs, sampler_choices, scheduler_choices):
+    """
+    按 sampler_pairs 顺序取第一对两个值都真实存在的组合，
+    保证 sampler_name / scheduler_name 永远成对、不错配。
+    """
+    sampler_lookup = {str(s).lower(): s for s in (sampler_choices or [])}
+    scheduler_lookup = {str(s).lower(): s for s in (scheduler_choices or [])}
+    for samp, sched in pairs:
+        s_val = sampler_lookup.get(str(samp).lower()) if samp else None
+        d_val = scheduler_lookup.get(str(sched).lower()) if sched else None
+        if s_val is not None and d_val is not None:
+            return s_val, d_val
+    return None, None
+
 
 app = FastAPI()
 #
@@ -574,10 +749,43 @@ with gr.Blocks(
         max-width: 100% !important;
     }
 
-    /* ===== 全局字体：微软雅黑等标准互联网字体 ===== */
-    body,
-    .gradio-container {
-        font-family: 'Microsoft YaHei', '微软雅黑', 'PingFang SC', 'Segoe UI', sans-serif !important;
+    /* ===== Aspect Ratios 选项等宽对齐 ===== */
+    .aspect_ratios {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    /* 固定每行 5 个；minmax(0,1fr) 保证不会被内容撑破 */
+    .aspect_ratios > div,
+    .aspect_ratios .wrap {
+        display: grid !important;
+        grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+        gap: 6px !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        align-items: stretch !important;
+    }
+
+    /* 每个选项：占满所在格子，宽度一致 */
+    .aspect_ratios label {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        padding: 4px 6px !important;
+        white-space: nowrap !important;
+        font-size: 12px !important;   /* 稍微缩一点，5 列时文字能多留一些 */
+    }
+
+    /* 文字超出直接截断，不换行（沿用原逻辑） */
+    .aspect_ratios label span,
+    .aspect_ratios label > div {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        min-width: 0 !important;
     }
     """
 ) as shared.gradio_root:
@@ -1298,7 +1506,7 @@ with gr.Blocks(
                         + ' <br> <font color="blue" size="1">-->Prompt, Negative Prompt,  Performance, Custom Steps, Aspect Ratios, Image Seed, </font>' \
                         + ' <br> <font color="blue" size="1">-->Final Style Keys, </font>' \
                         + ' <br> <font color="blue" size="1">-->Base Model, Refiner, Refiner Switch, LoRAs,</font>' \
-                        + ' <br> <font color="blue" size="1">-->Base CLIP Skip, Refiner CLIP Skip, Sharpness, Guidance Scale, Sampler, Scheduler.</font>' \
+                        + ' <br> <font color="blue" size="1">-->Base CLIP Skip, Sharpness, Guidance Scale, Sampler, Scheduler.</font>' \
                         + ' '
 
 
@@ -1439,8 +1647,12 @@ with gr.Blocks(
                                           value=modules.config.default_styles, lines=5, max_lines=100,
                                           visible=True)
                 with gr.Accordion(label='Style Sample', open=False) as style_sample:
-                    style_gallery = gr.Gallery(label='Gallery', show_label=False, object_fit='contain', height=300,
-                                               visible=True, elem_classes='resizable_area')
+                    style_gallery = gr.HTML(
+                        value="<div style='height:300px;color:#999;text-align:center;line-height:300px;'>"
+                            "Select a style to preview</div>",
+                        visible=True,
+                        elem_classes='resizable_area',
+                    )
 
                 with gr.Accordion(label='Style keys List', open=True):
                     style_sorter.try_load_sorted_styles(
@@ -1494,9 +1706,9 @@ with gr.Blocks(
                             if k == "Default":
                                 continue
                             ch = li
-                            vl = [fooocus_expansion]
+                            vl = []
                             if op is None:
-                                vl = legal_style_names
+                                vl = []
                             elif 0 == op:
                                 vl = []
                             elif 1 == op:
@@ -1561,7 +1773,7 @@ with gr.Blocks(
                         else:
                             special = _p(choice)
                             return gr.update(show_label=False, container=False,
-                                                           choices=[fooocus_expansion] + special,
+                                                           choices=[] + special,
                                                            value=special,
                                                            label='Image Style')
 
@@ -1569,20 +1781,39 @@ with gr.Blocks(
                     style_class.change(fn=change_style_class, inputs=style_class, outputs=style_selections)
 
 
-                def _convert_style(x):
-                    path = modules.config.path_style_samples + "\\"
-                    default_file = (path + "blank_style.png", "blank_style")
-                    _files = []
-                    file_subfix = [".jpg", ".jpeg", ".png", ".webp", ".tiff", ".jp2"]
-                    for xx in x:
-                        for file in [f'{path}{xx}{ext}' for ext in file_subfix]:
-                            if os.path.isfile(file):
-                                printF(name=MasterName.get_master_name(), info="[info] file = {}".format(file)).printf()
-                                file = (file, xx)
-                                _files.append(file)
-                    if _files:
-                        return [x.__str__(), gr.update(open=True), gr.update(value=_files)]
-                    return [x.__str__(), gr.update(open=False), gr.update(value=[default_file])]
+                    def _convert_style(x):
+                        path = modules.config.path_style_samples + os.sep
+                        file_subfix = [".jpg", ".jpeg", ".png", ".webp", ".tiff", ".jp2"]
+
+                        cards = []
+                        for xx in x:
+                            for suffix in file_subfix:
+                                candidate = os.path.join(path, f"{xx}{suffix}")
+                                if os.path.isfile(candidate):
+                                    printF(name=MasterName.get_master_name(),
+                                        info="[info] file = {}".format(candidate)).printf()
+                                    data_uri = _image_to_data_uri(candidate)
+                                    if data_uri:
+                                        cards.append(
+                                            f"<div style='display:inline-block;vertical-align:top;text-align:center;"
+                                            f"margin:4px;width:150px;'>"
+                                            f"<img src='{data_uri}' style='max-width:150px;max-height:150px;border-radius:4px;'/>"
+                                            f"<div style='font-size:11px;line-height:1.2;word-break:break-word;margin-top:2px;'>{xx}</div>"
+                                            f"</div>"
+                                        )
+                                    break  # 一个 style 只取第一个命中的扩展名
+
+                        if cards:
+                            html = (
+                                "<div style='display:flex;flex-wrap:wrap;justify-content:center;"
+                                "align-items:flex-start;max-height:320px;overflow-y:auto;padding:4px;'>"
+                                + "".join(cards)
+                                + "</div>"
+                            )
+                            return [x.__str__(), gr.update(open=True), gr.update(value=html)]
+
+                        return [x.__str__(), gr.update(open=False),
+                                gr.update(value="<div style='padding:8px;color:#888;'>No preview available</div>")]
 
 
                 style_selections.change(fn=_convert_style,
@@ -1658,13 +1889,13 @@ with gr.Blocks(
                     allow_custom_value=True,
                 )
 
-                    refiner_model = gr.Dropdown(
-                        label='Refiner (SDXL or SD 1.5)',
-                        choices=['None'] + modules.config.model_filenames,
-                        value=modules.config.default_refiner_model_name,
-                        show_label=True,
-                        allow_custom_value=True,
-                    )
+                    # refiner_model = gr.Dropdown(
+                    #     label='Refiner (SDXL or SD 1.5)',
+                    #     choices=['None'] + modules.config.model_filenames,
+                    #     value=modules.config.default_refiner_model_name,
+                    #     show_label=True,
+                    #     allow_custom_value=True,
+                    # )
                 with gr.Row():
                     with gr.Accordion(label="-", open=False) as bm_acc:
                         img_bm_thumbnail = grh.Image(label='bm_thumbnail', type='filepath', show_label=False,
@@ -1672,46 +1903,30 @@ with gr.Blocks(
                         with gr.Accordion(label="--", open=False):
                             img_bm_info = gr.HTML(value="")
 
-                    with gr.Accordion(label="-", open=False) as rm_acc:
-                        img_rm_thumbnail = grh.Image(label='rm_thumbnail', type='filepath', show_label=False,
-                                                     height=300)
-                        with gr.Accordion(label="--", open=False):
-                            img_rm_info = gr.HTML(value="")
-
-                refiner_switch = gr.Slider(label='Refiner Switch At', minimum=0.1, maximum=1.0, step=0.0001,
-                                           info='Use 0.4 for SD1.5 realistic models; '
-                                                'or 0.667 for SD1.5 anime models; '
-                                                'or 0.8 for XL-refiners; '
-                                                'or any value for switching two SDXL models.',
-                                           value=modules.config.default_refiner_switch,
-                                           visible=modules.config.default_refiner_model_name not in ['None',
-                                                                                                     'Not Exist!->'])
-
-
                 def get_thumbnail_info(x):
                     if x is None:
                         x = "None"
-                    if x is not None and "lora" in x.lower():
-                        path = modules.config.paths_loras[0] + "\\"
+                    if "lora" in x.lower():
+                        path = modules.config.paths_loras[0] + os.sep
                     else:
-                        path = modules.config.paths_checkpoints[0] + "\\"
+                        path = modules.config.paths_checkpoints[0] + os.sep
                     printF(name=MasterName.get_master_name(),
-                           info="[Parameters] path,x = {}{}".format(path, x)).printf()
+                        info="[Parameters] path,x = {}{}".format(path, x)).printf()
 
                     file_subfix = [".jpg", ".jpeg", ".png", ".webp", ".tiff", ".jp2"]
                     if "." in x:
-                        x = x.split(".")[:-1]
-                        x = ".".join(x)
-                        for file in [f'{path}{x}{ext}' for ext in file_subfix]:
-                            if os.path.isfile(file):
-                                # print(f"file:{file}")
-                                info = convert_json_to_html(get_target_info(x))
-                                return [gr.update(open=True), gr.update(value=file), gr.update(value=info)]
+                        x = ".".join(x.split(".")[:-1])
+
+                    for file in [f"{path}{x}{ext}" for ext in file_subfix]:
+                        if os.path.isfile(file):
+                            info = convert_json_to_html(get_target_info(x))
+                            return [gr.update(open=True), gr.update(value=file), gr.update(value=info)]
                     return [gr.update(open=False), gr.update(value=None), gr.update(value="")]
 
 
-                def get_model_type_selector(model_type, current_model):
+                def get_model_type_selector(model_type, current_model, current_style_class):
                     model_type_key = str(model_type or "").lower()
+                    is_sdxl = ("sdxl" in model_type_key) or ("xl" in model_type_key)
 
                     model_choices = ["None"]
                     for model_type_name in modules.config.model_types:
@@ -1720,63 +1935,62 @@ with gr.Blocks(
                                 modules.config.modelfile_path,
                                 name_filter=model_type_name,
                             )
-
                     model_choices = list(dict.fromkeys(model_choices))
-                    model_value = (
-                        current_model
-                        if current_model in model_choices
-                        else model_choices[0]
-                    )
+                    model_value = current_model if current_model in model_choices else model_choices[0]
+
+                    if not is_sdxl:
+                        # 非 SDXL：显式清空（你原本想要的语义）
+                        return [
+                            gr.update(label=model_type, choices=model_choices, value=model_value),
+                            gr.update(visible=True, value='ALL_UnChecked'),
+                        ]
+
+                    # SDXL：保留用户当前 style_class 的选中项，不回落、不清空
+                    _choices = ['Default', 'ALL_Checked', 'ALL_UnChecked'] + list(hot_style_keys.keys())
+                    _value = current_style_class if current_style_class in _choices else 'Default'
 
                     return [
-                        gr.update(
-                            label=model_type,
-                            choices=model_choices,
-                            value=model_value,
-                        ),
-                        gr.update(
-                            choices=["None"] + list(modules.config.model_filenames),
-                            value="None",
-                            visible=True,
-                        ),
-                        gr.update(visible=True),
+                        gr.update(label=model_type, choices=model_choices, value=model_value),
+                        gr.update(visible=True, choices=_choices, value=_value),
                     ]
 
 
-                model_type_selector.change(fn=get_model_type_selector, inputs=[model_type_selector, base_model],
-                                           outputs=[base_model, refiner_model, style_class],
-                                           show_progress=False, queue=False)  \
-                .then(fn=change_style_class, inputs=style_class, outputs=style_selections)
+                model_type_selector.change(
+                    fn=get_model_type_selector,
+                    inputs=[model_type_selector, base_model, style_class],
+                    outputs=[base_model, style_class],
+                    show_progress=False, queue=False
+                ).then(fn=change_style_class, inputs=style_class, outputs=style_selections)
 
                 base_model.change(fn=get_thumbnail_info, inputs=base_model,
                                   outputs=[bm_acc, img_bm_thumbnail, img_bm_info],
                                   show_progress=False, queue=False)
-                refiner_model.change(fn=get_thumbnail_info, inputs=refiner_model,
-                                     outputs=[rm_acc, img_rm_thumbnail, img_rm_info],
-                                     show_progress=False, queue=False)
+                # refiner_model.change(fn=get_thumbnail_info, inputs=refiner_model,
+                #                      outputs=[rm_acc, img_rm_thumbnail, img_rm_info],
+                #                      show_progress=False, queue=False)
 
 
-                def adjust_ref_switch(x):
-                    y = 0.8
-                    if x is None:
-                        x = "None"
-                    if not any(_x in x.upper() for _x in ["SDXL", "SD_XL", "XL"]):
-                        if "realistic" in x.lower():
-                            y = 0.4
-                        elif "anime" in x.lower():
-                            y = 0.667
-                    return gr.update(visible=x not in ['None', 'Not Exist!->'], value=y)
+                # def adjust_ref_switch(x):
+                #     y = 0.8
+                #     if x is None:
+                #         x = "None"
+                #     if not any(_x in x.upper() for _x in ["SDXL", "SD_XL", "XL"]):
+                #         if "realistic" in x.lower():
+                #             y = 0.4
+                #         elif "anime" in x.lower():
+                #             y = 0.667
+                #     return gr.update(visible=x not in ['None', 'Not Exist!->'], value=y)
 
 
-                refiner_model.change(adjust_ref_switch,
-                                     inputs=refiner_model, outputs=refiner_switch, show_progress=False, queue=False)
+                # refiner_model.change(adjust_ref_switch,
+                #                      inputs=refiner_model, outputs=refiner_switch, show_progress=False, queue=False)
 
                 with gr.Group():
                     lora_ctrls = []
                     for i, (enabled, filename, weight) in enumerate(modules.config.default_loras):
                         with gr.Row():
                             lora_enabled = gr.Checkbox(label='Enable', value=enabled,
-                                                       elem_classes=['lora_enable', 'min_check'], scale=1,
+                                                       elem_classes=['lora_enable', 'min_check'], scale=2,
                                                        show_label=True)
                             lora_model = gr.Dropdown(label=f'LoRA {i + 1}',
                                                      choices=['None'] + modules.config.lora_filenames, value=filename,
@@ -1820,10 +2034,8 @@ with gr.Blocks(
 
             with gr.Tab(label='Advanced'):
                 with gr.Row():
-                    base_clip_skip = gr.Slider(label='Base CLIP Skip', minimum=-10, maximum=-1, step=1,
+                    base_clip_skip = gr.Slider(label='Base CLIP Skip', minimum=-3, maximum=-1, step=1,
                                                value=settings['base_clip_skip'])
-                    refiner_clip_skip = gr.Slider(label='Refiner CLIP Skip', minimum=-10, maximum=-1, step=1,
-                                                  value=settings['refiner_clip_skip'])
                 sharpness = gr.Slider(label='Image Sharpness', minimum=0.0, maximum=30.0, step=0.001,
                                       value=modules.config.default_sample_sharpness,
                                       info='Higher value means image and texture are sharper.')
@@ -2120,15 +2332,8 @@ with gr.Blocks(
             results += [modules.config.get_config_from_model_preset(x).get("default_cfg_scale")]
             results += [modules.config.get_config_from_model_preset(x).get("default_sampler")]
             results += [modules.config.get_config_from_model_preset(x).get("default_scheduler")]
-            results += [modules.config.get_config_from_model_preset(x).get("default_refiner_switch")]
             results += [modules.config.get_config_from_model_preset(x).get("default_styles")]
             results += [modules.config.get_config_from_model_preset(x).get("remark")]
-
-            r = modules.config.get_config_from_model_preset(x).get("default_refiner")
-            if r in modules.config.model_filenames:
-                results += [r]
-            else:
-                results += ["None"]
 
             gr.Info(str(x) + ' in effect!')
             return results
@@ -2138,10 +2343,8 @@ with gr.Blocks(
                              outputs=[performance_selection, model_presets, aspect_ratios_selection, prompt,
                                       negative_prompt, model_type_selector,
                                       base_model] + lora_ctrls + [sharpness, guidance_scale, sampler_name,
-                                                                  scheduler_name, refiner_switch, style_selections,
-                                                                  model_lora_remark, refiner_model]) \
-            .then(fn=adjust_refiner_model_config, inputs=[performance_selection, model_presets, refiner_model],
-                  outputs=refiner_model)
+                                                                  scheduler_name, style_selections,
+                                                                  model_lora_remark])
 
 
         def model_refresh_clicked(*x):
@@ -2171,18 +2374,7 @@ with gr.Blocks(
                     value=base_value
                 )
             ]
-
-            # 修正：原代码 `x[3] not in [list, "None"]` 永远为真
-            refiner_choices = ['None'] + modules.config.model_filenames
-            refiner_value = x[3] if x[3] in refiner_choices else refiner_choices[0]
-
-            results += [
-                gr.update(
-                    choices=refiner_choices,
-                    value=refiner_value
-                )
-            ]
-
+           
             y = list(x[4:-2])
             z = [y[nn:nn + 3] for nn in range(0, len(y), 3)]
             for lf in z:
@@ -2220,75 +2412,127 @@ with gr.Blocks(
 
 
         model_refresh.click(model_refresh_clicked,
-                            [model_presets, model_type_selector, base_model, refiner_model] + lora_ctrls + [canny_model,
-                                                                                                            depth_model],
-                            [model_presets, model_type_selector, base_model, refiner_model] + lora_ctrls + [canny_model,
-                                                                                                            depth_model],
+                            [model_presets, model_type_selector, base_model] + lora_ctrls + [canny_model,depth_model],
+                            [model_presets, model_type_selector, base_model] + lora_ctrls + [canny_model,depth_model],
                             queue=False, show_progress=False)
 
 
         def forbid_performance_settings(x1):
-            # outputs = [
-            # sharpness, adm_scaler_end, adm_scaler_positive,adm_scaler_negative, refiner_switch, refiner_model, adaptive_cfg,
-            # sampler_name, scheduler_name,
-            # refiner_swap_method,
-            # cfg
-            # ]
             result = []
-            if x1 not in ['LCM', 'TURBO', 'Custom', 'Lightning']:
-                for rlt in [2.0, 0.3, 1.5, 0.8, 0.8, "None", 7.0]:
+            if x1 not in ['LCM', 'TURBO', 'Custom', 'Lightning', 'Hyper-SD']:
+                # 顺序: sharpness, adm_scaler_end, adm_scaler_positive, adm_scaler_negative, adaptive_cfg
+                for rlt in [2.0, 0.3, 1.5, 0.8, 7.0]:
                     result += [gr.update(interactive=True, value=rlt)]
-                result += [gr.update(interactive=True, value="dpmpp_2m_sde_gpu"),
-                           gr.update(interactive=True, value="karras")]
-                result += [gr.update(interactive=True)]
-                result += [gr.update(interactive=True, value=4.0)]
+                result += [gr.update(interactive=True, value="dpmpp_2m_sde_gpu")]  # sampler_name
+                result += [gr.update(interactive=True, value="karras")]            # scheduler_name
+                result += [gr.update(interactive=True)]                            # refiner_swap_method
+                result += [gr.update(interactive=True, value=4.0)]                 # guidance_scale
             elif x1 == 'LCM':
-                # refiner_swap_method 不改变数值
-                for rlt in [2.0, 0.0, 1.0, 1.0, 1.0, "None", 1.0]:
-                    result += [gr.update(interactive=False, value=rlt)]
-                result += [gr.update(interactive=True, value="lcm"), gr.update(interactive=True, value="lcm")]
-                result += [gr.update(interactive=False)]
-                result += [gr.update(interactive=True, value=1.0)]
-            elif x1 == 'Lightning':
-                # refiner_swap_method 不改变数值
                 for rlt in [2.0, 0.0, 1.0, 1.0, 1.0]:
                     result += [gr.update(interactive=False, value=rlt)]
-                result += [gr.update(interactive=True, value="None"), gr.update(interactive=False, value="1.0")]
-                result += [gr.update(interactive=True, value="euler"),
-                           gr.update(interactive=True, value="sgm_uniform")]
-                result += [gr.update(interactive=False)]
-                result += [gr.update(interactive=True, value=1.0)]
+                result += [gr.update(interactive=True, value="lcm")]               # sampler_name
+                result += [gr.update(interactive=True, value="lcm")]               # scheduler_name
+                result += [gr.update(interactive=False)]                           # refiner_swap_method
+                result += [gr.update(interactive=True, value=1.0)]                 # guidance_scale
+            elif x1 == 'Lightning':
+                for rlt in [2.0, 0.0, 1.0, 1.0, 1.0]:
+                    result += [gr.update(interactive=False, value=rlt)]
+                result += [gr.update(interactive=True, value="euler")]             # sampler_name
+                result += [gr.update(interactive=True, value="sgm_uniform")]       # scheduler_name
+                result += [gr.update(interactive=False)]                           # refiner_swap_method
+                result += [gr.update(interactive=True, value=1.0)]                 # guidance_scale
             elif x1 == 'TURBO':
-                # refiner_swap_method 不改变数值
-                for rlt in [2.0, 0.0, 1.0, 1.0, 1.0, "None", 1.0]:
+                for rlt in [2.0, 0.0, 1.0, 1.0, 1.0]:
                     result += [gr.update(interactive=False, value=rlt)]
-                result += [gr.update(interactive=True, value="euler_ancestral"),
-                           gr.update(interactive=True, value="karras")]
-                result += [gr.update(interactive=False)]
-                result += [gr.update(interactive=True, value=1.0)]
-            elif x1 == 'HYPER_SD':
-                # refiner_swap_method 不改变数值
-                for rlt in [0.0, 0.0, 1.0, 1.0, 1.0, "None", 1.0]:
+                result += [gr.update(interactive=True, value="euler_ancestral")]   # sampler_name
+                result += [gr.update(interactive=True, value="karras")]            # scheduler_name
+                result += [gr.update(interactive=False)]                           # refiner_swap_method
+                result += [gr.update(interactive=True, value=1.0)]                 # guidance_scale
+            elif x1 == 'Hyper-SD':
+                # ⚠ 原代码是 'HYPER_SD'，与 Performance 实际标签 'Hyper-SD' 不符，永远不匹配
+                for rlt in [0.0, 0.0, 1.0, 1.0, 1.0]:
                     result += [gr.update(interactive=False, value=rlt)]
-                result += [gr.update(interactive=True, value="dpmpp_sde_gpu"),
-                           gr.update(interactive=True, value="karras")]
-                result += [gr.update(interactive=False)]
-                result += [gr.update(interactive=True, value=1.0)]
+                result += [gr.update(interactive=True, value="dpmpp_sde_gpu")]     # sampler_name
+                result += [gr.update(interactive=True, value="karras")]            # scheduler_name
+                result += [gr.update(interactive=False)]                           # refiner_swap_method
+                result += [gr.update(interactive=True, value=1.0)]                 # guidance_scale
             elif x1 == 'Custom':
-                # refiner_swap_method 不改变数值
-                result += [gr.update(interactive=True)] * 11
+                result += [gr.update(interactive=True)] * 9
             return result
-
 
         performance_selection.change(fn=forbid_performance_settings,
                                      inputs=performance_selection,
                                      outputs=[
                                          sharpness, adm_scaler_end, adm_scaler_positive,
-                                         adm_scaler_negative, refiner_switch, refiner_model, adaptive_cfg,
+                                         adm_scaler_negative, adaptive_cfg,
                                          sampler_name, scheduler_name, refiner_swap_method, guidance_scale
-                                     ], queue=False, show_progress=False) \
-            .then(fn=adjust_refiner_model_config, inputs=[performance_selection, model_presets, refiner_model],
-                  outputs=refiner_model)
+                                     ], queue=False, show_progress=False) 
+
+
+        # ===== 模型类型 -> 自动写入推荐参数 =============================
+        def _mt_step1_fixed_steps(model_type):
+            """先写 fixed_steps，避免 performance_changed 用旧值覆盖 custom_steps。"""
+            spec = _match_model_type_preset(model_type)
+            if spec is None:
+                return gr.update()
+            return gr.update(value=spec["steps"])
+
+        def _mt_step2_performance(model_type):
+            """切到 Custom 并把步数写进 custom_steps（change 触发后再补一次保险）。"""
+            spec = _match_model_type_preset(model_type)
+            if spec is None:
+                return gr.update(), gr.update()
+            return gr.update(value="Custom"), gr.update(value=spec["steps"])
+
+        def _mt_step3_others(model_type, current_ratio):
+            """比例 / CFG(双写) / switch_sampler=True / 成对的 sampler+scheduler。"""
+            spec = _match_model_type_preset(model_type)
+            if spec is None:
+                gr.Info(f'{model_type}: 未内置参数预设，保持当前设置')
+                return [gr.update()] * 6
+
+            ratio = _pick_aspect_ratio(spec["ratios"]) or current_ratio
+            sampler, scheduler = _pick_sampler_pair(
+                spec["sampler_pairs"],
+                getattr(flags, "sampler_list", []),
+                getattr(flags, "scheduler_list", []),
+            )
+            cfg = spec["cfg"]
+            adaptive = spec.get("adaptive_cfg", cfg)
+
+            gr.Info(
+                f'{spec["label"]}: {ratio} / steps {spec["steps"]} '
+                f'/ cfg {cfg} (adaptive {adaptive}) '
+                f'/ {sampler or "sampler 不变"} + {scheduler or "scheduler 不变"}'
+            )
+
+            return [
+                gr.update(value=ratio),
+                gr.update(value=cfg),                                   # guidance_scale
+                gr.update(value=adaptive),                              # adaptive_cfg
+                gr.update(value=True),                                  # switch_sampler
+                gr.update(value=sampler) if sampler else gr.update(),   # sampler_name
+                gr.update(value=scheduler) if scheduler else gr.update(),  # scheduler_name
+            ]
+
+        model_type_selector.change(
+            fn=_mt_step1_fixed_steps,
+            inputs=[model_type_selector],
+            outputs=[fixed_steps],
+            queue=False, show_progress=False,
+        ).then(
+            fn=_mt_step2_performance,
+            inputs=[model_type_selector],
+            outputs=[performance_selection, custom_steps],
+            queue=False, show_progress=False,
+        ).then(
+            fn=_mt_step3_others,
+            inputs=[model_type_selector, aspect_ratios_selection],
+            outputs=[aspect_ratios_selection, guidance_scale, adaptive_cfg,
+                     switch_sampler, sampler_name, scheduler_name],
+            queue=False, show_progress=False,
+        )
+        # ===============================================================
 
         output_format.input(lambda x: gr.update(output_format=x), inputs=output_format)
 
@@ -2380,7 +2624,7 @@ with gr.Blocks(
             guidance_scale
         ]
 
-        ctrls += [base_model, refiner_model, base_clip_skip, refiner_clip_skip, refiner_switch] + lora_ctrls
+        ctrls += [base_model, base_clip_skip] + lora_ctrls
         ctrls += [image_factory_checkbox, current_tab]
         ctrls += [uov_method, uov_input_image]
         ctrls += [outpaint_selections, outpaint_expansion_ratio, inpaint_input_image, inpaint_additional_prompt,
@@ -2477,41 +2721,9 @@ with gr.Blocks(
                              performance_selection, overwrite_step, overwrite_switch, aspect_ratios_selection,
                              overwrite_width, overwrite_height, guidance_scale, sharpness, adm_scaler_positive,
                              adm_scaler_negative, adm_scaler_end, refiner_swap_method, adaptive_cfg, base_model,
-                             refiner_model, refiner_switch, sampler_name, scheduler_name, seed_random, image_seed,
+                             sampler_name, scheduler_name, seed_random, image_seed,
                              generate_button] + freeu_ctrls + lora_ctrls
 
-
-        #
-        # load_parameter_button.click(modules.meta_parser.load_parameter_button_click,
-        #                             inputs=[prompt, state_is_generating], outputs=load_data_outputs, queue=False,
-        #                             show_progress=False)
-
-        # fooocus code begin
-        # if not adapter.args_manager.args.disable_preset_selection:
-        #     def preset_selection_change(preset, is_generating):
-        #         preset_content = modules.config.try_get_preset_content(preset) if preset != 'initial' else {}
-        #         preset_prepared = modules.meta_parser.parse_meta_from_preset(preset_content)
-        #
-        #         default_model = preset_prepared.get('base_model')
-        #         previous_default_models = preset_prepared.get('previous_default_models', [])
-        #         checkpoint_downloads = preset_prepared.get('checkpoint_downloads', {})
-        #         embeddings_downloads = preset_prepared.get('embeddings_downloads', {})
-        #         lora_downloads = preset_prepared.get('lora_downloads', {})
-        #
-        #         preset_prepared['base_model'], preset_prepared['lora_downloads'] = PreCheck.download_models(
-        #             default_model, previous_default_models, checkpoint_downloads, embeddings_downloads, lora_downloads)
-        #
-        #         if 'prompt' in preset_prepared and preset_prepared.get('prompt') == '':
-        #             del preset_prepared['prompt']
-        #
-        #         return modules.meta_parser.load_parameter_button_click(json.dumps(preset_prepared), is_generating)
-        #
-        #
-        #     preset_selection.change(preset_selection_change, inputs=[preset_selection, state_is_generating],
-        #                             outputs=load_data_outputs, queue=False, show_progress=True) \
-        #         .then(fn=style_sorter.sort_styles, inputs=style_selections, outputs=style_selections, queue=False,
-        #               show_progress=False)
-        # fooocus code end
 
         def trigger_metadata_import(filepath, state_is_generating):
             parameters, metadata_scheme = modules.meta_parser.read_info_from_image(filepath)
@@ -2561,20 +2773,62 @@ with gr.Blocks(
                 
 
 # 在 launch 之前添加类型检查和转换
-path_outputs = modules.config.path_outputs
+def _collect_allowed_paths():
+    """
+    收集需要由 gradio 静态托管的目录。
+    gradio 的 /file= 路由只放行 allowed_paths 内的路径，
+    样式样图(sdxl_styles_samples) 不在这里就会出现破图。
+    """
+    cfg = modules.config
+    candidates = [
+        getattr(cfg, "path_outputs", None),
+        getattr(cfg, "path_style_samples", None),      # I:\meanvon\sdxl_styles_samples
+        getattr(cfg, "path_presets", None),
+        getattr(cfg, "modelfile_path", None),
+        getattr(cfg, "controlnet_path", None),
+        getattr(cfg, "clip_vision_path", None),
+        getattr(cfg, "path_vae", None),
+        getattr(cfg, "path_text_encoder", None),
+        getattr(cfg, "path_llm", None),
+        getattr(cfg, "lorafile_path", None),
+        getattr(cfg, "paths_checkpoints", None),
+        getattr(cfg, "paths_loras", None),
+        getattr(cfg, "paths_vae", None),
+        getattr(cfg, "paths_embeddings", None),
+        getattr(cfg, "paths_controlnet", None),
+        getattr(cfg, "paths_clip_vision", None),
+        getattr(cfg, "path_svd", None),
+        tmp_bug, ini_dir, log_dir,                     # .tmp / .ini / .logs
+    ]
+
+    result = []
+
+    def _add(value):
+        if not value:
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                _add(item)
+            return
+        if not isinstance(value, str):
+            return
+        if not os.path.isdir(value):
+            return
+        absolute = os.path.abspath(value)
+        if absolute not in result:
+            result.append(absolute)
+
+    for candidate in candidates:
+        _add(candidate)
+
+    return result
+
+
+allowed_paths = _collect_allowed_paths()
+print(f"allowed_paths = {allowed_paths}")
+
 auth_filename = constants.AUTH_FILENAME
-
-if not isinstance(path_outputs, str):
-    print(f"Warning: path_outputs is {type(path_outputs)}, expected str. Setting allowed_paths=None")
-    allowed_paths = None
-else:
-    allowed_paths = [path_outputs]
-
-if not isinstance(auth_filename, str):
-    print(f"Warning: AUTH_FILENAME is {type(auth_filename)}, expected str. Setting blocked_paths=None")
-    blocked_paths = None
-else:
-    blocked_paths = [auth_filename]
+blocked_paths = [os.path.abspath(auth_filename)] if isinstance(auth_filename, str) else None
 
 # 处理 server_name 避免 localhost 不可访问
 server_name = adapter.args_manager.args.listen
@@ -2588,6 +2842,15 @@ if not server_name or server_name == "0.0.0.0":
         share = adapter.args_manager.args.share
 else:
     share = adapter.args_manager.args.share
+    
+# fooocus 的 ui_tempdir 覆盖依赖 modules.shared.demo 才能把生成的文件
+# 登记进 temp_file_sets，否则 gradio 每次渲染画廊都会把原图复制进 GRADIO_CACHE。
+try:
+    from modules import shared as modules_shared
+    modules_shared.demo = shared.gradio_root
+except Exception as e:
+    print(f"Warning: failed to wire modules.shared.demo: {e}")
+        
 async_gradio_app = shared.gradio_root
 async_gradio_app.launch(
     inbrowser=adapter.args_manager.args.in_browser,

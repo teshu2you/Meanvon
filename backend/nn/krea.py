@@ -1,4 +1,5 @@
 # https://github.com/Comfy-Org/ComfyUI/blob/v0.26.1/comfy/ldm/krea2/model.py
+# https://github.com/lbouaraba/comfyui-krea2edit/blob/main/__init__.py
 
 from typing import Optional
 
@@ -7,141 +8,23 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 
+from backend.args import dynamic_args
 from backend.attention import attention_function
 from backend.memory_management import cast_to
-from backend.nn.flux import EmbedND, apply_rope, timestep_embedding
+from backend.misc.image_resize import adaptive_resize
+from backend.nn.flux import EmbedND, timestep_embedding
+from backend.quant_ops import ck
 from backend.utils import pad_to_patch_size
+from modules.config import MasterName
+from modules.util import printF
 
 
-def _pack_refs(dit, ref_latents, bs, device, dtype):
-    """Pack reference latents into tokens and RoPE positions"""
-    patch = dit.patch
-    ref_tokens = []
-    ref_pos = []
-    
-    for i, ref in enumerate(ref_latents):
-        # Handle 5D Wan21 layout (B, C, T, H, W)
-        if ref.ndim == 5:
-            rb, rc, rt, rh5, rw5 = ref.shape
-            ref = ref.reshape(rb * rt, rc, rh5, rw5)
-        
-        ref = pad_to_patch_size(ref.to(device, dtype), (patch, patch))
-        ref = ref.repeat(bs, 1, 1, 1) if ref.shape[0] == 1 else ref
-        
-        rh, rw = ref.shape[-2] // patch, ref.shape[-1] // patch
-        ref_tokens.append(
-            rearrange(ref, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=patch, pw=patch)
-        )
-        
-        rid = torch.zeros(rh, rw, 3, device=device, dtype=torch.float32)
-        rid[..., 0] = i + 1.0
-        rid[..., 1] = torch.arange(rh, device=device, dtype=torch.float32)[:, None]
-        rid[..., 2] = torch.arange(rw, device=device, dtype=torch.float32)[None, :]
-        ref_pos.append(rid.reshape(1, rh * rw, 3).repeat(bs, 1, 1))
-    
-    return torch.cat(ref_tokens, dim=1), torch.cat(ref_pos, dim=1)
-
-
-def _block_ref_forward(block, x, vec, refvec, split, freqs, transformer_options):
-    """SingleStreamBlock forward with per-span modulation"""
-    m = block.mod(vec)
-    r = block.mod(refvec)
-    
-    def mod(h, scale, shift):
-        return torch.cat(
-            (
-                (1 + m[scale]) * h[:, :split] + m[shift],
-                (1 + r[scale]) * h[:, split:] + r[shift],
-            ),
-            dim=1,
-        )
-    
-    def gate(h, g):
-        return torch.cat((m[g] * h[:, :split], r[g] * h[:, split:]), dim=1)
-    
-    x = x + gate(
-        block.attn(
-            mod(block.prenorm(x), 0, 1),
-            freqs,
-            None,
-            transformer_options=transformer_options,
-        ),
-        2,
-    )
-    x = x + gate(block.mlp(mod(block.postnorm(x), 3, 4)), 5)
-    return x
-
-
-def _forward_with_refs(self, x, timesteps, context, ref_latents, transformer_options):
-    """Krea2 forward with reference latents (index_timestep_zero method)"""
-    temporal = x.ndim == 5
-    if temporal:
-        b5, c5, t5, h5, w5 = x.shape
-        x = x.reshape(b5 * t5, c5, h5, w5)
-    
-    bs, c, H_orig, W_orig = x.shape
-    patch = self.patch
-    
-    x = pad_to_patch_size(x, (patch, patch))
-    H, W = x.shape[-2], x.shape[-1]
-    h_, w_ = H // patch, W // patch
-    device = x.device
-    
-    context = self._unpack_context(context.squeeze(1))
-    
-    img = rearrange(x, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=patch, pw=patch)
-    
-    reftok, refpos = _pack_refs(self, ref_latents, bs, device, x.dtype)
-    reflen = reftok.shape[1]
-    
-    img = self.first(torch.cat((img, reftok), dim=1))
-    
-    t = self.tmlp(timestep_embedding(timesteps, self.tdim).unsqueeze(1).to(img.dtype))
-    tvec = self.tproj(t)
-    
-    t0 = self.tmlp(
-        timestep_embedding(torch.zeros_like(timesteps), self.tdim)
-        .unsqueeze(1)
-        .to(img.dtype)
-    )
-    tvec0 = self.tproj(t0)
-    
-    context = self.txtfusion(context, mask=None, transformer_options=transformer_options)
-    context = self.txtmlp(context)
-    
-    txtlen, imglen = context.shape[1], img.shape[1]
-    combined = torch.cat((context, img), dim=1)
-    split = txtlen + imglen - reflen
-    
-    txtpos = torch.zeros(bs, txtlen, 3, device=device, dtype=torch.float32)
-    imgids = torch.zeros(h_, w_, 3, device=device, dtype=torch.float32)
-    imgids[..., 1] = torch.arange(h_, device=device, dtype=torch.float32)[:, None]
-    imgids[..., 2] = torch.arange(w_, device=device, dtype=torch.float32)[None, :]
-    imgpos = imgids.reshape(1, h_ * w_, 3).repeat(bs, 1, 1)
-    pos = torch.cat((txtpos, imgpos, refpos), dim=1)
-    
-    freqs = self.pe_embedder(pos)
-    
-    for block in self.blocks:
-        combined = _block_ref_forward(block, combined, tvec, tvec0, split, freqs, transformer_options)
-    
-    final = self.last(combined, t)
-    out = final[:, txtlen:split, :]
-    out = rearrange(
-        out,
-        "b (h w) (c ph pw) -> b c (h ph) (w pw)",
-        h=h_,
-        w=w_,
-        ph=patch,
-        pw=patch,
-        c=self.channels,
-    )
-    out = out[:, :, :H_orig, :W_orig]
-    
-    if temporal:
-        out = out.reshape(b5, t5, self.channels, H_orig, W_orig).movedim(1, 2)
-    
-    return out
+def _imgids(bs: int, frame: int, h_: int, w_: int, device: torch.device) -> torch.Tensor:
+    ids = torch.zeros(h_, w_, 3, device=device, dtype=torch.float32)
+    ids[..., 0] = frame
+    ids[..., 1] = torch.arange(h_, device=device, dtype=torch.float32)[:, None]
+    ids[..., 2] = torch.arange(w_, device=device, dtype=torch.float32)[None, :]
+    return ids.reshape(1, h_ * w_, 3).repeat(bs, 1, 1)
 
 
 class RMSNorm(nn.Module):
@@ -203,7 +86,7 @@ class Attention(nn.Module):
         v = rearrange(v, "B L (H D) -> B H L D", H=self.kvheads)
         q, k = self.qknorm(q, k)
         if freqs is not None:
-            q, k = apply_rope(q, k, freqs)
+            q, k = ck.apply_rope(q, k, freqs)
         if self.kvheads != self.heads:
             rep = self.heads // self.kvheads
             k = k.repeat_interleave(rep, dim=1)
@@ -245,8 +128,8 @@ class TextFusionBlock(nn.Module):
         self.mlp = SwiGLU(features, multiplier, bias)
 
     def forward(self, x, mask=None, transformer_options={}):
-        x = x + self.attn(self.prenorm(x), mask=mask, transformer_options=transformer_options)
-        x = x + self.mlp(self.postnorm(x))
+        x.add_(self.attn(self.prenorm(x), mask=mask, transformer_options=transformer_options))
+        x.add_(self.mlp(self.postnorm(x)))
         return x
 
 
@@ -258,7 +141,15 @@ class TextFusionTransformer(nn.Module):
         self.projector = nn.Linear(num_txt_layers, 1, bias=False)
         self.refiner_blocks = nn.ModuleList([TextFusionBlock(txt_dim, heads, multiplier, bias, kvheads) for _ in range(2)])
 
-    def forward(self, x, mask=None, transformer_options={}):
+    def forward(self, x, mask=None, transformer_options=None):
+        printF(name=MasterName.get_master_name(),
+               info="[KREA-FWD/in] x={} dim={}".format(tuple(x.shape), x.dim())).printf()
+        # x 可能是 3D (L, N, D)：L=token 数、N=stacked hidden 层数、D=hidden dim。
+        # Krea2 的 Qwen3-VL-4B 文本编码器把最后 N 层 hidden 一起喂进来，
+        # txtfusion 负责把它们融成单一 context，输出回到 3D (B, L, D)。
+        # 入口补 batch=1 即可：
+        if x.dim() == 3:
+            x = x.unsqueeze(0)          # (L, N, D) -> (1, L, N, D)
         b, l, n, d = x.shape
         x = x.reshape(b * l, n, d)
         for block in self.layerwise_blocks:
@@ -267,6 +158,8 @@ class TextFusionTransformer(nn.Module):
         x = self.projector(x).squeeze(-1)
         for block in self.refiner_blocks:
             x = block(x, mask=mask, transformer_options=transformer_options)
+        printF(name=MasterName.get_master_name(),
+               info="[KREA-FWD/out] x={} dim={}".format(tuple(x.shape), x.dim())).printf()
         return x
 
 
@@ -282,8 +175,8 @@ class SingleStreamBlock(nn.Module):
 
     def forward(self, x, vec, freqs, mask=None, transformer_options={}):
         prescale, preshift, pregate, postscale, postshift, postgate = self.mod(vec)
-        x = x + pregate * self.attn((1 + prescale) * self.prenorm(x) + preshift, freqs, mask, transformer_options=transformer_options)
-        x = x + postgate * self.mlp((1 + postscale) * self.postnorm(x) + postshift)
+        x.addcmul_(pregate, self.attn(torch.addcmul(preshift, 1 + prescale, self.prenorm(x)), freqs, mask, transformer_options=transformer_options))
+        x.addcmul_(postgate, self.mlp(torch.addcmul(postshift, 1 + postscale, self.postnorm(x))))
         return x
 
 
@@ -297,7 +190,7 @@ class LastLayer(nn.Module):
 
     def forward(self, x, tvec):
         scale, shift = self.modulation(tvec)
-        x = (1 + scale) * self.norm(x) + shift
+        x = torch.addcmul(shift, 1 + scale, self.norm(x))
         return self.linear(x)
 
 
@@ -355,18 +248,47 @@ class SingleStreamDiT(nn.Module):
         )
 
     def forward(self, x, timesteps, context, attention_mask=None, transformer_options={}, **kwargs):
-        # Check if reference latents are provided
-        ref_latents = kwargs.get("ref_latents", None)
-        
-        if ref_latents is not None and len(ref_latents) > 0:
-            # Use reference-aware forward
-            return _forward_with_refs(self, x, timesteps, context, ref_latents, transformer_options)
-        
-        # Original forward logic (no references)
-        temporal = x.ndim == 5
-        if temporal:
-            b5, c5, t5, h5, w5 = x.shape
-            x = x.reshape(b5 * t5, c5, h5, w5)
+        if not hasattr(self, "_weights_logged"):
+            self._weights_logged = True
+            _keys = (
+                "first.weight", "first.bias",
+                "txtfusion.projector.weight",
+                "txtfusion.layerwise_blocks.0.attn.wq.weight",
+                "txtfusion.refiner_blocks.0.attn.wq.weight",
+                "txtmlp.0.scale",              # RMSNorm.scale
+                "txtmlp.1.weight",             # Linear(txtdim, features)
+                "txtmlp.3.weight",             # Linear(features, features)
+                "tmlp.0.weight", "tmlp.2.weight",
+                "tproj.1.weight",              # Linear(features, features*6)
+                "last.linear.weight",
+                "last.modulation.lin",
+                "blocks.0.mod.lin",
+            )
+            for _k in _keys:
+                try:
+                    _p = self.get_parameter(_k)
+                    printF(name=MasterName.get_master_name(),
+                           info="[KREA-W] {} shape={} std={:.6f} "
+                                "absmax={:.6f} absmin={:.4e}".format(
+                                    _k, tuple(_p.shape),
+                                    float(_p.std()), float(_p.abs().max()),
+                                    float(_p.abs().min()))).printf()
+                except Exception:
+                    printF(name=MasterName.get_master_name(),
+                           info="[KREA-W] {:<40s} ***MISSING***".format(_k)).printf()
+
+        printF(name=MasterName.get_master_name(),
+               info="[KREA-FWD/in] x={} dim={} | context={} | t={} | "
+                    "t_val[0]={:.6f} t_min={:.6f} t_max={:.6f}".format(
+                   tuple(x.shape), x.dim(),
+                   tuple(context.shape) if isinstance(context, torch.Tensor) else type(context).__name__,
+                   tuple(timesteps.shape) if isinstance(timesteps, torch.Tensor) else timesteps,
+                   float(timesteps.flatten()[0]) if isinstance(timesteps, torch.Tensor) and timesteps.numel() > 0 else -1.0,
+                   float(timesteps.min()) if isinstance(timesteps, torch.Tensor) and timesteps.numel() > 0 else -1.0,
+                   float(timesteps.max()) if isinstance(timesteps, torch.Tensor) and timesteps.numel() > 0 else -1.0)).printf()
+
+        _input_was_5d = (x.dim() == 5)
+        x = x.squeeze(2)
         bs, c, H_orig, W_orig = x.shape
         patch = self.patch
 
@@ -374,10 +296,25 @@ class SingleStreamDiT(nn.Module):
         H, W = x.shape[-2], x.shape[-1]
         h_, w_ = H // patch, W // patch
 
-        context = self._unpack_context(context.squeeze(1))
+        ref_latents: list[torch.Tensor] = dynamic_args.ref_latents
+
+        if (_edit := bool(ref_latents)) is True:
+            refs = []
+            ref_grids = []
+            for ref in ref_latents:
+                if x.shape[0] == 2:  # batch_cond_uncond
+                    ref = torch.cat((ref, ref), dim=0)
+                if ref.shape != x.shape:
+                    ref = adaptive_resize(ref, W, H, "area", "center")
+                refs.append(pad_to_patch_size(ref.to(x), (patch, patch), padding_mode="replicate"))
+                ref_grids.append((ref.shape[-2] // patch, ref.shape[-1] // patch))
 
         img = rearrange(x, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=patch, pw=patch)
         img = self.first(img)
+
+        if _edit:
+            refs = [rearrange(r, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=patch, pw=patch) for r in refs]
+            refs = [self.first(r) for r in refs]
 
         t = self.tmlp(timestep_embedding(timesteps, self.tdim).unsqueeze(1).to(img.dtype))
         tvec = self.tproj(t)
@@ -386,15 +323,26 @@ class SingleStreamDiT(nn.Module):
         context = self.txtmlp(context)
 
         txtlen, imglen = context.shape[1], img.shape[1]
-        combined = torch.cat((context, img), dim=1)
+        if _edit:
+            reflen = sum(ref.shape[1] for ref in refs)
+            combined = torch.cat((context, *refs, img), dim=1)
+        else:
+            reflen = 0
+            combined = torch.cat((context, img), dim=1)
 
         device = combined.device
         txtpos = torch.zeros(bs, txtlen, 3, device=device, dtype=torch.float32)
-        imgids = torch.zeros(h_, w_, 3, device=device, dtype=torch.float32)
-        imgids[..., 1] = torch.arange(h_, device=device, dtype=torch.float32)[:, None]
-        imgids[..., 2] = torch.arange(w_, device=device, dtype=torch.float32)[None, :]
-        imgpos = imgids.reshape(1, h_ * w_, 3).repeat(bs, 1, 1)
-        pos = torch.cat((txtpos, imgpos), dim=1)
+
+        if _edit:
+            refids = [_imgids(bs, i + 1, gh, gw, device) for i, (gh, gw) in enumerate(ref_grids)]
+            imgids = _imgids(bs, 0, h_, w_, device)
+            pos = torch.cat((txtpos, *refids, imgids), dim=1)
+        else:
+            imgids = torch.zeros(h_, w_, 3, device=device, dtype=torch.float32)
+            imgids[..., 1] = torch.arange(h_, device=device, dtype=torch.float32)[:, None]
+            imgids[..., 2] = torch.arange(w_, device=device, dtype=torch.float32)[None, :]
+            imgpos = imgids.reshape(1, h_ * w_, 3).repeat(bs, 1, 1)
+            pos = torch.cat((txtpos, imgpos), dim=1)
 
         freqs = self.pe_embedder(pos)
 
@@ -402,15 +350,13 @@ class SingleStreamDiT(nn.Module):
             combined = block(combined, tvec, freqs, None, transformer_options=transformer_options)
 
         final = self.last(combined, t)
-        out = final[:, txtlen : txtlen + imglen, :]
+        out = final[:, txtlen + reflen : txtlen + reflen + imglen, :]
         out = rearrange(out, "b (h w) (c ph pw) -> b c (h ph) (w pw)", h=h_, w=w_, ph=patch, pw=patch, c=self.channels)
+        
         out = out[:, :, :H_orig, :W_orig]
-        if temporal:
-            out = out.reshape(b5, t5, self.channels, H_orig, W_orig).movedim(1, 2)
-        return out
+        out = out.unsqueeze(2) if _input_was_5d else out
 
-    def _unpack_context(self, context):
-        b, seq, fused = context.shape
-        if fused != self.txtlayers * self.txtdim:
-            raise ValueError(f"Krea2 expects conditioning with {self.txtlayers}x{self.txtdim}={self.txtlayers * self.txtdim} " f"features (a {self.txtlayers}-layer Qwen3-VL stack) but got {fused}. " f"Load the text encoder with CLIPLoader type 'krea2'.")
-        return context.reshape(b, seq, self.txtlayers, self.txtdim)
+        printF(name=MasterName.get_master_name(),
+               info="[KREA-FWD/out] x={} dim={} (input_was_5d={})".format(
+                   tuple(out.shape), out.dim(), _input_was_5d)).printf()
+        return out

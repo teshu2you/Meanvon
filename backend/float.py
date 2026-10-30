@@ -1,39 +1,7 @@
-# https://github.com/Comfy-Org/ComfyUI/blob/master/comfy/float.py
+# https://github.com/Comfy-Org/ComfyUI/blob/v0.33.1/comfy/float.py
 
 import comfy_kitchen as ck
 import torch
-
-
-def calc_mantissa(abs_x, exponent, normal_mask, MANTISSA_BITS, EXPONENT_BIAS, generator=None):
-    mantissa_scaled = torch.where(normal_mask, (abs_x / (2.0 ** (exponent - EXPONENT_BIAS)) - 1.0) * (2**MANTISSA_BITS), (abs_x / (2.0 ** (-EXPONENT_BIAS + 1 - MANTISSA_BITS))))
-    mantissa_scaled += torch.rand(mantissa_scaled.size(), dtype=mantissa_scaled.dtype, layout=mantissa_scaled.layout, device=mantissa_scaled.device, generator=generator)
-    return mantissa_scaled.floor() / (2**MANTISSA_BITS)
-
-
-def manual_stochastic_round_to_float8(x, dtype, generator=None):
-    if dtype == torch.float8_e4m3fn:
-        EXPONENT_BITS, MANTISSA_BITS, EXPONENT_BIAS = 4, 3, 7
-    elif dtype == torch.float8_e5m2:
-        EXPONENT_BITS, MANTISSA_BITS, EXPONENT_BIAS = 5, 2, 15
-    else:
-        raise ValueError("Unsupported dtype")
-
-    x = x.half()
-    sign = torch.sign(x)
-    abs_x = x.abs()
-    sign = torch.where(abs_x == 0, 0, sign)
-
-    exponent = torch.clamp(torch.floor(torch.log2(abs_x)) + EXPONENT_BIAS, 0, 2**EXPONENT_BITS - 1)
-
-    normal_mask = ~(exponent == 0)
-
-    abs_x[:] = calc_mantissa(abs_x, exponent, normal_mask, MANTISSA_BITS, EXPONENT_BIAS, generator=generator)
-
-    sign *= torch.where(normal_mask, (2.0 ** (exponent - EXPONENT_BIAS)) * (1.0 + abs_x), (2.0 ** (-EXPONENT_BIAS + 1)) * abs_x)
-
-    inf = torch.finfo(dtype)
-    torch.clamp(sign, min=inf.min, max=inf.max, out=sign)
-    return sign
 
 
 def stochastic_rounding(value: torch.Tensor, dtype: torch.dtype, seed: int = 0):
@@ -75,7 +43,7 @@ def stochastic_float_to_fp4_e2m1(x, generator):
     return packed.reshape(list(orig_shape)[:-1] + [-1])
 
 
-def to_blocked(input_matrix, flatten: bool = True) -> torch.Tensor:
+def to_blocked(input_matrix, flatten: bool = True):
 
     def ceil_div(a, b):
         return (a + b - 1) // b
@@ -122,6 +90,7 @@ def stochastic_round_quantize_nvfp4_block(x, per_tensor_scale, generator):
 
 
 def stochastic_round_quantize_nvfp4(x, per_tensor_scale, pad_16x, seed=0):
+
     def roundup(x: int, multiple: int) -> int:
         return ((x + multiple - 1) // multiple) * multiple
 
@@ -140,6 +109,7 @@ def stochastic_round_quantize_nvfp4(x, per_tensor_scale, pad_16x, seed=0):
 
 
 def stochastic_round_quantize_nvfp4_by_block(x, per_tensor_scale, pad_16x, seed=0, block_size=4096 * 4096):
+
     def roundup(x: int, multiple: int) -> int:
         return ((x + multiple - 1) // multiple) * multiple
 
@@ -173,6 +143,7 @@ def stochastic_round_quantize_nvfp4_by_block(x, per_tensor_scale, pad_16x, seed=
 
 
 def stochastic_round_quantize_mxfp8_by_block(x, pad_32x, seed=0):
+
     def roundup(x_val, multiple):
         return ((x_val + multiple - 1) // multiple) * multiple
 

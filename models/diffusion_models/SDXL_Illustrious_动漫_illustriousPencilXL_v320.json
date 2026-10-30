@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"Feb 17, 2025",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/838773/illustriouspencil-xl",
+	"Version": "v3.2.0",
+	"Tags": "base model anime girls illustriousxl",
+	"Usage_Tips": "Sampling method: Eular a CFG: 4 ",
+	"Author": "blue_pen5805",
+	"ReMark": "No Negative Prompt required (But it's definitely effective)"
+}

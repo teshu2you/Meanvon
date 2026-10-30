@@ -270,6 +270,11 @@ def model_lora_keys_clip(model, key_map={}):
     return key_map
 
 def model_lora_keys_unet(model, key_map={}):
+    # Forge 新引擎（KModel：Flux / ZImage / QwenImage …）没有 model_config，
+    # 老逻辑在这里会 AttributeError，直接返回空 map 交给 Forge 处理。
+    if not hasattr(model, "model_config") or getattr(model.model_config, "unet_config", None) is None:
+        return key_map
+    
     sd = model.state_dict()
     sdk = sd.keys()
 

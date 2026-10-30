@@ -116,6 +116,7 @@ class ModelPatcher:
         self.offload_device = offload_device
         self.weight_inplace_update = weight_inplace_update
         self.patches_uuid = uuid.uuid4()
+        self.parent = None   # ← 添加这一行
 
         if not hasattr(self.model, 'model_loaded_weight_memory'):
             self.model.model_loaded_weight_memory = 0
@@ -155,6 +156,7 @@ class ModelPatcher:
         n.model_options = copy.deepcopy(self.model_options)
         n.backup = self.backup
         n.object_patches_backup = self.object_patches_backup
+        n.parent = self   # ← 建立克隆链
         return n
 
     def is_clone(self, other):

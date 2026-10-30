@@ -18,11 +18,28 @@ TYPE_HYPER_SD = "hyper-sd"
 TYPE_HunyuanDiT = "hunyuandit"
 TYPE_Flux1 = "flux1"
 TYPE_Flux2 = "flux2"
-TYPE_Flux = "flux"
+TYPE_Flux3 = "flux3"
 # extreme_speed disused
 TYPE_EXTREME_SPEED = "extreme_speed"
 TYPE_NORMAL = "normal"
 TYPE_Kolors = "kolors"
+TYPE_ZImage = "zimage"
+TYPE_QwenImage = "qwenimage"
+TYPE_Krea2 = "krea2"
+
+# 所有由 backend.loader.forge_loader（diffusers 组件式加载）而非
+# ldm_patched 旧式 checkpoint 解析加载的模型族。
+# 这些模型是 unet-only checkpoint，VAE / 文本编码器必须外部补齐。
+TYPE_FORGE_ENGINES = (
+    TYPE_Flux1,
+    TYPE_Flux2,
+    TYPE_Flux3,
+    TYPE_Kolors,
+    TYPE_ZImage,
+    TYPE_QwenImage,
+    TYPE_Krea2,
+    TYPE_HunyuanDiT,
+)
 
 # import parameter, used by webui_server.py and work.py
 MIN_SEED = 0

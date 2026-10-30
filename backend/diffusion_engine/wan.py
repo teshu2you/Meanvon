@@ -8,7 +8,7 @@ from backend.misc.image_resize import adaptive_resize
 from backend.patcher.clip import CLIP
 from backend.patcher.unet import UnetPatcher
 from backend.patcher.vae import VAE
-from backend.text_processing.umt5_engine import UMT5TextProcessingEngine
+from backend.text_processing.wan_engine import UMT5XXLEngine
 from backend.utils import resize_to_batch_size
 
 # get_learned_conditioning is not called in the Refiner pass;
@@ -30,7 +30,7 @@ class Wan(ForgeDiffusionEngine):
 
         unet = UnetPatcher.from_model(model=huggingface_components["transformer"], diffusers_scheduler=None, k_predictor=k_predictor, config=estimated_config)
 
-        self.text_processing_engine_t5 = UMT5TextProcessingEngine(
+        self.text_processing_engine_t5 = UMT5XXLEngine(
             text_encoder=clip.cond_stage_model.umt5xxl,
             tokenizer=clip.tokenizer.umt5xxl,
         )
@@ -55,7 +55,7 @@ class Wan(ForgeDiffusionEngine):
         self.end_image: torch.Tensor = None
         """last frame; cleared manually by ImageStitch"""
 
-    def set_shift(self, shift):
+    def set_shift(self, shift: float, *args, **kwargs):
         global refiner_shift
         super().set_shift(shift)
         refiner_shift = shift
@@ -72,8 +72,8 @@ class Wan(ForgeDiffusionEngine):
         return self.text_processing_engine_t5(prompt)
 
     @torch.inference_mode()
-    def get_prompt_lengths_on_ui(self, prompt):
-        token_count = len(self.text_processing_engine_t5.tokenize([prompt])[0])
+    def get_prompt_lengths_on_ui(self, prompt: str) -> tuple[int, int]:
+        token_count = len(self.text_processing_engine_t5.tokenize(prompt))
         return token_count, max(510, token_count)
 
     @torch.inference_mode()
@@ -148,9 +148,7 @@ class Wan(ForgeDiffusionEngine):
     @torch.inference_mode()
     def encode_first_stage(self, x: torch.Tensor):
         b, _, h, w = x.shape
-        if x.size(0) > 1:
-            x = x[0].unsqueeze(0)  # enforce batch_size of 1
-        x = x.mul(0.5).add(0.5)
+        x = x[0].mul(0.5).add(0.5).unsqueeze(0)  # enforce batch_size of 1
 
         if dynamic_args.is_referencing:
             if b == 1:
@@ -178,10 +176,4 @@ class Wan(ForgeDiffusionEngine):
         latent = torch.zeros([1, 16, ((b - 1) // 4) + 1, h // 8, w // 8], device=self.forge_objects.vae.device)
         self.image_to_video(b, list(latent.shape))
         sample = self.forge_objects.vae.first_stage_model.process_in(latent)
-        return sample.to(x)
-
-    @torch.inference_mode()
-    def decode_first_stage(self, x):
-        sample = self.forge_objects.vae.first_stage_model.process_out(x)
-        sample = self.forge_objects.vae.decode(sample).movedim(-1, 2) * 2.0 - 1.0
         return sample.to(x)

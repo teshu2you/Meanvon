@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"Mar 4, 2025",
+	"Base": "Illustrious",
+	"Links": "https://civitai.work/models/827184/wai-nsfw-illustrious-sdxl?modelVersionId=1490781",
+	"Version": "v12.0",
+	"Tags": "base model anime sexy hentai",
+	"Usage_Tips": "Steps: 15-30 CFG scale: 5-7 Sampler: Euler a",
+	"Author": "WAI0731 Joined Dec 23, 2022",
+	"ReMark": "Modified the default style and adjusted the overall weight"
+}

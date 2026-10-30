@@ -101,9 +101,9 @@ class SVDQFluxTransformer2DModel(nn.Module):
         img, img_ids = process_img(x)
         img_tokens = img.shape[1]
 
-        ref_latents = dynamic_args.ref_latents or None
+        ref_latents: list[torch.Tensor] = dynamic_args.ref_latents
 
-        if ref_latents is not None:
+        if bool(ref_latents):
             h = 0
             w = 0
             for ref in ref_latents:
@@ -245,12 +245,14 @@ class SVDQT5(nn.Module):
 # region Qwen
 
 
-from backend.memory_management import xformers_enabled
+from backend.memory_management import pytorch_attention_enabled, xformers_enabled
 
 if xformers_enabled():
     from backend.attention import attention_xformers as attention_function
-else:
+elif pytorch_attention_enabled():
     from backend.attention import attention_pytorch as attention_function
+else:
+    from backend.attention import attention_basic as attention_function
 
 from backend.nn.flux import EmbedND
 from backend.nn.qwen import (
@@ -596,19 +598,7 @@ class NunchakuQwenImageTransformer2DModel(NunchakuModelMixin, QwenImageTransform
         self.loras = []
         self._applied_loras = []
 
-    def forward(
-        self,
-        x,
-        timesteps,
-        context,
-        attention_mask=None,
-        guidance: torch.Tensor = None,
-        ref_latents=None,
-        transformer_options={},
-        control=None,
-        **kwargs,
-    ):
-
+    def forward(self, x, timesteps, context, attention_mask=None, guidance: torch.Tensor = None, transformer_options={}, control=None, **kwargs):
         device = x.device
         if self.offload:
             self.offload_manager.set_device(device)
@@ -620,9 +610,9 @@ class NunchakuQwenImageTransformer2DModel(NunchakuModelMixin, QwenImageTransform
         hidden_states, img_ids, orig_shape = self.process_img(x)
         num_embeds = hidden_states.shape[1]
 
-        ref_latents = dynamic_args.ref_latents or None
+        ref_latents: list[torch.Tensor] = dynamic_args.ref_latents
 
-        if ref_latents is not None:
+        if bool(ref_latents):
             h = 0
             w = 0
             index = 0
@@ -897,7 +887,7 @@ class NunchakuZImageAttention(JointAttention):
         xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
 
         n_rep = self.n_local_heads // self.n_local_kv_heads
-        if n_rep >= 1:
+        if n_rep > 1:
             xk = xk.unsqueeze(3).repeat(1, 1, 1, n_rep, 1).flatten(2, 3)
             xv = xv.unsqueeze(3).repeat(1, 1, 1, n_rep, 1).flatten(2, 3)
         output = attention_function(

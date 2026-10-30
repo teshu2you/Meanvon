@@ -1,4 +1,4 @@
-# reference: https://github.com/Comfy-Org/ComfyUI/blob/v0.26.1/comfy/model_detection.py
+# https://github.com/Comfy-Org/ComfyUI/blob/v0.38.0/comfy/model_detection.py
 
 import logging
 
@@ -109,25 +109,6 @@ def detect_unet_config(state_dict: dict, key_prefix: str) -> dict:
         dit_config["guidance_embed"] = "{}time_text_embed.guidance_embedder.linear_1.weight".format(key_prefix) in state_dict_keys
         return dit_config
 
-    if "{}double_blocks.0.img_attn.proj.weight.quant_state.bitsandbytes__nf4".format(key_prefix) in state_dict_keys:  # flux1-dev-bnb-nf4
-        dit_config = {}
-        dit_config["image_model"] = "flux"
-        dit_config["in_channels"] = 16
-        dit_config["out_channels"] = 16
-        dit_config["vec_in_dim"] = 768
-        dit_config["context_in_dim"] = 4096
-        dit_config["hidden_size"] = 3072
-        dit_config["mlp_ratio"] = 4.0
-        dit_config["num_heads"] = 24
-        dit_config["depth"] = 19
-        dit_config["depth_single_blocks"] = 38
-        dit_config["axes_dim"] = [16, 56, 56]
-        dit_config["theta"] = 10000
-        dit_config["patch_size"] = 2
-        dit_config["qkv_bias"] = True
-        dit_config["guidance_embed"] = "{}guidance_in.in_layer.weight".format(key_prefix) in state_dict_keys
-        return dit_config
-
     if ("{}double_blocks.0.img_attn.norm.key_norm.scale".format(key_prefix) in state_dict_keys or "{}double_blocks.0.img_attn.norm.key_norm.weight".format(key_prefix) in state_dict_keys) and ("{}img_in.weight".format(key_prefix) in state_dict_keys or f"{key_prefix}distilled_guidance_layer.norms.0.scale" in state_dict_keys):  # Flux.1 / Flux.2
         dit_config = {}
         if "{}double_stream_modulation_img.lin.weight".format(key_prefix) in state_dict_keys:
@@ -212,7 +193,7 @@ def detect_unet_config(state_dict: dict, key_prefix: str) -> dict:
         dit_config["concat_padding_mask"] = True
         dit_config["crossattn_emb_channels"] = 1024
         dit_config["adaln_lora_dim"] = 256
-        dit_config["num_blocks"] = 28
+        dit_config["num_blocks"] = count_blocks(state_dict_keys, "{}blocks.".format(key_prefix) + "{}.")
         dit_config["num_heads"] = 16
         dit_config["rope_h_extrapolation_ratio"] = 4.0
         dit_config["rope_w_extrapolation_ratio"] = 4.0
@@ -221,14 +202,78 @@ def detect_unet_config(state_dict: dict, key_prefix: str) -> dict:
         return dit_config
 
     if (_lq_w_key := "{}lq_proj.latent_proj.0.weight".format(key_prefix)) in state_dict_keys:  # PiD
+        v15: bool = "{}lq_proj.pit_head.weight".format(key_prefix) in state_dict_keys
         _gate_prefix = "{}lq_proj.gate_modules.".format(key_prefix)
         num_gates = len({k[len(_gate_prefix) :].split(".")[0] for k in state_dict_keys if k.startswith(_gate_prefix)})
-        in_ch = int(state_dict[_lq_w_key].shape[1])
+        latent_proj_in_channels = int(state_dict[_lq_w_key].shape[1])
         dit_config = {"image_model": "pid"}
-        dit_config["lq_latent_channels"] = in_ch
-        dit_config["latent_spatial_down_factor"] = 16 if in_ch >= 64 else 8
+        dit_config["lq_hidden_dim"] = int(state_dict[_lq_w_key].shape[0])
+        dit_config["lq_latent_channels"] = latent_proj_in_channels
+        dit_config["latent_spatial_down_factor"] = 16 if latent_proj_in_channels >= 64 else 8
         if num_gates > 0:
             dit_config["lq_interval"] = (14 + num_gates - 1) // num_gates
+        if v15:
+            match latent_proj_in_channels:
+                case 16:  # Flux & QwenImage
+                    dit_config.update(
+                        {
+                            "lq_latent_channels": 16,
+                            "latent_spatial_down_factor": 8,
+                            "lq_latent_unpatchify_factor": 1,
+                        }
+                    )
+                case 32:  # Flux2
+                    dit_config.update(
+                        {
+                            "lq_latent_channels": 128,
+                            "latent_spatial_down_factor": 16,
+                            "lq_latent_unpatchify_factor": 2,
+                        }
+                    )
+
+            gate_weight = int(state_dict["{}lq_proj.gate_modules.0.content_proj.weight".format(key_prefix)].shape[0])
+            dit_config.update(
+                {
+                    "lq_conv_padding_mode": "replicate",
+                    "lq_gate_per_token": gate_weight == 1,
+                    "pit_lq_inject": True,
+                    "rope_ref_h": 2048,
+                    "rope_ref_w": 2048,
+                }
+            )
+        return dit_config
+
+    q21_keys = ["txt_in.text_norm.weight", "modulation.1.weight", "transformer_blocks.0.attn.norm_q.weight", "img_in.weight", "proj_out.weight"]
+    if all("{}{}".format(key_prefix, k) in state_dict_keys for k in q21_keys) and any("{}transformer_blocks.0.img_mlp.{}.weight".format(key_prefix, k) in state_dict_keys for k in ("gate_up", "proj")):  # Qwen Image 2.1
+        dit_config = {}
+
+        dit_config["image_model"] = "qwen_image21"
+        head_dim = int(state_dict["{}transformer_blocks.0.attn.norm_q.weight".format(key_prefix)].shape[0])
+        inner_dim = int(state_dict["{}img_in.weight".format(key_prefix)].shape[0])
+        dit_config["in_channels"] = int(state_dict["{}img_in.weight".format(key_prefix)].shape[1])
+        dit_config["out_channels"] = int(state_dict["{}proj_out.weight".format(key_prefix)].shape[0])
+        dit_config["num_layers"] = count_blocks(state_dict_keys, "{}transformer_blocks.".format(key_prefix) + "{}.")
+        dit_config["attention_head_dim"] = head_dim
+        dit_config["num_attention_heads"] = inner_dim // head_dim
+        dit_config["context_in_dim"] = int(state_dict["{}txt_in.text_norm.weight".format(key_prefix)].shape[0])
+
+        gate_up = state_dict.get("{}transformer_blocks.0.img_mlp.gate_up.weight".format(key_prefix), None)
+        if gate_up is not None:
+            dit_config["mlp_ratio"] = int(gate_up.shape[0]) // 2 // inner_dim
+        else:
+            dit_config["mlp_ratio"] = int(state_dict["{}transformer_blocks.0.img_mlp.proj.weight".format(key_prefix)].shape[0]) // inner_dim
+        dit_config["fused_mlp"] = gate_up is not None
+
+        return dit_config
+
+    if "{}shared_block_modulation.weight".format(key_prefix) in state_dict_keys and "{}layers.0.proj.ffn_up_gate.weight".format(key_prefix) in state_dict_keys:  # MOSS-Image
+        dit_config = {}
+        dit_config["image_model"] = "moss_image"
+        dit_config["dim"] = int(state_dict["{}shared_block_modulation.weight".format(key_prefix)].shape[0]) // 6
+        dit_config["ffn_dim"] = int(state_dict["{}layers.0.proj.ffn_up_gate.weight".format(key_prefix)].shape[0]) // 2
+        dit_config["num_heads"] = dit_config["dim"] // 128
+        dit_config["num_layers"] = count_blocks(state_dict_keys, "{}layers.".format(key_prefix) + "{}.")
+        dit_config["fused_qkv"] = "{}layers.0.proj.qkv.weight".format(key_prefix) in state_dict_keys
         return dit_config
 
     if "{}txt_norm.weight".format(key_prefix) in state_dict_keys:  # Qwen Image
@@ -261,12 +306,7 @@ def detect_unet_config(state_dict: dict, key_prefix: str) -> dict:
     if "{}input_blocks.0.0.weight".format(key_prefix) not in state_dict_keys:
         return None
 
-    unet_config = {
-        "use_checkpoint": False,
-        "image_size": 32,
-        "use_spatial_transformer": True,
-        "legacy": False,
-    }
+    unet_config = {"use_checkpoint": False, "use_spatial_transformer": True}
 
     y_input = "{}label_emb.0.0.weight".format(key_prefix)
     if y_input in state_dict_keys:
@@ -367,9 +407,6 @@ def detect_unet_config(state_dict: dict, key_prefix: str) -> dict:
     unet_config["context_dim"] = context_dim
 
     assert not video_model
-    unet_config["use_temporal_resblock"] = False
-    unet_config["use_temporal_attention"] = False
-
     return unet_config
 
 
@@ -488,10 +525,8 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
 
     SDXL = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "num_classes": "sequential",
         "adm_in_channels": 2816,
         "dtype": dtype,
@@ -505,16 +540,12 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "context_dim": 2048,
         "num_head_channels": 64,
         "transformer_depth_output": [0, 0, 0, 2, 2, 2, 10, 10, 10],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     SDXL_refiner = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "num_classes": "sequential",
         "adm_in_channels": 2560,
         "dtype": dtype,
@@ -528,16 +559,12 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "context_dim": 1280,
         "num_head_channels": 64,
         "transformer_depth_output": [0, 0, 0, 4, 4, 4, 4, 4, 4, 0, 0, 0],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     SD15 = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "adm_in_channels": None,
         "dtype": dtype,
         "in_channels": 4,
@@ -550,16 +577,12 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "context_dim": 768,
         "num_heads": 8,
         "transformer_depth_output": [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     SDXL_mid_cnet = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "num_classes": "sequential",
         "adm_in_channels": 2816,
         "dtype": dtype,
@@ -573,16 +596,12 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "context_dim": 2048,
         "num_head_channels": 64,
         "transformer_depth_output": [0, 0, 0, 0, 0, 0, 1, 1, 1],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     SDXL_small_cnet = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "num_classes": "sequential",
         "adm_in_channels": 2816,
         "dtype": dtype,
@@ -596,16 +615,12 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "num_head_channels": 64,
         "context_dim": 1,
         "transformer_depth_output": [0, 0, 0, 0, 0, 0, 0, 0, 0],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     SDXL_diffusers_inpaint = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "num_classes": "sequential",
         "adm_in_channels": 2816,
         "dtype": dtype,
@@ -619,8 +634,6 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "context_dim": 2048,
         "num_head_channels": 64,
         "transformer_depth_output": [0, 0, 0, 2, 2, 2, 10, 10, 10],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     supported_models = [

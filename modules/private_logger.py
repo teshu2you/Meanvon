@@ -1,6 +1,6 @@
 import os
 import sys
-
+import numpy as np
 import adapter.args_manager
 import modules.config
 import json
@@ -14,6 +14,52 @@ from util.printf import printF, MasterName
 
 
 log_cache = {}
+
+
+def _coerce_to_hwc_uint8(img):
+    if not isinstance(img, np.ndarray):
+        img = np.asarray(img)
+    orig = img.shape
+
+    # 1) 剥前导 batch=1：只在还能保持 ≥3D 时剥，避免把 (1,H,C) 剥成 (H,C)
+    while img.ndim > 3 and img.shape[0] == 1:
+        img = img[0]
+
+    # 2) 中间 1 维 squeeze（T=1 等）
+    while img.ndim > 3:
+        squeezed = False
+        for d in range(1, img.ndim - 1):
+            if img.shape[d] == 1:
+                img = img.squeeze(d)
+                squeezed = True
+                break
+        if not squeezed:
+            img = img[0]
+
+    # 3) ★ 新增：CHW → HWC 安全网
+    if img.ndim == 3 and img.shape[0] in (1, 3, 4) and img.shape[-1] not in (1, 3, 4):
+        img = np.transpose(img, (1, 2, 0))
+        if img.shape[-1] == 1:
+            img = img[..., 0]
+
+    # 4) 修 (1, H, C) 被误当 1px 高的 bug：只要 ndim=3 且首维=1 且末维是 3/4
+    #    （已通过上面 transpose 纠过），此处兜底把 (1, H, 3) 重排为 (H, 1, 3) 是错的，
+    #    直接 squeeze 首维会导致数据丢失，用 reshape 保留全部像素：
+    if img.ndim == 3 and img.shape[0] == 1 and img.shape[-1] in (1, 3, 4) \
+            and img.shape[1] > 8:
+        printF(name=MasterName.get_master_name(),
+               info="[private_logger] suspicious (1, {}, {}) - keeping first frame only".format(
+                   img.shape[1], img.shape[2])).printf()
+
+    # 5) 强制 uint8
+    if img.dtype != np.uint8:
+        img = np.clip(img, 0, 255).astype(np.uint8)
+
+    if img.shape != orig:
+        printF(name=MasterName.get_master_name(),
+               info="[private_logger] coerced {} -> {} for Image.fromarray".format(
+                   orig, img.shape)).printf()
+    return img
 
 
 def get_current_html_path(output_format=None):
@@ -35,6 +81,7 @@ def log(img, metadata, metadata_parser: MetadataParser | None = None, output_for
 
     parsed_parameters = metadata_parser.parse_string(metadata.copy()) if metadata_parser is not None else ''
     print(f"parsed_parameters: {parsed_parameters}")
+    img = _coerce_to_hwc_uint8(img)
     image = Image.fromarray(img)
 
     if metadata is not None:

@@ -3,6 +3,7 @@
 # Copyright (C) 2026 Haoming02 - Burnt the Kitchen
 
 import contextlib
+import inspect
 import time
 from typing import Callable, Union
 
@@ -12,27 +13,67 @@ from backend import memory_management, stream, utils
 from backend.args import args, dynamic_args
 
 
+def gqa_repeat_factor(query_heads: int, key_heads: int, value_heads: int) -> int:
+    assert key_heads == value_heads
+    if query_heads == key_heads:
+        return 1
+    assert query_heads % key_heads == 0
+    return query_heads // key_heads
+
+
+def repeat_kv_for_gqa(k: torch.Tensor, v: torch.Tensor, query_heads: int, head_dim: int) -> tuple[torch.Tensor, torch.Tensor]:
+    n_rep = gqa_repeat_factor(query_heads, k.shape[head_dim], v.shape[head_dim])
+    if n_rep > 1:
+        k = k.repeat_interleave(n_rep, dim=head_dim)
+        v = v.repeat_interleave(n_rep, dim=head_dim)
+    return k, v
+
+
 def scaled_dot_product_attention(q, k, v, *args, **kwargs):
+    attn_mask = args[0] if len(args) > 0 else kwargs.get("attn_mask")
+    if kwargs.get("enable_gqa", False) and attn_mask is not None:
+        k, v = repeat_kv_for_gqa(k, v, q.shape[-3], -3)
+        kwargs["enable_gqa"] = False
     return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
 
 
 try:
-    if torch.cuda.is_available() and memory_management.WINDOWS:
-        import inspect
-
+    if torch.cuda.is_available():
         from torch.nn.attention import SDPBackend, sdpa_kernel
 
         if "set_priority" in inspect.signature(sdpa_kernel).parameters:
             SDPA_BACKEND_PRIORITY = [
                 SDPBackend.FLASH_ATTENTION,
+                SDPBackend.CUDNN_ATTENTION,
                 SDPBackend.EFFICIENT_ATTENTION,
                 SDPBackend.MATH,
             ]
 
-            SDPA_BACKEND_PRIORITY.insert(0, SDPBackend.CUDNN_ATTENTION)
+            SDPA_CONTIGUOUS_THRESHOLD = None
+
+            if memory_management.is_amd():
+                props = torch.cuda.get_device_properties(memory_management.get_torch_device())
+                if props.gcnArchName.split(":")[0] == "gfx1151":
+                    SDPA_CONTIGUOUS_THRESHOLD = props.L2_cache_size
 
             def scaled_dot_product_attention(q, k, v, *args, **kwargs):
+                if q.nelement() < 1024 * 128:
+                    return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
+                attn_mask = args[0] if len(args) > 0 else kwargs.get("attn_mask")
+                if kwargs.get("enable_gqa", False) and attn_mask is not None and not memory_management.is_nvidia():
+                    k, v = repeat_kv_for_gqa(k, v, q.shape[-3], -3)
+                    kwargs["enable_gqa"] = False
+                if SDPA_CONTIGUOUS_THRESHOLD and sum(t.shape[-2] * t.shape[-1] for t in (k, v)) * k.element_size() > SDPA_CONTIGUOUS_THRESHOLD:
+                    k, v = k.contiguous(), v.contiguous()
                 with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
+                    if kwargs.get("enable_gqa", False) and attn_mask is not None and q.shape[-3] != k.shape[-3]:
+                        dropout_p = args[1] if len(args) > 1 else kwargs.get("dropout_p", 0.0)
+                        is_causal = args[2] if len(args) > 2 else kwargs.get("is_causal", False)
+                        params = torch.backends.cuda.SDPAParams(q, k, v, attn_mask, dropout_p, is_causal, True)
+                        supports_native_gqa = torch.backends.cuda.can_use_flash_attention(params) or torch.backends.cuda.can_use_cudnn_attention(params) or torch.backends.cuda.can_use_efficient_attention(params)
+                        if not supports_native_gqa:
+                            k, v = repeat_kv_for_gqa(k, v, q.shape[-3], -3)
+                            kwargs["enable_gqa"] = False
                     return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
 
 except Exception:
@@ -46,12 +87,18 @@ def get_weight_and_bias(layer: torch.nn.Module) -> tuple[torch.Tensor, torch.Ten
     """Forge-Specific Function for on-the-fly LoRA"""
 
     weight: torch.Tensor = getattr(layer, "weight", None)
-    for f in getattr(layer, "weight_function", []):
-        weight = f(weight)
+    weight_functions: list[Callable] = getattr(layer, "weight_function", [])
+    if weight is not None and weight_functions:
+        weight = weight.clone()
+        for f in weight_functions:
+            weight = f(weight)
 
     bias: torch.Tensor = getattr(layer, "bias", None)
-    for f in getattr(layer, "bias_function", []):
-        bias = f(bias)
+    bias_functions: list[Callable] = getattr(layer, "bias_function", [])
+    if bias is not None and bias_functions:
+        bias = bias.clone()
+        for f in bias_functions:
+            bias = f(bias)
 
     return weight, bias
 
@@ -161,7 +208,6 @@ def main_stream_worker(weight, bias, offload_stream: tuple[torch.Stream, torch.T
 current_device: torch.device = None
 current_dtype: torch.dtype = None
 current_manual_cast_enabled: bool = False
-current_bnb_dtype: str = None
 
 
 # region Forge OPs
@@ -350,48 +396,6 @@ class ForgeOperations:
                     return torch.nn.functional.embedding(x, weight, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
             else:
                 return super().forward(x)
-
-
-# region BnB
-
-
-if memory_management.bnb_enabled():
-
-    from backend.operations_bnb import (
-        ForgeLoader4Bit,
-        functional_dequantize_4bit,
-        functional_linear_4bits,
-    )
-
-    class ForgeOperationsBNB4bits(ForgeOperations):
-        class Linear(ForgeLoader4Bit, ForgeWeights):
-            def __init__(self, *args, **kwargs):
-                super().__init__(device=current_device, dtype=current_dtype, quant_type=current_bnb_dtype)
-                self.parameters_manual_cast = current_manual_cast_enabled
-
-            def forward(self, x):
-                if self.bias is not None and self.bias.dtype != x.dtype:
-                    self.bias = utils.tensor2parameter(self.bias.to(x.dtype))
-
-                if self.weight_function or self.bias_function:
-                    weight, bias, signal = weights_manual_cast(self, x, weight_fn=functional_dequantize_4bit, skip_bias_dtype=True)
-                    with main_stream_worker(weight, bias, signal):
-                        return torch.nn.functional.linear(x, weight, bias)
-
-                if not self.parameters_manual_cast:
-                    return functional_linear_4bits(x, self.weight, self.bias)
-                elif not self.weight.bnb_quantized:
-                    assert x.device.type == "cuda", "BnB must use CUDA as Computation Device"
-                    layer_original_device = self.weight.device
-                    self.weight = self.weight._quantize(x.device)
-                    bias = self.bias.to(x.device) if self.bias is not None else None
-                    out = functional_linear_4bits(x, self.weight, bias)
-                    self.weight = self.weight.to(layer_original_device)
-                    return out
-                else:
-                    weight, bias, signal = weights_manual_cast(self, x, skip_weight_dtype=True, skip_bias_dtype=True)
-                    with main_stream_worker(weight, bias, signal):
-                        return functional_linear_4bits(x, weight, bias)
 
 
 # region GGUF
@@ -641,40 +645,57 @@ class TiledOperations(ForgeOperations):
 # region Pick OPs
 
 
+def _get_disabled_quants(device):
+    disabled = set()
+
+    if not memory_management.supports_nvfp4_compute(device):
+        disabled.add("nvfp4")
+    if not memory_management.supports_mxfp8_compute(device):
+        disabled.add("mxfp8")
+    if not memory_management.supports_fp8_compute(device):
+        disabled.add("float8_e4m3fn")
+        disabled.add("float8_e5m2")
+    if not memory_management.supports_int8_compute(device):
+        disabled.add("int8_tensorwise")
+        disabled.add("convrot_w4a4")
+        disabled.add("asym_w4a8_int8")
+        disabled.add("w6a8_int8")
+
+    return disabled
+
+
 @contextlib.contextmanager
-def using_forge_operations(operations=None, device=None, dtype=None, manual_cast_enabled=False, bnb_dtype=None):
-    global current_device, current_dtype, current_manual_cast_enabled, current_bnb_dtype
+def using_forge_operations(
+    *,
+    operations: "ForgeOperations" = None,
+    device: torch.device = None,
+    dtype: torch.dtype = None,
+    manual_cast_enabled: bool = False,
+    sd_dtype: torch.dtype = None,
+    extra_dtype: torch.dtype = None,
+):
 
-    current_device, current_dtype, current_manual_cast_enabled, current_bnb_dtype = device, dtype, manual_cast_enabled, bnb_dtype
+    if extra_dtype is None and dtype == sd_dtype and memory_management.is_device_cpu(device):
+        device = torch.device("meta")
 
-    if isinstance(bnb_dtype, dict):
+    global current_device, current_dtype, current_manual_cast_enabled
+
+    current_device, current_dtype, current_manual_cast_enabled = device, dtype, manual_cast_enabled
+
+    if isinstance(extra_dtype, dict):
         # https://github.com/Comfy-Org/ComfyUI/blob/v0.16.4/comfy/ops.py#L950
 
         _device = memory_management.get_torch_device()
         _dtype = torch.bfloat16 if memory_management.should_use_bf16(_device) else torch.float32
-        fp8_compute = memory_management.supports_fp8_compute(_device)
-        nvfp4_compute = memory_management.supports_nvfp4_compute(_device)
-        mxfp8_compute = memory_management.supports_mxfp8_compute(_device)
+        disabled = _get_disabled_quants(_device)
 
-        disabled = set()
-        if not nvfp4_compute:
-            disabled.add("nvfp4")
-        if not mxfp8_compute:
-            disabled.add("mxfp8")
-        if not fp8_compute:
-            disabled.add("float8_e4m3fn")
-            disabled.add("float8_e5m2")
-
-        _full: bool = bnb_dtype.pop("TE", False)  # https://github.com/Comfy-Org/ComfyUI/blob/v0.16.4/comfy/sd1_clip.py#L114
-        operations = mixed_precision_ops(quant_config=bnb_dtype, compute_dtype=_dtype, full_precision_mm=_full, disabled=disabled)
+        _full: bool = extra_dtype.pop("TE", False)  # https://github.com/Comfy-Org/ComfyUI/blob/v0.16.4/comfy/sd1_clip.py#L114
+        operations = mixed_precision_ops(quant_config=extra_dtype, compute_dtype=_dtype, full_precision_mm=_full, disabled=disabled)
 
     if operations is None:
-        if bnb_dtype in ["gguf"]:
+        if extra_dtype in ["gguf"]:
             operations = ForgeOperationsGGUF
-        elif bnb_dtype in ["nf4", "fp4"]:
-            assert memory_management.bnb_enabled(), 'Install the "bitsandbytes" package with --bnb'
-            operations = ForgeOperationsBNB4bits
-        elif bnb_dtype in ["vae"] and args.tiled_conv2d:
+        elif extra_dtype in ["vae"] and args.tiled_conv2d:
             memory_management.logger.info(f"Using TiledOperations ({args.tiled_conv2d}) for VAE")
             operations = TiledOperations
         elif dtype is torch.float8_e4m3fn and args.fast_fp8 and memory_management.supports_fp8_compute(memory_management.get_torch_device()):

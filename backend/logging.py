@@ -37,18 +37,15 @@ class ForgeRender:
         return output
 
 
-_DTYPE: list[str] = ["float16", "float32", "bfloat16", "float8_e4m3fn", "float8_e5m2", "int8", "gguf", "nf4", "fp4", "int4", "MixedPrecision"]
-_MODELS: list[str] = ["Gemma2", "Qwen2.5", "Qwen3", "T5XXL", "Model"]
+_DTYPE: list[str] = ["float16", "float32", "bfloat16", "float8_e4m3fn", "float8_e5m2", "gguf", "Layout"]
+_MODELS: list[str] = ["Qwen2.5", "Gemma2", "Mistral3", "Qwen3", "Qwen3.5", "T5XXL", "Model"]
 
 KEYWORDS: dict[str, list[str]] = {
-    "attention": ["SageAttention", "FlashAttention", "PyTorch", "xformers", "sage", "flash"],
+    "attention": ["Comfy-Kitchen", "SageAttention", "FlashAttention", "PyTorch", "xformers", "PyTorch", "Basic", "Slice"],
     "loader": _DTYPE + _MODELS,
-    "memory_management": ["cpu", "cuda", "rocm", "PyTorch"],
+    "memory_management": ["cpu", "cuda", "rocm", "mps", "xpu", "PyTorch"],
     "lora": ["LORA", "UNet", "CLIP"],
 }
-
-
-_QUIET_LOGGERS = {"memory_management", "attention"}
 
 
 def setup_logger(logger: logging.Logger):
@@ -59,5 +56,4 @@ def setup_logger(logger: logging.Logger):
         handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(handler)
 
-    default_level = "WARNING" if logger.name in _QUIET_LOGGERS else "INFO"
-    logger.setLevel(args.loglevel or default_level)
+    logger.setLevel(args.loglevel or "INFO")

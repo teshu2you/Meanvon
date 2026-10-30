@@ -5,19 +5,19 @@ import math
 from dataclasses import dataclass
 
 import torch
-from comfy_kitchen import apply_rope, apply_rope1  # noqa
 from einops import rearrange, repeat
 from torch import nn
 
 from backend import memory_management
 from backend.args import dynamic_args
 from backend.attention import attention_function
+from backend.quant_ops import ck
 from backend.utils import fp16_fix, pad_to_patch_size
 
 
 def attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, pe: torch.Tensor, mask=None, transformer_options={}) -> torch.Tensor:
     if pe is not None:
-        q, k = apply_rope(q, k, pe)
+        q, k = ck.apply_rope(q, k, pe)
     heads = q.shape[1]
     x = attention_function(q, k, v, heads, skip_reshape=True, mask=mask, transformer_options=transformer_options)
     return x
@@ -576,7 +576,7 @@ class IntegratedFluxTransformer2DModel(nn.Module):
         img_ids[:, :, 2] = img_ids[:, :, 2] + torch.linspace(w_offset, w_len - 1 + w_offset, steps=steps_w, device=x.device, dtype=torch.float32).unsqueeze(0)
         return img, repeat(img_ids, "h w c -> b (h w) c", b=bs)
 
-    def forward(self, x, timestep, context, y=None, guidance=None, ref_latents=None, control=None, transformer_options={}, **kwargs):
+    def forward(self, x, timestep, context, y=None, guidance=None, control=None, transformer_options={}, **kwargs):
         bs, c, h_orig, w_orig = x.shape
         patch_size = self.patch_size
 
@@ -585,9 +585,9 @@ class IntegratedFluxTransformer2DModel(nn.Module):
         img, img_ids = self.process_img(x)
         img_tokens = img.shape[1]
 
-        ref_latents: list[torch.Tensor] = ref_latents or dynamic_args.ref_latents
+        ref_latents: list[torch.Tensor] = dynamic_args.ref_latents
 
-        if ref_latents is not None:
+        if bool(ref_latents):
             h = 0
             w = 0
             index = 0

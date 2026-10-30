@@ -1,8 +1,10 @@
 import os
+from functools import lru_cache
 
 import torch
 from torch import nn
-from modules import devices
+
+from modules import devices, paths, shared
 
 sd_vae_approx_models = {}
 
@@ -24,7 +26,7 @@ class VAEApprox(nn.Module):
         x = nn.functional.interpolate(x, (x.shape[2] * 2, x.shape[3] * 2))
         x = nn.functional.pad(x, (extra, extra, extra, extra))
 
-        for layer in [self.conv1, self.conv2, self.conv3, self.conv4, self.conv5, self.conv6, self.conv7, self.conv8, ]:
+        for layer in [self.conv1, self.conv2, self.conv3, self.conv4, self.conv5, self.conv6, self.conv7, self.conv8]:
             x = layer(x)
             x = nn.functional.leaky_relu(x, 0.1)
 
@@ -35,25 +37,73 @@ def download_model(model_path, model_url):
     if not os.path.exists(model_path):
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
-        print(f'Downloading VAEApprox model to: {model_path}')
+        print(f"Downloading VAEApprox model to: {model_path}")
         torch.hub.download_url_to_file(model_url, model_path)
 
 
-def model(model):
-    if not model.is_webui_legacy_model():
+def model():
+    if not shared.sd_model.is_webui_legacy_model():
         return None
 
-    if model.is_sd3:
-        model_name = "vaeapprox-sd3.pt"
-    elif model.is_sdxl:
+    if shared.sd_model.is_sdxl:
         model_name = "vaeapprox-sdxl.pt"
     else:
         model_name = "model.pt"
 
     loaded_model = sd_vae_approx_models.get(model_name)
 
+    if loaded_model is None:
+        model_path = os.path.join(paths.models_path, "VAE-approx", model_name)
+        if not os.path.exists(model_path):
+            model_path = os.path.join(paths.script_path, "models", "VAE-approx", model_name)
+
+        if not os.path.exists(model_path):
+            model_path = os.path.join(paths.models_path, "VAE-approx", model_name)
+            download_model(model_path, "https://github.com/AUTOMATIC1111/stable-diffusion-webui/releases/download/v1.0.0-pre/" + model_name)
+
+        loaded_model = VAEApprox(latent_channels=shared.sd_model.forge_objects.vae.latent_channels)
+        loaded_model.load_state_dict(torch.load(model_path, map_location="cpu" if devices.device.type != "cuda" else None))
+        loaded_model.eval()
+        loaded_model.to(devices.device, devices.dtype)
+        sd_vae_approx_models[model_name] = loaded_model
+
     return loaded_model
 
 
-def cheap_approximation(model, sample):
-    return torch.einsum("...lxy,lr -> ...rxy", sample, torch.tensor(model.model_config.latent_format.latent_rgb_factors).to(sample.device))
+@lru_cache(maxsize=1, typed=False)
+def latent_format(latent_format):
+    factors = torch.tensor(latent_format.latent_rgb_factors, device="cpu").transpose(0, 1)
+
+    if getattr(latent_format, "latent_rgb_factors_bias", None) is None:
+        bias = None
+    else:
+        bias = torch.tensor(latent_format.latent_rgb_factors_bias, device="cpu")
+
+    if getattr(latent_format, "latent_rgb_factors_reshape", None) is None:
+        reshape = None
+    else:
+        reshape = latent_format.latent_rgb_factors_reshape
+
+    return factors, bias, reshape
+
+
+def cheap_approximation(sample: torch.Tensor):
+    factors, bias, reshape = latent_format(shared.sd_model.model_config.latent_format)
+
+    if reshape is not None:
+        sample = reshape(sample)
+
+    if sample.ndim == 5:
+        samples = torch.unbind(sample[0], dim=1)
+        images = []
+        for sample in samples:
+            latent_image = torch.nn.functional.linear(sample.movedim(0, -1), factors.to(sample), bias=bias.to(sample) if bias is not None else None)
+            images.append(latent_image.permute(2, 0, 1))
+        z = torch.stack(images).unsqueeze(0).squeeze(1)
+
+    else:
+        sample = sample[0]
+        latent_image = torch.nn.functional.linear(sample.movedim(0, -1), factors.to(sample), bias=bias.to(sample) if bias is not None else None)
+        z = latent_image.permute(2, 0, 1).unsqueeze(0)
+
+    return z

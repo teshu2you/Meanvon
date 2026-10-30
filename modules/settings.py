@@ -51,10 +51,8 @@ def load_settings():
     settings['scheduler'] = 'karras'
     settings['cfg'] = 7.0
     settings['base_clip_skip'] = -2
-    settings['refiner_clip_skip'] = -2
     settings['sharpness'] = 2.0
     settings['base_model'] = modules.config.default_base_model_name
-    settings['refiner_model'] = modules.config.default_refiner_model_name
     settings['lora_1_model'] = modules.config.default_loras[0][0]
     settings['lora_1_weight'] = modules.config.default_loras[0][1]
     settings['lora_2_model'] = modules.config.default_loras[1][0]

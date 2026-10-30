@@ -14,6 +14,8 @@ class PresetArch(Enum):
     ernie = 10  # Ernie-Image
     pid = 11  # PiD
     krea = 12  # Krea2
+    qwen21 = 13  # Qwen-Image-2.1
+    moss = 14  # MOSS-Image
 
     @staticmethod
     def choices() -> list[str]:
@@ -33,6 +35,8 @@ SAMPLERS = {
     PresetArch.ernie: "Euler",
     PresetArch.pid: "LCM",
     PresetArch.krea: "Euler",
+    PresetArch.qwen21: "Euler",
+    PresetArch.moss: "Euler",
 }
 
 SCHEDULERS = {
@@ -48,6 +52,8 @@ SCHEDULERS = {
     PresetArch.ernie: "Simple",
     PresetArch.pid: "Simple",
     PresetArch.krea: "Simple",
+    PresetArch.qwen21: "Simple",
+    PresetArch.moss: "Simple",
 }
 
 STEPS = {
@@ -63,6 +69,8 @@ STEPS = {
     PresetArch.ernie: 8,
     PresetArch.pid: 4,
     PresetArch.krea: 8,
+    PresetArch.qwen21: 32,
+    PresetArch.moss: 50,
 }
 
 CFG = {
@@ -78,6 +86,8 @@ CFG = {
     PresetArch.ernie: 1.0,
     PresetArch.pid: 1.0,
     PresetArch.krea: 1.0,
+    PresetArch.qwen21: 2.5,
+    PresetArch.moss: 3.0,
 }
 
 DISTILL = {
@@ -93,6 +103,7 @@ SHIFT = {
     PresetArch.ernie: 3.0,
     PresetArch.pid: -1.5,
     PresetArch.krea: -1.15,
+    PresetArch.moss: 5.0,
 }
 
 FRAMES = {
@@ -117,16 +128,6 @@ def register(options_templates: dict):
 
     from modules.options import OptionInfo, OptionRow, options_section
     from modules.shared_items import list_samplers, list_schedulers
-    import gradio as gr
-
-    # 延迟加载函数，在 UI 渲染时而非模块加载时解析
-    def _get_model_choices():
-        from modules.shared_items import list_checkpoint_tiles
-        return {"choices": [""] + list_checkpoint_tiles()}
-
-    def _get_module_choices():
-        from modules_forge.main_entry import module_list
-        return {"choices": module_list, "multiselect": True}
 
     for arch in PresetArch:
         name = arch.name
@@ -135,35 +136,9 @@ def register(options_templates: dict):
             options_section(
                 (None, "Forge Hidden Options"),
                 {
-                    # 仅保留默认值，可见选项在下方设置
-                },
-            )
-        )
-
-        # === 模型组合选择（可见，在每个 preset 中） ===
-        options_templates.update(
-            options_section(
-                (f"ui_{name}", name.upper(), "presets"),
-                {
-                    f"{name}_model_ss1": OptionRow(),
-                    f"forge_checkpoint_{name}": OptionInfo(
-                        None,
-                        f"Model checkpoint",
-                        gr.Dropdown,
-                        _get_model_choices,
-                        refresh=lambda: __import__("modules.shared_items", fromlist=["refresh_checkpoints"]).refresh_checkpoints(),
-                    ),
-                    f"forge_additional_modules_{name}": OptionInfo(
-                        [],
-                        "Additional modules (VAE / Text Encoder)",
-                        gr.Dropdown,
-                        _get_module_choices,
-                        refresh=lambda: __import__("modules_forge.main_entry", fromlist=["refresh_models"]).refresh_models(),
-                    ),
-                    f"{name}_model_ss0": OptionRow(),
-                    f"{name}_model2_ss1": OptionRow(),
-                    f"forge_unet_storage_dtype_{name}": OptionInfo("Automatic", "UNet storage dtype", gr.Dropdown, {"choices": ["Automatic", "fp8", "fp16", "fp32"]}),
-                    f"{name}_model2_ss0": OptionRow(),
+                    f"forge_checkpoint_{name}": OptionInfo(None),
+                    f"forge_additional_modules_{name}": OptionInfo([]),
+                    f"forge_unet_storage_dtype_{name}": OptionInfo("Automatic"),
                 },
             )
         )

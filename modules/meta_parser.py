@@ -43,8 +43,6 @@ def load_parameter_button_click(raw_metadata: dict | str, is_generating: bool):
     get_str('refiner_swap_method', 'Refiner Swap Method', loaded_parameter_dict, results)
     get_float('adaptive_cfg', 'CFG Mimicking from TSNR', loaded_parameter_dict, results)
     get_str('base_model', 'Base Model', loaded_parameter_dict, results)
-    get_str('refiner_model', 'Refiner Model', loaded_parameter_dict, results)
-    get_float('refiner_switch', 'Refiner Switch', loaded_parameter_dict, results)
     get_str('sampler', 'Sampler', loaded_parameter_dict, results)
     get_str('scheduler', 'Scheduler', loaded_parameter_dict, results)
     get_seed('seed', 'Seed', loaded_parameter_dict, results)
@@ -247,8 +245,6 @@ class MetadataParser(ABC):
         self.steps: int = 30
         self.base_model_name: str = ''
         self.base_model_hash: str = ''
-        self.refiner_model_name: str = ''
-        self.refiner_model_hash: str = ''
         self.loras: list = []
 
     @abstractmethod
@@ -263,8 +259,7 @@ class MetadataParser(ABC):
     def parse_string(self, metadata: dict) -> str:
         raise NotImplementedError
 
-    def set_data(self, raw_prompt, full_prompt, raw_negative_prompt, full_negative_prompt, steps, base_model_name,
-                 refiner_model_name, loras):
+    def set_data(self, raw_prompt, full_prompt, raw_negative_prompt, full_negative_prompt, steps, base_model_name, loras):
         self.raw_prompt = raw_prompt
         self.full_prompt = full_prompt
         self.raw_negative_prompt = raw_negative_prompt
@@ -274,11 +269,6 @@ class MetadataParser(ABC):
 
         base_model_path = get_file_from_folder_list(base_model_name, modules.config.paths_checkpoints)
         self.base_model_hash = get_sha256(base_model_path)
-
-        if refiner_model_name not in ['', 'None']:
-            self.refiner_model_name = Path(refiner_model_name).stem
-            refiner_model_path = get_file_from_folder_list(refiner_model_name, modules.config.paths_checkpoints)
-            self.refiner_model_hash = get_sha256(refiner_model_path)
 
         self.loras = []
         print(f"loras: {loras}")
@@ -322,8 +312,6 @@ class A1111MetadataParser(MetadataParser):
         'freeu': 'FreeU',
         'base_model': 'Model',
         'base_model_hash': 'Model hash',
-        'refiner_model': 'Refiner',
-        'refiner_model_hash': 'Refiner hash',
         'lora_hashes': 'Lora hashes',
         'lora_weights': 'Lora weights',
         'created_by': 'User',
@@ -398,7 +386,7 @@ class A1111MetadataParser(MetadataParser):
                     data['sampler'] = k
                     break
 
-        for key in ['base_model', 'refiner_model']:
+        for key in ['base_model']:
             if key in data:
                 for filename in modules.config.model_filenames:
                     path = Path(filename)
@@ -457,11 +445,6 @@ class A1111MetadataParser(MetadataParser):
             self.fooocus_to_a1111['raw_negative_prompt']: self.raw_negative_prompt,
         }
 
-        if self.refiner_model_name not in ['', 'None']:
-            generation_params |= {
-                self.fooocus_to_a1111['refiner_model']: self.refiner_model_name,
-                self.fooocus_to_a1111['refiner_model_hash']: self.refiner_model_hash
-            }
 
         for key in ['adaptive_cfg', 'overwrite_switch', 'refiner_swap_method', 'freeu']:
             if key in data:
@@ -505,7 +488,7 @@ class FooocusMetadataParser(MetadataParser):
         for key, value in metadata.items():
             if value in ['', 'None']:
                 continue
-            if key in ['base_model', 'refiner_model']:
+            if key in ['base_model']:
                 metadata[key] = self.replace_value_with_filename(key, value, model_filenames)
             elif key.startswith('lora_combined_'):
                 metadata[key] = self.replace_value_with_filename(key, value, lora_filenames)
@@ -530,10 +513,6 @@ class FooocusMetadataParser(MetadataParser):
         res['steps'] = self.steps
         res['base_model'] = self.base_model_name
         res['base_model_hash'] = self.base_model_hash
-
-        if self.refiner_model_name not in ['', 'None']:
-            res['refiner_model'] = self.refiner_model_name
-            res['refiner_model_hash'] = self.refiner_model_hash
 
         res['loras'] = self.loras
 
@@ -567,7 +546,7 @@ class MeanVonMetadataParser(MetadataParser):
         for key, value in metadata.items():
             if value in ['', 'None']:
                 continue
-            if key in ['base_model', 'refiner_model']:
+            if key in ['base_model']:
                 metadata[key] = self.replace_value_with_filename(key, value, model_filenames)
             elif key.startswith('lora_combined_'):
                 metadata[key] = self.replace_value_with_filename(key, value, lora_filenames)
@@ -592,10 +571,6 @@ class MeanVonMetadataParser(MetadataParser):
         res['steps'] = self.steps
         res['base_model'] = self.base_model_name
         res['base_model_hash'] = self.base_model_hash
-
-        if self.refiner_model_name not in ['', 'None']:
-            res['refiner_model'] = self.refiner_model_name
-            res['refiner_model_hash'] = self.refiner_model_hash
 
         res['loras'] = self.loras
 

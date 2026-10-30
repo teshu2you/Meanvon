@@ -402,14 +402,33 @@ os.makedirs(temp_outputs_path, exist_ok=True)
 
 default_clip_vision_name = 'clip_vision_g.safetensors'
 
-default_flux1_vae_name = 'flux1-vae.safetensors'
-default_flux2_vae_name = 'flux2-vae.safetensors'
-
+default_flux1_vae_name = 'ae.safetensors'
 default_flux1_text_encoder_clip = 'clip_l.safetensors'
-default_flux1_text_encoder_t5xxl = 't5xxl_fp8_e4m3fn.safetensors'
+default_flux1_text_encoder_t5xxl = 't5xxl_fp16.safetensors'
 
-default_flux2_text_encoder_clip = 'clip_l.safetensors'
-default_flux2_text_encoder_t5xxl = 't5xxl_fp8_e4m3fn.safetensors'
+default_flux2_vae_name = 'flux2-vae.safetensors'
+default_flux2_text_encoder_mistral = None   # dev 32B 用
+default_flux2_text_encoder_qwen3_4b = 'qwen_3_4b.safetensors'  # klein 4B 用
+default_flux2_text_encoder_qwen3_8b = 'qwen_3_8b_fp8mixed.safetensors'  # klein 9B 用（你现在需要的）
+
+default_zimage_vae_name = 'zimage_vae.safetensors'
+default_zimage_text_encoder_clip = 'qwen_3_4b.safetensors'
+
+default_qwenimage_vae_name = 'qwen_image_vae.safetensors'
+default_qwenimage_text_encoder = 'qwen_2.5_vl_7b.safetensors'
+
+# HunyuanDiT 的辅助权重（unet-only checkpoint 必须）
+# default_hunyuandit_vae_name = "sdxl-vae-fp16-fix.safetensors"
+# default_hunyuandit_text_encoder_clip = "clip_l.safetensors"
+# default_hunyuandit_text_encoder_mt5 = "mt5xxl_fp16.safetensors"
+
+# Krea  qwen_image_vae
+default_krea2_vae_name = "wan_2.1_vae.safetensors"
+default_krea2_text_encoder = "qwen_3vl_4b_bf16.safetensors"
+
+default_hunyuandit_vae_name = None
+default_hunyuandit_text_encoder_clip = None
+default_hunyuandit_text_encoder_mt5 = None
 
 default_controlnet_canny_name = 'control-lora-canny-rank128.safetensors'
 default_controlnet_depth_name = 'control-lora-depth-rank128.safetensors'
@@ -427,7 +446,7 @@ default_model_preset_name = "default"
 model_types = [
     # "Stable_Zero123",
     # "SD15_instructpix2pix",
-    "SD15",
+    # "SD15",
     # "SD20",
     # "SD21UnclipL",
     # "SD21UnclipH",
@@ -446,18 +465,64 @@ model_types = [
     # "SD3",
     # "StableAudio",
     # "AuraFlow",
-    "QwenImage",
-    "HunyuanDiT",
+    # "QwenImage",
+    # "HunyuanDiT",
     "Krea2",
-    "Flux",
-    "FluxSchnell",
-    "Flux2K4B",
-    "Flux2K9B",
-    "Kolors",
-    "ZImage",
-    "ErnieImage"
-    
+    # "Flux3",
+    "Flux1_Schnell",
+    "Flux1_DEV",
+    # "Flux2_DEV",
+    "Flux2_Klein",
+    # "Kolors",
+    "ZImage_Turbo",
+    "ZImage_Base",
+    # "ErnieImage"  
 ]
+
+# ---- ZImage 分支拆分：Turbo（蒸馏快速版）/ Base（基础版） ----
+# 公共默认（两分支共用，可在各自 dict 里覆盖）
+_zimage_common = {
+    'vae_name': default_zimage_vae_name,
+    'text_encoder': default_zimage_text_encoder_clip,
+}
+
+# Turbo 分支配置
+zimage_turbo_config = {
+    **_zimage_common,
+    'model_type': 'ZImage_Turbo',
+    'default_steps': 8,
+    'default_cfg_scale': 1.0,
+}
+
+# Base 分支配置
+zimage_base_config = {
+    **_zimage_common,
+    'model_type': 'ZImage_Base',
+    'default_steps': 30,
+    'default_cfg_scale': 5.0,
+}
+
+zimage_branch_configs = {
+    'ZImage_Turbo': zimage_turbo_config,
+    'ZImage_Base': zimage_base_config,
+}
+
+
+def is_zimage(model_type: str) -> bool:
+    """是否为任意 ZImage 分支。"""
+    return model_type in zimage_branch_configs
+
+
+def is_zimage_turbo(model_type: str) -> bool:
+    return model_type == 'ZImage_Turbo'
+
+
+def is_zimage_base(model_type: str) -> bool:
+    return model_type == 'ZImage_Base'
+
+def get_zimage_config(model_type: str) -> dict:
+    """按分支类型返回对应配置，未命中返回空 dict。"""
+    return zimage_branch_configs.get(model_type, {})
 
 default_model_type = "SDXL"
 
@@ -472,19 +537,10 @@ previous_default_models = get_config_item_or_set_default(
     default_value=[],
     validator=lambda x: isinstance(x, list) and all(isinstance(k, str) for k in x)
 )
-default_refiner_model_name = default_refiner = get_config_item_or_set_default(
-    key='default_refiner',
-    default_value='None',
-    validator=lambda x: isinstance(x, str)
-)
-default_refiner_switch = get_config_item_or_set_default(
-    key='default_refiner_switch',
-    default_value=0.8,
-    validator=lambda x: isinstance(x, numbers.Number) and 0 <= x <= 1
-)
+
 default_loras_min_weight = get_config_item_or_set_default(
     key='default_loras_min_weight',
-    default_value=-2,
+    default_value=0.2,
     validator=lambda x: isinstance(x, numbers.Number) and -10 <= x <= 10
 )
 default_loras_max_weight = get_config_item_or_set_default(
@@ -627,7 +683,7 @@ embeddings_downloads = get_config_item_or_set_default(
 available_aspect_ratios = get_config_item_or_set_default(
     key='available_aspect_ratios',
     default_value=[
-        '512*512', '768*768',
+        '768*768',
         '704*1408', '704*1344', '768*1344', '768*1280', '832*1216', '832*1152',
         '896*1152', '896*1088', '960*1088', '960*1024', '1024*1024', '1024*960',
         '1088*960', '1088*896', '1152*896', '1152*832', '1216*832', '1280*768',
@@ -692,8 +748,6 @@ config_dict["default_loras"] = default_loras = default_loras[:default_max_lora_n
 # mapping config to meta parameter
 possible_preset_keys = {
     "default_model": "base_model",
-    "default_refiner": "refiner_model",
-    "default_refiner_switch": "refiner_switch",
     "previous_default_models": "previous_default_models",
     "default_loras_min_weight": "default_loras_min_weight",
     "default_loras_max_weight": "default_loras_max_weight",

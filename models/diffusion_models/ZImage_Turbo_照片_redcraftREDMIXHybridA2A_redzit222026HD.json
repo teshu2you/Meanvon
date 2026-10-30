@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"2026/7/5",
+	"Base": "SDXL 1.0",
+	"Links": "https://civarchive.com/models/958009?modelVersionId=3100874",
+	"Version": "2026HD",
+	"Tags": "BASE MODEL NSFW",
+	"Usage_Tips": "beta2 版本融合了 LTX2.5 distilled 作为2k高清化方案，并且消除了音频bug。The beta2 version integrates LTX2.5 distilled as a 2K HD solution and has eliminated audio bugs.Any questions Contact me via Telegram @makemoviexxx",
+	"Author": "RedCraft",
+	"ReMark": "本版本整合了开源社区众多们的劳动与研究成果，包括：来自 Kijai（Kijai/MiniMax-H3-experimental）的 Ref2V 权重分离、来自 LightX2V（lightx2v/Minimax-h3-Turbo）的 Turbo 加速器 1.0 FL2V 版本、来自 sexgod1979（ SexGod's NaughtyTimes MM H3 Lora ）的 NSFW 增强Lora（推荐尝试 PinkCherry MM H3 版本）、来自 TenStrip（推荐尝试 TenStrip/10Eros-Max ）的 FL2V 版本美学调优，以及来自 Astral 星芒 的 ComfyUI-MiniMax-ContextIR A2A 节点包，以及众多博主无私的技术与知识分享。（特别感谢：Aiwood、AIEveryThing、wuwukasi 以及众多 H3 宣发账号和平台。）"
+}

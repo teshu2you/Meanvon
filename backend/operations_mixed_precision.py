@@ -5,6 +5,7 @@ import json
 import torch
 
 from backend.memory_management import cast_to_device, logger
+from backend.operations import main_stream_worker, weights_manual_cast
 
 from .operations import (
     ForgeOperations,
@@ -16,8 +17,19 @@ from .quant_ops import (  # noqa
     QUANT_ALGOS,
     QuantizedTensor,
     TensorCoreFP8Layout,
+    TensorWiseINT8Layout,
+    ck,
     get_layout_class,
 )
+
+_GROUPED_INT8_FORMATS = {"asym_w4a8_int8": 4, "w6a8_int8": 6}
+
+_COMPILE_UNSAFE_LAYOUTS = {"TensorCoreConvRotW4A4Layout", "AsymW4A8Int8Layout"}
+
+
+@torch.compiler.disable
+def _run_eager(fn, *args, **kwargs):
+    return fn(*args, **kwargs)
 
 
 def _quantized_apply(module: torch.nn.Module, fn, recurse=True):
@@ -27,10 +39,11 @@ def _quantized_apply(module: torch.nn.Module, fn, recurse=True):
     for key, param in module._parameters.items():
         if param is None:
             continue
-        p = fn(param)
-        if (not torch.is_inference_mode_enabled()) and p.is_inference():
-            p = p.clone()
-        module.register_parameter(key, torch.nn.Parameter(p, requires_grad=False))
+        p: torch.Tensor = fn(param)
+        try:
+            module.register_parameter(key, torch.nn.Parameter(p, requires_grad=False))
+        except RuntimeError:
+            module.register_parameter(key, torch.nn.Parameter(p.clone(), requires_grad=False))
     for key, buf in module._buffers.items():
         if buf is not None:
             module._buffers[key] = fn(buf)
@@ -79,6 +92,7 @@ def _load_quantized_module(module: torch.nn.Module, super_load, state_dict: dict
         module.layout_type = qconfig["comfy_tensor_layout"]
         layout_cls = get_layout_class(module.layout_type)
 
+        # Per-format scales; fp8 dtype views handle both legacy uint8-on-disk and native fp8.
         if module.quant_format in ("float8_e4m3fn", "float8_e5m2"):
             scales = {"scale": pop_scale("weight_scale")}
         elif module.quant_format == "mxfp8":
@@ -96,6 +110,7 @@ def _load_quantized_module(module: torch.nn.Module, super_load, state_dict: dict
             scale = pop_scale("weight_scale")
             if scale is None:
                 raise ValueError(f"Missing INT8 weight scale for layer {layer_name}")
+            module._per_row = scale.dim() == 2 and scale.shape[1] == 1
             scales = {"scale": scale}
             params_conf = layer_conf.get("params", {})
             if not isinstance(params_conf, dict):
@@ -103,6 +118,38 @@ def _load_quantized_module(module: torch.nn.Module, super_load, state_dict: dict
             if layer_conf.get("convrot", params_conf.get("convrot", False)):
                 scales["convrot"] = True
                 scales["convrot_groupsize"] = int(layer_conf.get("convrot_groupsize", params_conf.get("convrot_groupsize", 256)))
+        elif module.quant_format == "convrot_w4a4":
+            scale = pop_scale("weight_scale")
+            if scale is None:
+                raise ValueError(f"Missing ConvRot W4A4 weight scale for layer {layer_name}")
+            params_conf = layer_conf.get("params", {})
+            if not isinstance(params_conf, dict):
+                params_conf = {}
+            scales = {
+                "scale": scale,
+                "convrot_groupsize": int(layer_conf.get("convrot_groupsize", params_conf.get("convrot_groupsize", 256))),
+                "quant_group_size": 64,
+                "linear_dtype": layer_conf.get("linear_dtype", params_conf.get("linear_dtype", "int4")),
+            }
+        elif module.quant_format in _GROUPED_INT8_FORMATS:
+            bits = _GROUPED_INT8_FORMATS[module.quant_format]
+            if weight.shape[1] * 8 != module._orig_shape[1] * bits:
+                raise ValueError(f'Invalid Layer "{layer_name}" ([{module.quant_format}] packed weight width {weight.shape[1]} does not match K={module._orig_shape[1]} at {bits} bits)')
+            scale = pop_scale("weight_s_rel")
+            if scale is None:
+                raise ValueError(f"Missing {module.quant_format} group scale (weight_s_rel) for layer {layer_name}")
+            if scale.dtype == torch.uint8:
+                scale = scale.view(torch.float8_e4m3fn)
+            params_conf = layer_conf.get("params", {})
+            if not isinstance(params_conf, dict):
+                params_conf = {}
+            scales = {
+                "scale": scale,
+                "s_channel": pop_scale("weight_s_channel"),
+                "codebook": pop_scale("weight_codebook"),
+                "group_size": int(layer_conf.get("group_size", params_conf.get("group_size", 16))),
+                "convrot_groupsize": int(layer_conf.get("convrot_groupsize", params_conf.get("convrot_groupsize", 256))),
+            }
         else:
             raise ValueError(f"Unsupported quantization format: {module.quant_format}")
 
@@ -124,7 +171,6 @@ def _load_quantized_module(module: torch.nn.Module, super_load, state_dict: dict
                 manually_loaded_keys.append(param_key)
 
     super_load(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-
     for key in manually_loaded_keys:
         if key in missing_keys:
             missing_keys.remove(key)
@@ -150,6 +196,14 @@ def _quantized_weight_state_dict(module: torch.nn.Module, sd: dict[str, torch.Te
         params = getattr(module.weight, "_params", None)
         if module.quant_format == "int8_tensorwise" and getattr(params, "convrot", False):
             quant_conf["convrot"] = True
+            quant_conf["convrot_groupsize"] = getattr(params, "convrot_groupsize", 256)
+        elif module.quant_format == "convrot_w4a4":
+            quant_conf["convrot_groupsize"] = getattr(params, "convrot_groupsize", 256)
+            linear_dtype = getattr(params, "linear_dtype", "int4")
+            if linear_dtype != "int4":
+                quant_conf["linear_dtype"] = linear_dtype
+        elif module.quant_format in _GROUPED_INT8_FORMATS:
+            quant_conf["group_size"] = getattr(params, "group_size", 16)
             quant_conf["convrot_groupsize"] = getattr(params, "convrot_groupsize", 256)
         if extra_quant_conf:
             quant_conf.update(extra_quant_conf)
@@ -199,9 +253,13 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 return _quantized_weight_state_dict(self, sd, prefix, extra_quant_params=("input_scale",))
 
             def forward(self, input, *args, **kwargs):
+                if getattr(self, "layout_type", None) in _COMPILE_UNSAFE_LAYOUTS:
+                    return _run_eager(self._forward, input, *args, **kwargs)
+                return self._forward(input, *args, **kwargs)
+
+            def _forward(self, input, *args, **kwargs):
                 input_shape = input.shape
-                reshaped_3d = False
-                compute_dtype = input.dtype
+                reshaped_nd = False
 
                 _use_quantized = getattr(self, "layout_type", None) is not None and not isinstance(input, QuantizedTensor) and not self._full_precision_mm and not getattr(self, "forge_force_cast_weights", False) and len(self.weight_function) == 0 and len(self.bias_function) == 0
                 quantize_input = QUANT_ALGOS.get(getattr(self, "quant_format", None), {}).get("quantize_input", True)
@@ -209,10 +267,10 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 assert not input.requires_grad
 
                 if _use_quantized and quantize_input:
-                    input_reshaped = input.reshape(-1, input_shape[2]) if input.ndim == 3 else input
+                    input_reshaped = input.reshape(-1, input_shape[-1]) if input.ndim >= 3 else input
 
                     if input_reshaped.ndim == 2:
-                        reshaped_3d = input.ndim == 3
+                        reshaped_nd = input.ndim >= 3
                         scale = getattr(self, "input_scale", None)
                         if scale is not None:
                             scale = cast_to_device(scale, input.device, None)
@@ -221,13 +279,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 weight_only_quant = _use_quantized and not quantize_input and isinstance(self.weight, QuantizedTensor)
 
                 if weight_only_quant:
-                    weight, bias, signal = weights_manual_cast(
-                        self,
-                        x=None,
-                        dtype=self.weight.dtype,
-                        device=input.device,
-                        bias_dtype=input.dtype,
-                    )
+                    weight, bias, signal = weights_manual_cast(self, x=None, dtype=self.weight.dtype, device=input.device, bias_dtype=input.dtype)
                     weight = weight.to(dtype=input.dtype)
                 else:
                     weight, bias, signal = weights_manual_cast(self, x=input)
@@ -235,8 +287,8 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 with main_stream_worker(weight, bias, signal):
                     output = torch.nn.functional.linear(input, weight, bias)
 
-                if reshaped_3d:
-                    output = output.reshape((input_shape[0], input_shape[1], self.weight.shape[0]))
+                if reshaped_nd:
+                    output = output.reshape((*input_shape[:-1], self.weight.shape[0]))
 
                 return output
 
@@ -270,7 +322,7 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 quant_format = layer_conf.get("format") if layer_conf is not None else None
                 manually_loaded_keys = []
 
-                if quant_format in ("float8_e4m3fn", "float8_e5m2") and weight_key in state_dict:
+                if quant_format in ("float8_e4m3fn", "float8_e5m2", "int8_tensorwise") and weight_key in state_dict:
                     self.quant_format = quant_format
                     qconfig = QUANT_ALGOS[quant_format]
                     self.layout_type = qconfig["comfy_tensor_layout"]
@@ -284,10 +336,16 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                         scale = scale.float()
                         manually_loaded_keys.append(scale_key)
 
+                    extra = {}
+                    if quant_format == "int8_tensorwise" and layer_conf.get("convrot", False):
+                        extra["convrot"] = True
+                        extra["convrot_groupsize"] = int(layer_conf.get("convrot_groupsize", 256))
+
                     params = layout_cls.Params(
                         scale=scale if scale is not None else torch.ones((), dtype=torch.float32),
                         orig_dtype=MixedPrecisionOps._compute_dtype,
                         orig_shape=(self.num_embeddings, self.embedding_dim),
+                        **extra,
                     )
                     self.weight = torch.nn.Parameter(QuantizedTensor(weight.to(dtype=qconfig["storage_t"]), qconfig["comfy_tensor_layout"], params), requires_grad=False)
                 elif layer_conf is not None:
@@ -304,17 +362,27 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 return _quantized_weight_state_dict(self, sd, prefix)
 
             def forward(self, input):
+                if getattr(self, "layout_type", None) in _COMPILE_UNSAFE_LAYOUTS:
+                    return _run_eager(self._forward, input)
+                return self._forward(input)
+
+            def _forward(self, input):
                 weight = self.weight
 
                 if isinstance(weight, QuantizedTensor) and len(self.weight_function) == 0:
                     qdata, _, signal = weights_manual_cast(self, device=input.device, dtype=weight.dtype)
                     if isinstance(qdata, QuantizedTensor):
-                        scale = qdata._params.scale
+                        params = qdata._params
+                        scale = params.scale
                         qdata = qdata._qdata
                     else:
+                        params = weight._params
                         scale = None
 
                     with main_stream_worker(qdata, None, signal):
+                        if self.quant_format == "int8_tensorwise":
+                            return get_layout_class(self.layout_type).dequantize_embedding(qdata, params, input)
+
                         x = torch.nn.functional.embedding(input, qdata, self.padding_idx, self.max_norm, self.norm_type, self.scale_grad_by_freq, self.sparse)
 
                     target_dtype = weight._params.orig_dtype
@@ -327,3 +395,79 @@ def mixed_precision_ops(quant_config={}, compute_dtype=torch.bfloat16, full_prec
                 return super().forward(input)
 
     return MixedPrecisionOps
+
+
+# region ops
+
+import torch.nn.functional as F
+
+
+def _swiglu_eager(x: torch.Tensor) -> torch.Tensor:
+    gate, up = x.chunk(2, dim=-1)
+    return F.silu(gate).mul_(up)
+
+
+def _situ_eager(x: torch.Tensor) -> torch.Tensor:
+    hidden, gate = x.chunk(2, dim=-1)
+    return (4.0 * torch.tanh(gate / 4.0) * torch.sigmoid(gate)) * (25.0 * torch.tanh(hidden / 25.0))
+
+
+INPUT_ACT_EAGER = {
+    "gelu_tanh": lambda x: F.gelu(x, approximate="tanh"),
+    "swiglu": _swiglu_eager,
+    "situ": _situ_eager,
+}
+
+
+def _eager_input_act(x: torch.Tensor, input_act: str, act_weight: torch.Tensor = None, act_eps: float = 0.0) -> torch.Tensor:
+    if input_act is None:
+        return x
+    if input_act == "rms_norm":
+        return F.rms_norm(x, act_weight.shape, cast_to_device(act_weight, x.device, x.dtype), act_eps)
+    return INPUT_ACT_EAGER[input_act](x)
+
+
+def _fp16_linear_wanted(x: torch.Tensor) -> bool:
+    return getattr(torch.backends.cuda.matmul, "allow_fp16_accumulation", False) and x.dtype == torch.float16 and x.is_cuda
+
+
+@torch.compiler.disable
+def linear_input_act(linear: torch.nn.Linear, x: torch.Tensor, input_act: str, act_weight: torch.Tensor = None, act_eps: float = 0.0, residual: torch.Tensor = None, residual_scale: float = None) -> torch.Tensor:
+    """https://github.com/Comfy-Org/ComfyUI/blob/master/comfy/ops.py#L976"""
+
+    def _residual_out(out):
+        if residual is None:
+            return out
+        return torch.addcmul(residual, out, residual_scale)
+
+    weight = linear.weight
+    full_precision_mm = getattr(linear, "_full_precision_mm", False)
+
+    if not isinstance(weight, QuantizedTensor) or weight._layout_cls != "TensorWiseINT8Layout" or getattr(weight._params, "transposed", False) or full_precision_mm:
+        if not isinstance(weight, QuantizedTensor) and not full_precision_mm and _fp16_linear_wanted(x) and getattr(weight, "gguf_cls", None) is None:
+            weight, bias, offload_stream = weights_manual_cast(linear, x)
+            with main_stream_worker(weight, bias, offload_stream):
+                return ck.fp16_linear(_eager_input_act(x, input_act, act_weight, act_eps), weight, bias, residual=residual, residual_scale=residual_scale)
+
+        return _residual_out(linear(_eager_input_act(x, input_act, act_weight, act_eps)))
+
+    weight, bias, offload_stream = weights_manual_cast(linear, x)
+    with main_stream_worker(weight, bias, offload_stream):
+        if not isinstance(weight, QuantizedTensor):
+            return _residual_out(torch.nn.functional.linear(_eager_input_act(x, input_act, act_weight, act_eps), weight, bias))
+
+        qdata, scale = TensorWiseINT8Layout.get_plain_tensors(weight)
+        return ck.int8_linear(
+            x,
+            qdata,
+            scale,
+            bias,
+            x.dtype,
+            convrot=getattr(weight._params, "convrot", False),
+            convrot_groupsize=getattr(weight._params, "convrot_groupsize", 256),
+            input_act=input_act,
+            input_act_weight=act_weight,
+            input_act_eps=act_eps,
+            residual=residual,
+            residual_scale=residual_scale,
+        )

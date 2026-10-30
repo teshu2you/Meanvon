@@ -2,6 +2,7 @@
 
 import logging
 import math
+from functools import wraps
 
 import torch
 from einops import rearrange, repeat
@@ -13,6 +14,25 @@ from backend.logging import setup_logger
 
 logger = logging.getLogger("attention")
 setup_logger(logger)
+
+
+# region Wrap
+
+
+def wrap_attn(func):
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        transformer_options: dict = kwargs.get("transformer_options", {})
+        if "optimized_attention_override" in transformer_options:
+            optimized_attention_override = transformer_options["optimized_attention_override"]
+            return optimized_attention_override(func, *args, **kwargs)
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+# region Packages
 
 
 if memory_management.xformers_enabled() or memory_management.xformers_enabled_vae():
@@ -70,12 +90,61 @@ if memory_management.flash_enabled():
         return q.new_empty(q.shape)
 
 
+if memory_management.ck_enabled():
+    from backend.quant_ops import ck
+
+    def _comfy_kitchen_int8_inputs(q, k, v, heads, mask, skip_reshape, enable_gqa):
+        dim_head = q.shape[-1] if skip_reshape else q.shape[-1] // heads
+        b = q.shape[0]
+        if not skip_reshape:
+            q, k, v = _reshape_qkv_to_heads(q, k, v, b, heads, dim_head, enable_gqa, expand_kv=False)
+            q, k, v = map(lambda t: t.transpose(1, 2), (q, k, v))
+
+        if mask is not None:
+            if mask.ndim == 2:
+                mask = mask.unsqueeze(0)
+            if mask.ndim == 3:
+                mask = mask.unsqueeze(1)
+
+        return q, k, v, mask, b, dim_head
+
+    @wrap_attn
+    @torch.compiler.disable
+    def attention_comfy_kitchen_int8(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
+        q, k, v, mask, b, dim_head = _comfy_kitchen_int8_inputs(q, k, v, heads, mask, skip_reshape, kwargs.get("enable_gqa", False))
+        out = ck.int8_attention(q, k, v, scale=kwargs.get("scale", None), attn_mask=mask)
+        if not skip_output_reshape:
+            out = out.transpose(1, 2).reshape(b, -1, heads * dim_head)
+        return out
+
+
 def get_attn_precision(attn_precision: torch.dtype, current_dtype: torch.dtype) -> torch.dtype:
     memory_management.force_upcast_attention_dtype().get(current_dtype, attn_precision)
 
 
 def exists(val) -> bool:
     return val is not None
+
+
+def _heads_from_dim(tensor, dim_head):
+    inner_dim = tensor.shape[-1]
+    assert inner_dim % dim_head == 0
+    return inner_dim // dim_head
+
+
+def _reshape_qkv_to_heads(q, k, v, b, heads, dim_head, enable_gqa=False, expand_kv=True):
+    q = q.unsqueeze(3).reshape(b, -1, heads, dim_head)
+    if enable_gqa:
+        key_heads = _heads_from_dim(k, dim_head)
+        value_heads = _heads_from_dim(v, dim_head)
+    else:
+        key_heads = heads
+        value_heads = heads
+    k = k.unsqueeze(3).reshape(b, -1, key_heads, dim_head)
+    v = v.unsqueeze(3).reshape(b, -1, value_heads, dim_head)
+    if enable_gqa and expand_kv:
+        k, v = operations.repeat_kv_for_gqa(k, v, heads, -2)
+    return q, k, v
 
 
 if memory_management.is_nvidia():
@@ -87,6 +156,7 @@ else:
 # region Attentions
 
 
+@wrap_attn
 def attention_basic(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
     attn_precision = get_attn_precision(attn_precision, q.dtype)
 
@@ -96,19 +166,19 @@ def attention_basic(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
         b, _, dim_head = q.shape
         dim_head //= heads
 
-    scale = dim_head**-0.5
+    scale = kwargs.get("scale", dim_head**-0.5)
 
     h = heads
     if skip_reshape:
+        if kwargs.get("enable_gqa", False):
+            k, v = operations.repeat_kv_for_gqa(k, v, q.shape[-3], -3)
         q, k, v = map(
             lambda t: t.reshape(b * heads, -1, dim_head),
             (q, k, v),
         )
     else:
-        q, k, v = map(
-            lambda t: t.unsqueeze(3).reshape(b, -1, heads, dim_head).permute(0, 2, 1, 3).reshape(b * heads, -1, dim_head).contiguous(),
-            (q, k, v),
-        )
+        q, k, v = _reshape_qkv_to_heads(q, k, v, b, heads, dim_head, kwargs.get("enable_gqa", False))
+        q, k, v = map(lambda t: t.permute(0, 2, 1, 3).reshape(b * heads, -1, dim_head).contiguous(), (q, k, v))
 
     if attn_precision == torch.float32:
         sim = einsum("b i d, b j d -> b i j", q.float(), k.float()) * scale
@@ -143,6 +213,7 @@ def attention_basic(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
     return out
 
 
+@wrap_attn
 @torch.compiler.disable
 def attention_xformers(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
     b = q.shape[0]
@@ -200,16 +271,15 @@ def attention_xformers(q, k, v, heads, mask=None, attn_precision=None, skip_resh
     return out
 
 
+@wrap_attn
 def attention_pytorch(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
     if skip_reshape:
         b, _, _, dim_head = q.shape
     else:
         b, _, dim_head = q.shape
         dim_head //= heads
-        q, k, v = map(
-            lambda t: t.view(b, -1, heads, dim_head).transpose(1, 2),
-            (q, k, v),
-        )
+        q, k, v = _reshape_qkv_to_heads(q, k, v, b, heads, dim_head, kwargs.get("enable_gqa", False), expand_kv=False)
+        q, k, v = map(lambda t: t.transpose(1, 2), (q, k, v))
 
     if mask is not None:
         if mask.ndim == 2:
@@ -217,8 +287,11 @@ def attention_pytorch(q, k, v, heads, mask=None, attn_precision=None, skip_resha
         if mask.ndim == 3:
             mask = mask.unsqueeze(1)
 
+    sdpa_keys = ("scale", "enable_gqa")
+    sdpa_extra = {k: v for k, v in kwargs.items() if k in sdpa_keys}
+
     if SDP_BATCH_LIMIT >= b:
-        out = operations.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
+        out = operations.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False, **sdpa_extra)
         if not skip_output_reshape:
             out = out.transpose(1, 2).reshape(b, -1, heads * dim_head)
     else:
@@ -229,11 +302,12 @@ def attention_pytorch(q, k, v, heads, mask=None, attn_precision=None, skip_resha
                 if mask.shape[0] > 1:
                     m = mask[i : i + SDP_BATCH_LIMIT]
 
-            out[i : i + SDP_BATCH_LIMIT] = operations.scaled_dot_product_attention(q[i : i + SDP_BATCH_LIMIT], k[i : i + SDP_BATCH_LIMIT], v[i : i + SDP_BATCH_LIMIT], attn_mask=m, dropout_p=0.0, is_causal=False).transpose(1, 2).reshape(-1, q.shape[2], heads * dim_head)
+            out[i : i + SDP_BATCH_LIMIT] = operations.scaled_dot_product_attention(q[i : i + SDP_BATCH_LIMIT], k[i : i + SDP_BATCH_LIMIT], v[i : i + SDP_BATCH_LIMIT], attn_mask=m, dropout_p=0.0, is_causal=False, **sdpa_extra).transpose(1, 2).reshape(-1, q.shape[2], heads * dim_head)
 
     return out
 
 
+@wrap_attn
 @torch.compiler.disable
 def attention_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
     in_dtype = v.dtype
@@ -264,9 +338,7 @@ def attention_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=
         if not _fallback:
             out = sageattn(q, k, v, attn_mask=mask, is_causal=False, tensor_layout=tensor_layout).to(in_dtype)
     except Exception as e:
-        # Filter out CUDA device error logs
-        if "Input tensors must be on cuda" not in str(e):
-            logger.error(f"Error running sageattn: {e}")
+        logger.error(f"Error running sageattn: {e}")
         _fallback = True
 
     if _fallback:
@@ -289,6 +361,7 @@ def attention_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=
     return out
 
 
+@wrap_attn
 @torch.compiler.disable
 def attention_flash(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=False, skip_output_reshape=False, **kwargs):
     if skip_reshape:
@@ -308,13 +381,14 @@ def attention_flash(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
             mask = mask.unsqueeze(1)
 
     try:
-        assert mask is None
+        causal = kwargs.get("causal", False)
+        assert mask is None or causal
         out = flash_attn_wrapper(
             q.transpose(1, 2),
             k.transpose(1, 2),
             v.transpose(1, 2),
             dropout_p=0.0,
-            causal=False,
+            causal=causal,
         ).transpose(1, 2)
         _fallback = False
     except Exception as e:
@@ -330,7 +404,10 @@ def attention_flash(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
     return out
 
 
-if memory_management.sage_enabled():
+if memory_management.ck_enabled():
+    logger.info("Using Comfy-Kitchen Attention")
+    attention_function = attention_comfy_kitchen_int8
+elif memory_management.sage_enabled():
     attention_function = attention_sage
     if IS_SAGE_1:
         logger.info("Using SageAttention")
@@ -348,7 +425,6 @@ if memory_management.sage_enabled():
                 logger.info("Using SageAttention 2 (fp8 CUDA)")
             case SageAttentionFuncs.fp8_cuda_pp:
                 logger.info("Using SageAttention 2 (fp8 CUDA ++)")
-
 elif memory_management.flash_enabled():
     logger.info("Using FlashAttention")
     attention_function = attention_flash
@@ -378,11 +454,15 @@ def slice_attention_vae(q, k, v):
     steps = 1
 
     if mem_required > mem_free_total:
-        steps = 2 ** (math.ceil(math.log(mem_required / mem_free_total, 2)))
+        steps = 2 ** (math.ceil(math.log2(mem_required / mem_free_total)))
+
+    if memory_management.is_device_mps(q.device):
+        if (elements := q.shape[0] * q.shape[1] * k.shape[2]) > (max_elements := 2**31 - 1):
+            steps = max(steps, 2 ** math.ceil(math.log2(elements / max_elements)))
 
     while True:
         try:
-            slice_size = q.shape[1] // steps if (q.shape[1] % steps) == 0 else q.shape[1]
+            slice_size = math.ceil(q.shape[1] / steps)
             for i in range(0, q.shape[1], slice_size):
                 end = i + slice_size
                 s1 = torch.bmm(q[:, i:end], k) * scale
@@ -394,7 +474,7 @@ def slice_attention_vae(q, k, v):
                 del s2
             break
         except Exception as e:
-            if not memory_management.is_oom(e):
+            if not (memory_management.is_oom(e) or "INT_MAX" in str(e)):
                 raise e
             if steps > 128:
                 raise e

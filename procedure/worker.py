@@ -70,6 +70,12 @@ class taskManager:
             self.results = []
             self.last_stop = False
             self.processing = False
+            # comfy 分支需要：任务交给 comfy 后端时的执行方法
+            # （例如 't2i' / 'i2i' / None）。
+            # 之前从没被设过，进 comfy 分支必炸：
+            #   AttributeError: 'AsyncTask' object has no attribute 'task_method'
+            # 给安全缺省，同时让 do_comfy 三重门闸能取到。
+            self.task_method = None
 
     def __init__(self, request_source="webui"):
         self.direct_return = False
@@ -178,6 +184,7 @@ class taskManager:
         self.use_style = ""
 
         self.adaptive_cfg = 7.0
+        self.cfg_scale = 7.0
         self.adm_scaler_positive = 1.5
         self.adm_scaler_negative = 0.8
         self.adm_scaler_end = 0.3
@@ -207,10 +214,7 @@ class taskManager:
         self.custom_steps = 4
         self.custom_switch = 0.4
         self.base_model_name = ""
-        self.refiner_model_name = ""
         self.base_clip_skip = -2
-        self.refiner_clip_skip = -2
-        self.refiner_switch = 0.8
         self.loras = [[]]
         self.save_metadata_json = True
         self.save_metadata_image = True
@@ -258,6 +262,33 @@ class taskManager:
         self.backfill_prompt = False
         self.translation_methods = ''
         self.comfyd_active_checkbox = False
+        
+                # ComfyUI 后端所需的字段。
+        # 之前 generate_images 的 comfy 分支访问这三个：
+        #   self.params_backend   ← 本轮炸点
+        #   self.task_name        ← 修完上面后下一个
+        #   async_task.task_method ← 再下一个
+        # 都没在 __init__ 里兜底，进入分支必然连续 AttributeError。
+        # 这里给安全缺省：
+        self.task_class = "default"
+        self.task_name = None
+        self.params_backend = {}
+  
+          # AUDIT 只检查字段存在性，补 None 即可消警；若下游需要，按需赋 '' 或 'txt2img'
+        if not hasattr(taskManager, "task_method"):
+            taskManager.task_method = None
+            
+        # 自检：generate_images + process_diffusion 路径上所有
+        # 可能被引用、但容易被漏初始化的字段。
+        # 未来某个分支新增 self.xxx 而 __init__ 忘了补时，立即报出来。
+        _audit = ['cfg_scale', 'params_backend', 'task_name', 'task_method',
+                  'task_class', 'comfyd_active_checkbox',
+                  'base_model_name_prefix', 'guidance_scale',
+                  'adaptive_cfg', 'guidance_scale', 'denoising_strength']
+        _missing = [a for a in _audit if not hasattr(self, a)]
+        if _missing:
+            printF(name=MasterName.get_master_name(),
+                   info="[AUDIT] taskManager 缺字段: {}".format(_missing)).printf()
 
     def init_param(self, obj):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> init_param").printf()
@@ -276,8 +307,6 @@ class taskManager:
             self.guidance_scale = params.guidance_scale
             self.refiner_swap_method = params.refiner_swap_method if hasattr(params, "refiner_swap_method") else "joint"
             self.base_model_name = params.base_model_name
-            self.refiner_model_name = params.refiner_model_name
-            self.refiner_switch = params.refiner_switch
             self.loras = params.loras
             self.image_factory_checkbox = params.uov_input_image is not None or params.inpaint_input_image is not None or len(
                 params.image_prompts) > 0
@@ -341,7 +370,7 @@ class taskManager:
             #     guidance_scale
             # ]
             #
-            # ctrls += [base_model, refiner_model, base_clip_skip, refiner_clip_skip, refiner_switch] + lora_ctrls
+            # ctrls += [base_model, base_clip_skip] + lora_ctrls
             # ctrls += [image_factory_checkbox, current_tab]
             # ctrls += [uov_method, uov_input_image]
             # ctrls += [outpaint_selections, inpaint_input_image, inpaint_additional_prompt, inpaint_mask_image]
@@ -386,10 +415,8 @@ class taskManager:
             self.guidance_scale = args.pop()
             # index - 17
             self.base_model_name = args.pop()
-            self.refiner_model_name = args.pop()
             self.base_clip_skip = args.pop()
-            self.refiner_clip_skip = args.pop()
-            self.refiner_switch = args.pop()
+
             # index - 22
             self.loras = self.apply_enabled_loras([[bool(args.pop()), str(args.pop()), float(args.pop()), ] for _ in
                                                    range(modules.config.default_max_lora_number)])
@@ -517,6 +544,7 @@ class taskManager:
             else:
                 self.steps = self.fixed_steps
 
+            self.cfg_scale = self.adaptive_cfg if self.adaptive_cfg > 0 else self.guidance_scale
 
     @torch.no_grad()
     @torch.inference_mode()
@@ -704,11 +732,8 @@ class taskManager:
         self.guidance_scale = config.get("guidance_scale")
 
         self.base_model_name = config.get("base_model_name")
-        self.refiner_model_name = config.get("refiner_model_name")
         self.base_clip_skip = config.get("base_clip_skip")
-        self.refiner_clip_skip = config.get("refiner_clip_skip")
 
-        self.refiner_switch = config.get("refiner_switch")
         self.loras = config.get("loras")
         self.save_metadata_json = config.get("save_metadata_json")
         # self.save_metadata_image = config.get("save_metadata_image")
@@ -920,11 +945,6 @@ class taskManager:
 
         self.use_style = len(self.style_selections) > 0
 
-        if self.base_model_name == self.refiner_model_name:
-            printF(name=MasterName.get_master_name(),
-                   info="[Warning] Refiner disabled because base model and refiner are same.").printf()
-            self.refiner_model_name = 'None'
-
         printF(name=MasterName.get_master_name(), info="[Parameters] use_style: {}".format(self.use_style)).printf()
         printF(name=MasterName.get_master_name(),
                info="[Parameters] use_expansion: {}".format(self.use_expansion)).printf()
@@ -953,9 +973,6 @@ class taskManager:
             else:
                 self.loras += [[True, modules.config.downloading_sdxl_lcm_lora(), 1.0]]
 
-            if self.refiner_model_name in ['None', 'Not Exist!->']:
-                printF(name=MasterName.get_master_name(), info="[Warning] Refiner disabled in LCM mode.").printf()
-                self.refiner_model_name = 'None'
 
             if not self.switch_sampler:
                 self.sampler_name = advanced_parameters.sampler_name = 'lcm'
@@ -963,7 +980,6 @@ class taskManager:
             modules.patch.sharpness = self.sharpness = 0.0
             self.guidance_scale = 1.0
             modules.patch.adaptive_cfg = advanced_parameters.adaptive_cfg = 1.0
-            self.refiner_switch = 1.0
             modules.patch.positive_adm_scale = advanced_parameters.adm_scaler_positive = 1.0
             modules.patch.negative_adm_scale = advanced_parameters.adm_scaler_negative = 1.0
             modules.patch.adm_scaler_end = advanced_parameters.adm_scaler_end = 0.0
@@ -979,9 +995,6 @@ class taskManager:
             else:
                 self.loras += [[True, modules.config.downloading_sdxl_turbo_lora(), 1.0]]
 
-            if self.refiner_model_name in ['None', 'Not Exist!->']:
-                printF(name=MasterName.get_master_name(), info="[Warning] Refiner disabled in TURBO mode.").printf()
-                self.refiner_model_name = 'None'
 
             if not self.switch_sampler:
                 self.sampler_name = advanced_parameters.sampler_name = 'euler_ancestral'
@@ -989,7 +1002,6 @@ class taskManager:
             modules.patch.sharpness = self.sharpness = 0.0
             self.guidance_scale = 1.0
             modules.patch.adaptive_cfg = advanced_parameters.adaptive_cfg = 1.0
-            self.refiner_switch = 1.0
             modules.patch.positive_adm_scale = advanced_parameters.adm_scaler_positive = 1.0
             modules.patch.negative_adm_scale = advanced_parameters.adm_scaler_negative = 1.0
             modules.patch.adm_scaler_end = advanced_parameters.adm_scaler_end = 0.0
@@ -1015,7 +1027,6 @@ class taskManager:
             modules.patch.sharpness = self.sharpness = 2.0
             self.guidance_scale = 1.0
             modules.patch.adaptive_cfg = advanced_parameters.adaptive_cfg = 1.0
-            self.refiner_switch = 1.0
             modules.patch.positive_adm_scale = advanced_parameters.adm_scaler_positive = 1.0
             modules.patch.negative_adm_scale = advanced_parameters.adm_scaler_negative = 1.0
             modules.patch.adm_scaler_end = advanced_parameters.adm_scaler_end = 0.0
@@ -1034,9 +1045,6 @@ class taskManager:
             else:
                 self.loras += [[True, modules.config.downloading_sdxl_hyper_sd_lora(), 0.8]]
 
-            if self.refiner_model_name in ['None', 'Not Exist!->']:
-                printF(name=MasterName.get_master_name(), info="[Warning] Refiner disabled in Hyper-SD mode.").printf()
-                self.refiner_model_name = 'None'
 
             if not self.switch_sampler:
                 self.sampler_name = advanced_parameters.sampler_name = 'dpmpp_sde_gpu'
@@ -1045,27 +1053,23 @@ class taskManager:
             modules.patch.sharpness = self.sharpness = 0.0
             self.guidance_scale = 1.0
             modules.patch.adaptive_cfg = advanced_parameters.adaptive_cfg = 1.0
-            self.refiner_switch = 1.0
             modules.patch.positive_adm_scale = advanced_parameters.adm_scaler_positive = 1.0
             modules.patch.negative_adm_scale = advanced_parameters.adm_scaler_negative = 1.0
             modules.patch.adm_scaler_end = advanced_parameters.adm_scaler_end = 0.0
 
         if self.performance_selection == Performance.Custom:
             self.steps = self.custom_steps
-            self.refiner_switch = self.custom_switch
 
         printF(name=MasterName.get_master_name(),
                info="[Parameters] performance_selection: {}".format(self.performance_selection)).printf()
         printF(name=MasterName.get_master_name(), info="[Parameters] fixed_steps: {}".format(self.fixed_steps)).printf()
         printF(name=MasterName.get_master_name(), info="[Parameters] steps: {}".format(self.steps)).printf()
         printF(name=MasterName.get_master_name(),
-               info="[Parameters] refiner_switch: {}".format(self.refiner_switch)).printf()
-        printF(name=MasterName.get_master_name(),
                info="[Parameters] base_model_name: {}".format(self.base_model_name)).printf()
         printF(name=MasterName.get_master_name(),
-               info="[Parameters] refiner_model_name: {}".format(self.refiner_model_name)).printf()
-        printF(name=MasterName.get_master_name(),
                info="[Parameters] sampler_name: {}".format(self.sampler_name)).printf()
+        printF(name=MasterName.get_master_name(),
+               info="[Parameters] black_out_nsfw: {}".format(self.black_out_nsfw)).printf()
         printF(name=MasterName.get_master_name(),
                info="[Parameters] scheduler_name: {}".format(self.scheduler_name)).printf()
         printF(name=MasterName.get_master_name(), info="[Parameters] Sharpness = {}".format(self.sharpness)).printf()
@@ -1097,7 +1101,6 @@ class taskManager:
         self.width, self.height = int(self.width), int(self.height)
 
         self.skip_prompt_processing = False
-        # self.refiner_swap_method = advanced_parameters.refiner_swap_method
 
         self.raw_prompt = self.prompt
         self.raw_negative_prompt = self.negative_prompt
@@ -1210,9 +1213,7 @@ class taskManager:
                             self.inpaint_engine)
                         self.base_model_additional_loras += [(True, self.inpaint_patch_model_path, 1.0)]
                         print(f'[Inpaint] Current inpaint model is {self.inpaint_patch_model_path}')
-                        if self.refiner_model_name == 'None':
-                            self.use_synthetic_refiner = True
-                            self.refiner_switch = 0.5
+
                     else:
                         self.inpaint_head_model_path, self.inpaint_patch_model_path = None, None
                         print(f'[Inpaint] Parameterized inpaint is disabled.')
@@ -1241,8 +1242,6 @@ class taskManager:
 
                 printF(name=MasterName.get_master_name(),
                        info="[Parameters] use_synthetic_refiner = {}".format(self.use_synthetic_refiner)).printf()
-                printF(name=MasterName.get_master_name(),
-                       info="[Parameters] refiner_switch = {}".format(self.refiner_switch)).printf()
                 printF(name=MasterName.get_master_name(), info="[Parameters] steps = {}".format(self.steps)).printf()
                 printF(name=MasterName.get_master_name(), info="[Parameters] prompt = {}".format(self.prompt)).printf()
                 printF(name=MasterName.get_master_name(),
@@ -1296,9 +1295,6 @@ class taskManager:
         
     def get_advanced_parameters(self, async_task):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> get_advanced_parameters").printf()
-        printF(name=MasterName.get_master_name(),
-               info="[Parameters] switch  = {} * {}".format(self.steps, self.refiner_switch)).printf()
-        self.switch = int(round(float(self.steps) * float(self.refiner_switch)))
 
         if self.overwrite_step > 0:
             self.steps = self.overwrite_step
@@ -1358,8 +1354,7 @@ class taskManager:
             extra_negative_prompts = negative_prompts[1:] if len(negative_prompts) > 1 else []
 
             self.progressbar(async_task, 3, 'Loading models ...')
-            pipeline.refresh_everything(refiner_model_name=self.refiner_model_name,
-                                        base_model_name=self.base_model_name,
+            pipeline.refresh_everything(base_model_name=self.base_model_name,
                                         loras=self.loras,
                                         base_model_additional_loras=self.base_model_additional_loras,
                                         use_synthetic_refiner=self.use_synthetic_refiner,
@@ -1375,8 +1370,6 @@ class taskManager:
                 seed = random.randint(constants.MIN_SEED, constants.MAX_SEED)
 
             printF(name=MasterName.get_master_name(),
-                   info="[Parameters] refiner_model_name = {}".format(self.refiner_model_name)).printf()
-            printF(name=MasterName.get_master_name(),
                    info="[Parameters] base_model_name = {}".format(self.base_model_name)).printf()
             printF(name=MasterName.get_master_name(), info="[Parameters] loras = {}".format(self.loras)).printf()
 
@@ -1386,7 +1379,7 @@ class taskManager:
                 self.control_lora_canny = False
                 self.control_lora_depth = False
                 self.revision_mode = False
-            pipeline.set_clip_skips(self.base_clip_skip, self.refiner_clip_skip)
+            pipeline.set_clip_skips(self.base_clip_skip)
             if self.revision_mode:
                 pipeline.refresh_clip_vision()
             if self.control_lora_canny:
@@ -1959,10 +1952,38 @@ class taskManager:
                 printF(name=MasterName.get_master_name(),
                     info="[Parameters] loras = {}".format(self.loras)).printf()
                                
-                if self.task_class in flags.comfy_classes: 
+
+                # ===== comfy 分支的门闸：三重条件缺一不可 =====
+                #
+                # 之前写法是 `if self.task_class in flags.comfy_classes:`，
+                # 只要 flags.comfy_classes 含 "default"（实测就是），
+                # 所有 SDXL 出图都会进 comfy 分支，然后连锁 AttributeError：
+                #   1) self.params_backend      （已补）
+                #   2) self.task_name = None    （已补）
+                #   3) async_task.task_method   （本轮）
+                # 继续补单点只会在 get_comfy_task 内部 / process_flow 内部继续炸。
+                #
+                # 正确做法：comfyd_active_checkbox 是用户的显式意愿；
+                #           没开就绝不进 comfy。
+                #           task_name / task_method 是 comfy 工作流必须的键，
+                #           不存在就不进。
+                _task_method = getattr(async_task, 'task_method', None)
+                _use_comfy = (
+                    bool(self.comfyd_active_checkbox)
+                    and self.task_class in flags.comfy_classes
+                    and self.task_name is not None
+                    and _task_method is not None
+                )
+
+                if _use_comfy:
+                    printF(name=MasterName.get_master_name(),
+                           info="[Comfy] Enter comfy backend: task_class={}, "
+                                "task_name={}, task_method={}".format(
+                                    self.task_class, self.task_name, _task_method)).printf()
+
                     combined_positive = ", ".join([x for x in task["positive"] if isinstance(x, str) and x.strip()])
                     combined_negative = ", ".join([x for x in task["negative"] if isinstance(x, str) and x.strip()])
-        
+
                     default_params = dict(
                         prompt=combined_positive,
                         negative_prompt=combined_negative,
@@ -1976,14 +1997,30 @@ class taskManager:
                         denoise=self.denoising_strength,
                         seed=task['task_seed'],
                         )
-                    default_params.update(self.params_backend)
-                    
-                    comfy_task = get_comfy_task(self.task_name, async_task.task_method, default_params, input_image)
-                    self.imgs = comfypipeline.process_flow(comfy_task.name, comfy_task.params, comfy_task.images, callback=callback)
-                    
+                    default_params.update(self.params_backend or {})
+
+                    comfy_task = get_comfy_task(self.task_name, _task_method,
+                                                default_params, input_image)
+                    self.imgs = comfypipeline.process_flow(
+                        comfy_task.name, comfy_task.params, comfy_task.images,
+                        callback=callback)
+
                     del task['c'], task['uc'], combined_positive, combined_negative  # Save memory
 
                 else:
+                    # 本地 Forge 路径（SDXL / 没启用 comfy 的 FLUX 都走这里）
+                    if self.comfyd_active_checkbox and self.task_class in flags.comfy_classes \
+                            and not _use_comfy:
+                        # 用户开了 comfy，但配置不完整——主动吼出来，别静默回落
+                        printF(name=MasterName.get_master_name(),
+                               info="[Comfy][WARN] comfyd_active_checkbox={} "
+                                    "task_class={} in comfy_classes={} "
+                                    "task_name={} task_method={} "
+                                    "—— 配置不全，自动回落到本地 pipeline。".format(
+                                        self.comfyd_active_checkbox,
+                                        self.task_class,
+                                        self.task_class in flags.comfy_classes,
+                                        self.task_name, _task_method)).printf()
                 
                     if pipeline.model_base is not None:
                         # Resolve the active inner model
@@ -2103,9 +2140,8 @@ class taskManager:
                                 modules.patch.patch_settings[self.pid].adm_scaler_end))),
                             ('Model Type', 'model_type_selector', self.default_model_type),
                             ('Base Model', 'base_model', self.base_model_name),
-                            ('Refiner Model', 'refiner_model', self.refiner_model_name),
                             ('CFG & CLIP Skips', "cfg_clip_skips",
-                             (self.guidance_scale, self.base_clip_skip, self.refiner_clip_skip)),
+                             (self.guidance_scale, self.base_clip_skip)),
                             ('Image-2-Image', "image_2_image",
                              (self.img2img_mode, self.start_step, self.denoise, self.img2img_scale,
                               self.input_image_filename) if self.img2img_mode else (
@@ -2127,14 +2163,9 @@ class taskManager:
                             ('Depth', 'depth',
                              (self.control_lora_depth, self.depth_start, self.depth_stop, self.depth_strength,
                               self.depth_model,
-                              self.input_image_filename) if self.control_lora_depth else self.control_lora_depth),
-                            ('Refiner Switch', 'refiner_switch', self.refiner_switch)]
+                              self.input_image_filename) if self.control_lora_depth else self.control_lora_depth)
+                            ]
 
-        if self.refiner_model_name != 'None':
-            if self.overwrite_switch > 0:
-                metadata_string.append(('Overwrite Switch', 'overwrite_switch', self.overwrite_switch))
-            if self.refiner_swap_method != flags.refiner_swap_method:
-                metadata_string.append(('Refiner Swap Method', 'refiner_swap_method', self.refiner_swap_method))
         if modules.patch.patch_settings[self.pid].adaptive_cfg != modules.config.default_cfg_tsnr:
             metadata_string.append(
                 ('CFG Mimicking from TSNR', 'adaptive_cfg', modules.patch.patch_settings[self.pid].adaptive_cfg))
@@ -2185,7 +2216,7 @@ class taskManager:
                 metadata_parser = modules.meta_parser.get_metadata_parser(self.metadata_scheme)
                 metadata_parser.set_data(task['log_positive_prompt'], task['positive'],
                                          task['log_negative_prompt'], task['negative'],
-                                         self.steps, self.base_model_name, self.refiner_model_name, self.loras)
+                                         self.steps, self.base_model_name, self.loras)
             self.base_model_name_prefix = self.base_model_name.split(".")[0]
 
             self.img_paths.append(

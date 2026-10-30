@@ -1,7 +1,6 @@
 import math
 
 import torch
-from diffusers.configuration_utils import ConfigMixin, register_to_config
 from einops import rearrange, repeat
 from torch import nn
 
@@ -458,12 +457,11 @@ class ResBlock(TimestepBlock):
         return self.skip_connection(x) + h
 
 
-class IntegratedUNet2DConditionModel(nn.Module, ConfigMixin):
-    config_name = "config.json"
+class IntegratedUNet2DConditionModel(nn.Module):
 
-    @register_to_config
     def __init__(self, in_channels, model_channels, out_channels, num_res_blocks, dropout=0, channel_mult=(1, 2, 4, 8), conv_resample=True, dims=2, num_classes=None, use_checkpoint=False, num_heads=-1, num_head_channels=-1, use_scale_shift_norm=False, resblock_updown=False, use_spatial_transformer=False, transformer_depth=1, context_dim=None, disable_self_attentions=None, num_attention_blocks=None, disable_middle_self_attn=False, use_linear_in_transformer=False, adm_in_channels=None, transformer_depth_middle=None, transformer_depth_output=None):
         super().__init__()
+
         if context_dim is not None:
             assert use_spatial_transformer
         if num_heads == -1:

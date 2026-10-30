@@ -5,15 +5,20 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import yaml
-from .gguf_writer import GGUFWriter
 
+from .constants import GGUFValueType
 from .constants import Keys
 
+# gguf_writer 只在类型标注里用到，运行期不需要真的导入。
+# 放在 TYPE_CHECKING 下既避免了 `import gguf` 这种绝对自引用，
+# 也不会引入 metadata <-> gguf_writer 的循环导入。
+if TYPE_CHECKING:
+    from .gguf_writer import GGUFWriter
+    
 logger = logging.getLogger("metadata")
-from .quants import quant_shape_from_byte_shape
 
 
 @dataclass
@@ -572,7 +577,7 @@ class Metadata:
 
         return metadata
 
-    def set_gguf_meta_model(self, gguf_writer: GGUFWriter):
+    def set_gguf_meta_model(self, gguf_writer: "GGUFWriter"):
         assert self.name is not None
         gguf_writer.add_name(self.name)
 

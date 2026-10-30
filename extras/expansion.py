@@ -134,6 +134,25 @@ class FooocusExpansion:
         if max_new_tokens == 0:
             return prompt[:-1]
 
+        # 设备一致性：Forge memory_manager 会把 expansion 的 GPT2 留在 CPU
+        # （给 Flux 腾显存），而 tokenized_kwargs 常常被送到了 CUDA。
+        # 这里统一按模型实际所在设备对齐，避免
+        # "Expected all tensors to be on the same device"。
+        try:
+            _model_device = next(self.model.parameters()).device
+            # 强行把模型拉回 GPU（Flux 已加载时，这一步可能触发 VRAM 竞争）
+            if torch.cuda.is_available() and _model_device.type != "cuda":
+                self.model = self.model.to("cuda")
+                _model_device = torch.device("cuda")
+
+        except StopIteration:
+            _model_device = torch.device("cpu")
+
+        tokenized_kwargs = {
+            k: (v.to(_model_device) if isinstance(v, torch.Tensor) else v)
+            for k, v in tokenized_kwargs.items()
+        }
+    
         # https://huggingface.co/blog/introducing-csearch
         # https://huggingface.co/docs/transformers/generation_strategies
         features = self.model.generate(**tokenized_kwargs,

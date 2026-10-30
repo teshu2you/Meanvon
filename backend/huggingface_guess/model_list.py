@@ -425,38 +425,19 @@ class SV3D_p(SV3D_u):
 class Kolors(BASE):
     huggingface_repo = "Kwai-Kolors/Kolors"
 
-    # unet_config = {
-        # 'use_checkpoint': False,
-        # 'image_size': 32,
-        # 'use_spatial_transformer': True,
-        # 'legacy': False,
-        # 'num_classes': 'sequential',
-        # 'adm_in_channels': 5632,
-        # 'in_channels': 4,
-        # 'out_channels': 4,
-        # 'model_channels': 320,
-        # 'num_res_blocks': [2, 2, 2],
-        # 'transformer_depth': [0, 0, 2, 2, 10, 10],
-        # 'transformer_depth_output': [0, 0, 0, 2, 2, 2, 10, 10, 10],
-        # 'channel_mult': [1, 2, 4],
-        # 'transformer_depth_middle': 10,
-        # 'use_linear_in_transformer': True,
-        # 'context_dim': 2048,
-        # 'use_temporal_resblock': False,
-        # 'use_temporal_attention': False
-    # }
+    # Distinctive subset: an empty config here would match *any* model and
+    # shadow Chroma / Anima / ErnieImage / ZImage / WAN21_* (they come later).
+    unet_config = {
+        "context_dim": 2048,
+        "model_channels": 320,
+        "adm_in_channels": 5632,
+    }
 
     text_encoder_key_prefix = ["text_encoder."]
     noise_aug_config = {"noise_schedule_config": {"timesteps": 1100, "beta_schedule": "linear", "linear_start": 0.00085, "linear_end": 0.014}, "timestep_dim": 1280}
 
     def clip_target(self, state_dict={}):
         return {'clip_l': 'text_encoder'}
-
-    # def process_clip_state_dict(self, state_dict):
-    #     replace_prefix = {}
-    #     replace_prefix["cond_stage_model."] = "clip_l."
-    #     state_dict = utils.state_dict_prefix_replace(state_dict, {k: "transformer" for k in self.text_encoder_key_prefix}, filter_keys=True)
-    #     return state_dict
 
 class Stable_Zero123(BASE):
     unet_config = {
@@ -853,6 +834,39 @@ class ErnieImage(BASE):
             "ministral3_3b.transformer": "text_encoder",
         }
 
+class MOSSImage(BASE):
+    huggingface_repo = "MOSS-Image"
+
+    unet_config = {
+        "image_model": "moss_image",
+    }
+
+    unet_extra_config = {}
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 3.0,
+    }
+
+    latent_format = latent.Flux2
+    memory_usage_factor = 2.0
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float32,
+    ]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {
+            "qwen35_9b.transformer": "text_encoder",
+        }
+
+    def model_type(self, state_dict):
+        return ModelType.FLOW
 
 class Flux2K4B(Flux):
     huggingface_repo = "black-forest-labs/FLUX.2-klein-4B"
@@ -860,6 +874,7 @@ class Flux2K4B(Flux):
     unet_config = {
         "image_model": "flux2",
         "hidden_size": 3072,
+        "in_channels": 128,        # ← klein-9B 真实值；不加时若下游动态建模型会拿到默认 64
     }
 
     unet_extra_config = {}
@@ -893,6 +908,7 @@ class Flux2K9B(Flux):
     unet_config = {
         "image_model": "flux2",
         "hidden_size": 4096,
+        "in_channels": 128,        # ← klein-9B 真实值；不加时若下游动态建模型会拿到默认 64
     }
 
     unet_extra_config = {}
@@ -1085,6 +1101,84 @@ class ZImage(Lumina2):
             "qwen3_4b.transformer": "text_encoder",
         }       
  
+ 
+class QwenImage21(BASE):
+    huggingface_repo = "Qwen/Qwen-Image-2.1"
+
+    # Distinct from ``QwenImage`` (which uses ``image_model: "qwen_image"``).
+    # If qwen21.py / the model's transformer config actually reports
+    # ``"qwen_image"``, change this value to match (or drop this class's
+    # ``unet_config`` down to the subset that is unique to 2.1).
+    unet_config = {
+        "image_model": "qwen_image_21",
+    }
+
+    unet_extra_config = {}
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 1.15,
+    }
+
+    latent_format = latent.Wan21
+    memory_usage_factor = 1.8
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float32,
+    ]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict):
+        prefix = self.text_encoder_key_prefix[0]
+
+        if f"{prefix}qwen25_7b.transformer.model.embed_tokens.weight" in state_dict:
+            state_dict.pop(f"{prefix}qwen25_7b.logit_scale", None)
+            return {
+                "qwen25_7b.transformer": "text_encoder",
+            }
+
+        return {
+            "qwen25_7b": "text_encoder",
+        }
+
+    def model_type(self, state_dict, prefix=""):
+        return ModelType.FLUX
+     
+class PiD(Flux):
+    huggingface_repo = "PiD/PiD"
+
+    # Minimal discriminator. Must match the actual key/value present in the
+    # model's transformer config, otherwise PiD.matches() will never return True.
+    unet_config = {
+        "image_model": "pid",
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 3.0,
+    }
+
+    latent_format = latent.Flux
+    memory_usage_factor = 2.6
+
+    # pid.py loads the VAE through huggingface_components["vae"]
+    vae_key_prefix = ["vae.", "first_stage_model."]
+    # pid.py builds CLIP(model_dict={"gemma2": ...})
+    text_encoder_key_prefix = ["text_encoders.", "text_encoder."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {
+            "gemma2": "text_encoder",
+        }
+
+    def model_type(self, state_dict, prefix=""):
+        return ModelType.FLOW
+    
 class WAN21_T2V(BASE):
     unet_config = {
         "image_model": "wan21_t2v",   # 请确认与 wan.py 中的实际配置一致
@@ -1118,8 +1212,9 @@ models = [
     SD21UnclipH,
     SDXL_instructpix2pix,
     SDXLRefiner,
-    SDXL,
     Mugen,
+    SDXL,
+    MOSSImage,
     SSD1B,
     KOALA_700M,
     KOALA_1B,
@@ -1146,8 +1241,9 @@ models = [
     Anima,
     ErnieImage,
     ZImage,
+    PiD,
     WAN21_T2V,
-    WAN21_I2V,
+    WAN21_I2V
 ]
 
 models += [SVD_img2vid]

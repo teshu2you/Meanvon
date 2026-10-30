@@ -137,19 +137,21 @@ class ControlNetPatcher(ControlModelPatcher):
         pth_key = "control_model.zero_convs.0.0.weight"
         pth = False
         key = "zero_convs.0.0.weight"
+
         if pth_key in controlnet_data:
             pth = True
             key = pth_key
             prefix = "control_model."
         elif key in controlnet_data:
             prefix = ""
-        else:
-            net = load_t2i_adapter(controlnet_data)
-            if net is None:
-                if not any(k.startswith("lllite") for k in controlnet_data):  # LLLite
-                    logger.error("Could not detect Control model type...")
-                return None
+        elif (net := load_t2i_adapter(controlnet_data)) is not None:
             return ControlNetPatcher(net)
+        elif next(iter(controlnet_data)).startswith("lora"):
+            logger.error("Model is a LoRA...")
+            return None
+        else:
+            logger.error("Cannot recognize Control Model type...")
+            return None
 
         if controlnet_config is None:
             unet_dtype = memory_management.unet_dtype()

@@ -1,4 +1,4 @@
-# reference: https://github.com/Comfy-Org/ComfyUI/blob/v0.27.1/comfy/supported_models.py
+# reference: https://github.com/Comfy-Org/ComfyUI/blob/v0.38.0/comfy/supported_models.py
 
 from enum import Enum
 
@@ -104,7 +104,6 @@ class SD15(BASE):
         "model_channels": 320,
         "use_linear_in_transformer": False,
         "adm_in_channels": None,
-        "use_temporal_attention": False,
     }
 
     unet_extra_config = {
@@ -158,7 +157,6 @@ class SDXLRefiner(BASE):
         "context_dim": 1280,
         "adm_in_channels": 2560,
         "transformer_depth": [0, 0, 4, 4, 4, 4, 0, 0],
-        "use_temporal_attention": False,
     }
 
     latent_format = latent.SDXL
@@ -193,7 +191,6 @@ class SDXL(BASE):
         "transformer_depth": [0, 0, 2, 2, 10, 10],
         "context_dim": 2048,
         "adm_in_channels": 2816,
-        "use_temporal_attention": False,
     }
 
     latent_format = latent.SDXL
@@ -567,6 +564,68 @@ class QwenImage(BASE):
         return ModelType.FLUX
 
 
+class QwenImage21(BASE):
+    huggingface_repo = "Qwen/Qwen-Image-2.1"
+
+    unet_config = {
+        "image_model": "qwen_image21",
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 0.69,
+    }
+
+    memory_usage_factor = 6.0
+
+    unet_extra_config = {}
+    latent_format = latent.QwenImage21
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {"qwen3vl_8b.transformer": "text_encoder"}
+
+    def model_type(self, state_dict):
+        return ModelType.FLUX
+
+
+class MOSSImage(BASE):
+    huggingface_repo = "OpenMOSS-Team/MOSS-Image-SFT"
+
+    unet_config = {
+        "image_model": "moss_image",
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 5.0,
+    }
+
+    memory_usage_factor = 14.6
+
+    unet_extra_config = {}
+    latent_format = latent.Flux2
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {"qwen35_9b.transformer": "text_encoder"}
+
+    def model_type(self, state_dict):
+        return ModelType.FLOW
+
+
 class Krea2(BASE):
     huggingface_repo = "krea/Krea-2-Raw"
 
@@ -581,6 +640,7 @@ class Krea2(BASE):
 
     memory_usage_factor = 2.2
 
+    unet_extra_config = {}
     latent_format = latent.Wan21
 
     supported_inference_dtypes = [torch.bfloat16, torch.float16, torch.float32]
@@ -674,6 +734,8 @@ models = [
     WAN21_T2V,
     WAN21_I2V,
     QwenImage,
+    QwenImage21,
+    MOSSImage,
     Krea2,
     ErnieImage,
     PiD,

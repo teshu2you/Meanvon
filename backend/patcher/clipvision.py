@@ -1,69 +1,18 @@
 import torch
+from transformers import CLIPVisionConfig, CLIPVisionModelWithProjection
+from transformers.modeling_utils import no_init_weights
 
-from backend.utils import load_torch_file
-from backend.state_dict import transformers_convert, state_dict_prefix_replace
-from backend import operations, memory_management
+from backend import memory_management
+from backend.operations import using_forge_operations
 from backend.patcher.base import ModelPatcher
-from transformers import modeling_utils, CLIPVisionConfig, CLIPVisionModelWithProjection
+from backend.state_dict import state_dict_prefix_replace, transformers_convert
+from backend.utils import load_torch_file
 
+CLIP_VISION_G = {"attention_dropout": 0.0, "dropout": 0.0, "hidden_act": "gelu", "hidden_size": 1664, "image_size": 224, "initializer_factor": 1.0, "initializer_range": 0.02, "intermediate_size": 8192, "layer_norm_eps": 1e-05, "model_type": "clip_vision_model", "num_attention_heads": 16, "num_channels": 3, "num_hidden_layers": 48, "patch_size": 14, "projection_dim": 1280, "torch_dtype": "float32"}
 
-CLIP_VISION_G = {
-  "attention_dropout": 0.0,
-  "dropout": 0.0,
-  "hidden_act": "gelu",
-  "hidden_size": 1664,
-  "image_size": 224,
-  "initializer_factor": 1.0,
-  "initializer_range": 0.02,
-  "intermediate_size": 8192,
-  "layer_norm_eps": 1e-05,
-  "model_type": "clip_vision_model",
-  "num_attention_heads": 16,
-  "num_channels": 3,
-  "num_hidden_layers": 48,
-  "patch_size": 14,
-  "projection_dim": 1280,
-  "torch_dtype": "float32"
-}
+CLIP_VISION_H = {"attention_dropout": 0.0, "dropout": 0.0, "hidden_act": "gelu", "hidden_size": 1280, "image_size": 224, "initializer_factor": 1.0, "initializer_range": 0.02, "intermediate_size": 5120, "layer_norm_eps": 1e-05, "model_type": "clip_vision_model", "num_attention_heads": 16, "num_channels": 3, "num_hidden_layers": 32, "patch_size": 14, "projection_dim": 1024, "torch_dtype": "float32"}
 
-CLIP_VISION_H = {
-  "attention_dropout": 0.0,
-  "dropout": 0.0,
-  "hidden_act": "gelu",
-  "hidden_size": 1280,
-  "image_size": 224,
-  "initializer_factor": 1.0,
-  "initializer_range": 0.02,
-  "intermediate_size": 5120,
-  "layer_norm_eps": 1e-05,
-  "model_type": "clip_vision_model",
-  "num_attention_heads": 16,
-  "num_channels": 3,
-  "num_hidden_layers": 32,
-  "patch_size": 14,
-  "projection_dim": 1024,
-  "torch_dtype": "float32"
-}
-
-
-CLIP_VISION_VITL = {
-  "attention_dropout": 0.0,
-  "dropout": 0.0,
-  "hidden_act": "quick_gelu",
-  "hidden_size": 1024,
-  "image_size": 224,
-  "initializer_factor": 1.0,
-  "initializer_range": 0.02,
-  "intermediate_size": 4096,
-  "layer_norm_eps": 1e-05,
-  "model_type": "clip_vision_model",
-  "num_attention_heads": 16,
-  "num_channels": 3,
-  "num_hidden_layers": 24,
-  "patch_size": 14,
-  "projection_dim": 768,
-  "torch_dtype": "float32"
-}
+CLIP_VISION_VITL = {"attention_dropout": 0.0, "dropout": 0.0, "hidden_act": "quick_gelu", "hidden_size": 1024, "image_size": 224, "initializer_factor": 1.0, "initializer_range": 0.02, "intermediate_size": 4096, "layer_norm_eps": 1e-05, "model_type": "clip_vision_model", "num_attention_heads": 16, "num_channels": 3, "num_hidden_layers": 24, "patch_size": 14, "projection_dim": 768, "torch_dtype": "float32"}
 
 
 class Output:
@@ -79,12 +28,12 @@ def clip_preprocess(image, size=224):
     std = torch.tensor([0.26862954, 0.26130258, 0.27577711], device=image.device, dtype=image.dtype)
     image = image.movedim(-1, 1)
     if not (image.shape[2] == size and image.shape[3] == size):
-        scale = (size / min(image.shape[2], image.shape[3]))
+        scale = size / min(image.shape[2], image.shape[3])
         image = torch.nn.functional.interpolate(image, size=(round(scale * image.shape[2]), round(scale * image.shape[3])), mode="bicubic", antialias=True)
         h = (image.shape[2] - size) // 2
         w = (image.shape[3] - size) // 2
-        image = image[:, :, h:h + size, w:w + size]
-    image = torch.clip((255. * image), 0, 255).round() / 255.0
+        image = image[:, :, h : h + size, w : w + size]
+    image = torch.clip((255.0 * image), 0, 255).round() / 255.0
     return (image - mean.view([3, 1, 1])) / std.view([3, 1, 1])
 
 
@@ -100,16 +49,12 @@ class ClipVisionModel:
         else:
             self.dtype = torch.float32
 
-        with operations.using_forge_operations():
-            with modeling_utils.no_init_weights():
+        with no_init_weights():
+            with using_forge_operations(device=self.offload_device, dtype=self.dtype):
                 self.model = CLIPVisionModelWithProjection(config)
 
-        self.model.to(self.dtype)
-        self.patcher = ModelPatcher(
-            self.model,
-            load_device=self.load_device,
-            offload_device=self.offload_device
-        )
+        self.model.to(self.offload_device, self.dtype)
+        self.patcher = ModelPatcher(self.model, load_device=self.load_device, offload_device=self.offload_device)
 
     def load_sd(self, sd):
         return self.model.load_state_dict(sd, strict=False)
@@ -148,7 +93,7 @@ def convert_to_transformers(sd, prefix):
                 sd[keys_to_replace[x]] = sd.pop(x)
 
         if "{}proj".format(prefix) in sd_k:
-            sd['visual_projection.weight'] = sd.pop("{}proj".format(prefix)).transpose(0, 1)
+            sd["visual_projection.weight"] = sd.pop("{}proj".format(prefix)).transpose(0, 1)
 
         sd = transformers_convert(sd, prefix, "vision_model.", 48)
     else:

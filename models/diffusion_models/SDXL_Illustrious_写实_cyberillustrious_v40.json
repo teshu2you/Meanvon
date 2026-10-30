@@ -1,0 +1,12 @@
+{
+	"Type": "Checkpoint Merge",
+	"NSFW": "True",
+	"Update_Date":"",
+	"Base": "Illustrious",
+	"Links": "https://www.qpipi.com/101758/",
+	"Version": "v2",
+	"Tags": "base model anime porn cosplay danbooru hentai realistic illustrious pornmaster",
+	"Usage_Tips": "DPM++ SDE DPM++ 2M 电子细分误差 每分钟转换量++ 2S a DPM2 一 每分钟 3M * Euler A",
+	"Author": "Stable_Yogi",
+	"ReMark": "CyberIllustrious V4 是一个快速更新，在 V3.8 之后不久发布，仅仅是因为 – 嗯 – 它只是准备好了。它优化了一直困扰我的细微细节 – 比如更清晰的眼睛清晰度（在 Adetailer 之前）并带来改进的皮肤纹理。"
+}

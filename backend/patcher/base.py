@@ -1,39 +1,42 @@
-# Model Patching System, Copyright Forge 2024
+# https://github.com/Comfy-Org/ComfyUI/blob/v0.33.1/comfy/model_patcher.py
 
-# API Templates partially extracted From ComfyUI, the actual implementation for those APIs
-# are from Forge, implemented from scratch (after forge-v1.0.1), and may have
-# certain level of differences.
+"""
+This file is part of ComfyUI.
+Copyright (C) 2024 Comfy
 
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-import copy
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import collections
 import inspect
+import logging
+import uuid
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from backend.operations import ForgeWeights
+
 import torch
 
-import uuid
-import backend
-from backend.patcher.lora import LoraLoader
-from util.printf import printF, MasterName
+from backend import memory_management, utils
+from backend.float import stochastic_rounding
+from backend.logging import setup_logger
+from backend.patcher.lora import merge_lora_to_weight, string_to_seed
+from backend.quant_ops import QuantizedTensor
 
-
-def weight_decompose(dora_scale, weight, lora_diff, alpha, strength):
-    dora_scale = backend.memory_management.cast_to_device(dora_scale, weight.device, torch.float32)
-    lora_diff *= alpha
-    weight_calc = weight + lora_diff.type(weight.dtype)
-    weight_norm = (
-        weight_calc.transpose(0, 1)
-        .reshape(weight_calc.shape[1], -1)
-        .norm(dim=1, keepdim=True)
-        .reshape(weight_calc.shape[1], *[1] * (weight_calc.dim() - 1))
-        .transpose(0, 1)
-    )
-
-    weight_calc *= (dora_scale / weight_norm).type(weight.dtype)
-    if strength != 1.0:
-        weight_calc -= weight
-        weight += strength * (weight_calc)
-    else:
-        weight[:] = weight_calc
-    return weight         
+logger = logging.getLogger("model_patcher")
+setup_logger(logger)
 
 
 def set_model_options_patch_replace(model_options, patch, name, block_name, number, transformer_index=None):
@@ -53,6 +56,7 @@ def set_model_options_patch_replace(model_options, patch, name, block_name, numb
         block = (block_name, number, transformer_index)
     else:
         block = (block_name, number)
+
     to["patches_replace"][name][block] = patch
     model_options["transformer_options"] = to
     return model_options
@@ -72,126 +76,170 @@ def set_model_options_pre_cfg_function(model_options, pre_cfg_function, disable_
     return model_options
 
 
+def wipe_lowvram_weight(m: "ForgeWeights"):
+    if hasattr(m, "prev_parameters_manual_cast"):
+        m.parameters_manual_cast = m.prev_parameters_manual_cast
+        del m.prev_parameters_manual_cast
+
+    if hasattr(m, "weight_function"):
+        m.weight_function = []
+
+    if hasattr(m, "bias_function"):
+        m.bias_function = []
+
+
+class LowVramPatch:
+    def __init__(self, key, patches):
+        self.key = key
+        self.patches = patches
+
+    def __call__(self, weight):
+        return merge_lora_to_weight(self.patches[self.key], weight, self.key, computation_dtype=weight.dtype)
+
+
+class OnlineLoRAPatch:
+    def __init__(self, name: str, key: str, patch: list):
+        self.name = name
+        self.key = key
+        self.patch = [patch]
+
+    def __call__(self, weight):
+        return merge_lora_to_weight(self.patch, weight, self.key, computation_dtype=weight.dtype)
+
+
+LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR = 2
+
+
+def low_vram_patch_estimate_vram(model, key):
+    weight, _, _ = get_key_weight(model, key)
+    if weight is None:
+        return 0
+    model_dtype = getattr(model, "manual_cast_dtype", torch.float32)
+    if model_dtype is None:
+        model_dtype = weight.dtype
+
+    return weight.numel() * model_dtype.itemsize * LOWVRAM_PATCH_ESTIMATE_MATH_FACTOR
+
+
+def get_key_weight(model: torch.nn.Linear, key: str) -> tuple[torch.nn.Parameter, Callable, Callable]:
+    set_func = None
+    convert_func = None
+    op_keys = key.rsplit(".", 1)
+    if len(op_keys) < 2:
+        weight = utils.get_attr(model, key)
+    else:
+        op = utils.get_attr(model, op_keys[0])
+        try:
+            set_func = getattr(op, "set_{}".format(op_keys[1]))
+        except AttributeError:
+            pass
+
+        try:
+            convert_func = getattr(op, "convert_{}".format(op_keys[1]))
+        except AttributeError:
+            pass
+
+        weight = getattr(op, op_keys[1])
+        if convert_func is not None:
+            weight = utils.get_attr(model, key)
+
+    return weight, set_func, convert_func
+
+
+def key_param_name_to_key(key: str, param: str) -> str:
+    if len(key) == 0:
+        return param
+    return "{}.{}".format(key, param)
+
+
+# region ModelPatcher
+
+
 class ModelPatcher:
-    def __init__(self, model, load_device, offload_device, size=0, current_device=None, weight_inplace_update=False, **kwargs):
+    def __init__(self, model: torch.nn.Module, load_device: torch.device, offload_device: torch.device, size: int = 0, *, current_device: torch.device = None, weight_inplace_update: bool = False):
         self.size = size
         self.model = model
-        self.lora_patches = {}
+        self.current_device = current_device or offload_device
+
         self.patches = {}
         self.backup = {}
+
         self.object_patches = {}
         self.object_patches_backup = {}
+
+        self.weight_wrapper_patches = {}
+
         self.model_options = {"transformer_options": {}}
-        self.model_size()
         self.load_device = load_device
         self.offload_device = offload_device
-
-        if not hasattr(self.model, 'model_loaded_weight_memory'):
-            self.model.model_loaded_weight_memory = 0
-
-        if not hasattr(self.model, 'lowvram_patch_counter'):
-            self.model.lowvram_patch_counter = 0
-
-        if not hasattr(self.model, 'model_lowvram'):
-            self.model.model_lowvram = False
-
-        if not hasattr(model, 'lora_loader'):
-            model.lora_loader = LoraLoader(model)
-
-        self.lora_loader: LoraLoader = model.lora_loader
-
-        if current_device is None:
-            self.current_device = self.offload_device
-        else:
-            self.current_device = current_device
-
-        self.model.current_loaded_device = self.current_device
         self.weight_inplace_update = weight_inplace_update
-        self.model_lowvram = False
-        self.lowvram_patch_counter = 0
+        self.force_cast_weights = False
         self.patches_uuid = uuid.uuid4()
+        self.parent = None
+        self.pinned = set()
 
-    def model_size(self):
-        if self.size > 0:
-            return self.size
-        self.size = backend.memory_management.module_size(self.model)
+        if not hasattr(self.model, "model_loaded_weight_memory"):
+            self.model.model_loaded_weight_memory = 0
+        if not hasattr(self.model, "lowvram_patch_counter"):
+            self.model.lowvram_patch_counter = 0
+        if not hasattr(self.model, "model_lowvram"):
+            self.model.model_lowvram = False
+        if not hasattr(self.model, "current_weight_patches_uuid"):
+            self.model.current_weight_patches_uuid = None
+        if not hasattr(self.model, "model_offload_buffer_memory"):
+            self.model.model_offload_buffer_memory = 0
+
+    def has_online_lora(self) -> bool:
+        return len(self.weight_wrapper_patches) > 0
+
+    def model_size(self) -> int:
+        if self.size == 0:
+            self.size = memory_management.module_size(self.model)
         return self.size
 
+    def loaded_size(self):
+        return self.model.model_loaded_weight_memory
+
+    def lowvram_patch_counter(self):
+        return self.model.lowvram_patch_counter
+
     def clone(self):
-        n = ModelPatcher(self.model, self.load_device, self.offload_device, self.size, self.current_device)
-        n.lora_patches = self.lora_patches.copy()
+        n = self.__class__(self.model, self.load_device, self.offload_device, self.model_size(), current_device=self.current_device, weight_inplace_update=self.weight_inplace_update)
+
+        n.patches = {}
+        for k in self.patches:
+            n.patches[k] = self.patches[k][:]
+        n.patches_uuid = self.patches_uuid
+
         n.object_patches = self.object_patches.copy()
+        n.weight_wrapper_patches = self.weight_wrapper_patches.copy()
+        n.model_options = utils.deepcopy_(self.model_options)
+        n.parent = self
+
+        n.force_cast_weights = self.force_cast_weights
+
         n.backup = self.backup
         n.object_patches_backup = self.object_patches_backup
-        n.model_options = copy.deepcopy(self.model_options)
+        n.pinned = self.pinned
+
         return n
 
-    def is_clone(self, other):
-        if hasattr(other, 'model') and self.model is other.model:
-            return True
-        return False
-
-    def clone_has_same_weights(self, clone):
-        if not self.is_clone(clone):
-            return False
-
-        if len(self.patches) == 0 and len(clone.patches) == 0:
-            return True
-
-        if self.patches_uuid == clone.patches_uuid:
-            if len(self.patches) != len(clone.patches):
-                printF(name=MasterName.get_master_name(), info="WARNING: something went wrong, same patch uuid but different length of patches.").printf()
-            else:
-                return True
-                
-    def add_patches(self, filename, patches, strength_patch=1.0, strength_model=1.0, online_mode=False):
-        lora_identifier = (filename, strength_patch, strength_model, online_mode)
-        this_patches = {}
-
-        p = set()
-        model_keys = set(k for k, _ in self.model.named_parameters())
-
-        for k in patches:
-            offset = None
-            function = None
-
-            if isinstance(k, str):
-                key = k
-            else:
-                offset = k[1]
-                key = k[0]
-                if len(k) > 2:
-                    function = k[2]
-
-            if key in model_keys:
-                p.add(k)
-                current_patches = this_patches.get(key, [])
-                current_patches.append([strength_patch, patches[k], strength_model, offset, function])
-                this_patches[key] = current_patches
-
-        self.lora_patches[lora_identifier] = this_patches
-        return p
-
-    def has_online_lora(self):
-        for (filename, strength_patch, strength_model, online_mode), this_patches in self.lora_patches.items():
-            if online_mode:
-                return True
-        return False
-
-    def refresh_loras(self):
-        self.lora_loader.refresh(lora_patches=self.lora_patches, offload_device=self.offload_device)
-        return
+    def is_clone(self, other: "ModelPatcher") -> bool:
+        return self.model is getattr(other, "model", None)
 
     def memory_required(self, input_shape):
         return self.model.memory_required(input_shape=input_shape)
 
+    def disable_model_cfg1_optimization(self):
+        self.model_options["disable_cfg1_optimization"] = True
+
     def set_model_sampler_cfg_function(self, sampler_cfg_function, disable_cfg1_optimization=False):
         if len(inspect.signature(sampler_cfg_function).parameters) == 3:
-            self.model_options["sampler_cfg_function"] = lambda args: sampler_cfg_function(args["cond"], args["uncond"], args["cond_scale"])  # Old way
+            self.model_options["sampler_cfg_function"] = lambda args: sampler_cfg_function(args["cond"], args["uncond"], args["cond_scale"])
         else:
             self.model_options["sampler_cfg_function"] = sampler_cfg_function
         if disable_cfg1_optimization:
-            self.model_options["disable_cfg1_optimization"] = True
+            self.disable_model_cfg1_optimization()
 
     def set_model_sampler_post_cfg_function(self, post_cfg_function, disable_cfg1_optimization=False):
         self.model_options = set_model_options_post_cfg_function(self.model_options, post_cfg_function, disable_cfg1_optimization)
@@ -199,17 +247,11 @@ class ModelPatcher:
     def set_model_sampler_pre_cfg_function(self, pre_cfg_function, disable_cfg1_optimization=False):
         self.model_options = set_model_options_pre_cfg_function(self.model_options, pre_cfg_function, disable_cfg1_optimization)
 
+    def set_model_sampler_calc_cond_batch_function(self, sampler_calc_cond_batch_function):
+        self.model_options["sampler_calc_cond_batch_function"] = sampler_calc_cond_batch_function
+
     def set_model_unet_function_wrapper(self, unet_wrapper_function):
         self.model_options["model_function_wrapper"] = unet_wrapper_function
-
-    def set_model_vae_encode_wrapper(self, wrapper_function):
-        self.model_options["model_vae_encode_wrapper"] = wrapper_function
-
-    def set_model_vae_decode_wrapper(self, wrapper_function):
-        self.model_options["model_vae_decode_wrapper"] = wrapper_function
-
-    def set_model_vae_regulation(self, vae_regulation):
-        self.model_options["model_vae_regulation"] = vae_regulation
 
     def set_model_denoise_mask_function(self, denoise_mask_function):
         self.model_options["denoise_mask_function"] = denoise_mask_function
@@ -250,17 +292,39 @@ class ModelPatcher:
     def set_model_output_block_patch(self, patch):
         self.set_model_patch(patch, "output_block_patch")
 
+    def set_model_emb_patch(self, patch):
+        self.set_model_patch(patch, "emb_patch")
+
+    def set_model_forward_timestep_embed_patch(self, patch):
+        self.set_model_patch(patch, "forward_timestep_embed_patch")
+
+    def set_model_double_block_patch(self, patch):
+        self.set_model_patch(patch, "double_block")
+
+    def set_model_post_input_patch(self, patch):
+        self.set_model_patch(patch, "post_input")
+
+    def set_model_noise_refiner_patch(self, patch):
+        self.set_model_patch(patch, "noise_refiner")
+
+    def set_model_middle_block_after_patch(self, patch):
+        self.set_model_patch(patch, "middle_block_after_patch")
+
     def add_object_patch(self, name, obj):
         self.object_patches[name] = obj
 
-    def get_model_object(self, name):
+    def add_weight_wrapper(self, name, function):
+        self.weight_wrapper_patches[name] = self.weight_wrapper_patches.get(name, []) + [function]
+
+    def get_model_object(self, name: str) -> torch.nn.Module:
+        """Retrieves a nested attribute from an object using dot notation (e.g. `model.layer.weight`)"""
         if name in self.object_patches:
             return self.object_patches[name]
         else:
             if name in self.object_patches_backup:
                 return self.object_patches_backup[name]
             else:
-                return backend.utils.get_attr(self.model, name)
+                return utils.get_attr(self.model, name)
 
     def model_patches_to(self, device):
         to = self.model_options["transformer_options"]
@@ -283,367 +347,465 @@ class ModelPatcher:
             if hasattr(wrap_func, "to"):
                 self.model_options["model_function_wrapper"] = wrap_func.to(device)
 
+    def model_patches_models(self):
+        to = self.model_options["transformer_options"]
+        models = []
+        if "patches" in to:
+            patches = to["patches"]
+            for name in patches:
+                patch_list = patches[name]
+                for i in range(len(patch_list)):
+                    if hasattr(patch_list[i], "models"):
+                        models += patch_list[i].models()
+        if "patches_replace" in to:
+            patches = to["patches_replace"]
+            for name in patches:
+                patch_list = patches[name]
+                for k in patch_list:
+                    if hasattr(patch_list[k], "models"):
+                        models += patch_list[k].models()
+        if "model_function_wrapper" in self.model_options:
+            wrap_func = self.model_options["model_function_wrapper"]
+            if hasattr(wrap_func, "models"):
+                models += wrap_func.models()
+
+        return models
+
+    def model_patches_call_function(self, function_name="cleanup", arguments={}):
+        to = self.model_options["transformer_options"]
+        if "patches" in to:
+            patches = to["patches"]
+            for name in patches:
+                patch_list = patches[name]
+                for i in range(len(patch_list)):
+                    if hasattr(patch_list[i], function_name):
+                        getattr(patch_list[i], function_name)(**arguments)
+        if "patches_replace" in to:
+            patches = to["patches_replace"]
+            for name in patches:
+                patch_list = patches[name]
+                for k in patch_list:
+                    if hasattr(patch_list[k], function_name):
+                        getattr(patch_list[k], function_name)(**arguments)
+        if "model_function_wrapper" in self.model_options:
+            wrap_func = self.model_options["model_function_wrapper"]
+            if hasattr(wrap_func, function_name):
+                getattr(wrap_func, function_name)(**arguments)
+
     def model_dtype(self):
         if hasattr(self.model, "get_dtype"):
             return self.model.get_dtype()
 
+    def add_patches(self, patches: list[dict], strength_patch: float = 1.0, strength_model: float = 1.0, *, filename: str = None, online_mode: bool = None):
+        p = set()
+        model_sd = self.model.state_dict()
+        for k in patches:
+            offset = None
+            function = None
+            if isinstance(k, str):
+                key = k
+            else:
+                offset = k[1]
+                key = k[0]
+                if len(k) > 2:
+                    function = k[2]
+
+            if key in model_sd:
+                p.add(k)
+
+                if online_mode:
+                    self.add_weight_wrapper(key, OnlineLoRAPatch(filename, k, [strength_patch, patches[k], strength_model, offset, function]))
+                else:
+                    current_patches = self.patches.pop(key, [])
+                    current_patches.append((strength_patch, patches[k], strength_model, offset, function))
+                    self.patches[key] = current_patches
+
+        self.patches_uuid = uuid.uuid4()
+        return list(p)
+
     def get_key_patches(self, filter_prefix=None):
-        backend.memory_management.unload_model_clones(self)
         model_sd = self.model_state_dict()
         p = {}
         for k in model_sd:
             if filter_prefix is not None:
                 if not k.startswith(filter_prefix):
                     continue
+            bk = self.backup.get(k, None)
+            weight, _, convert_func = get_key_weight(self.model, k)
+            if bk is not None:
+                weight = bk.weight
+            if convert_func is None:
+                convert_func = lambda a, **kwargs: a
+
             if k in self.patches:
-                p[k] = [model_sd[k]] + self.patches[k]
+                p[k] = [(weight, convert_func)] + self.patches[k]
             else:
-                p[k] = (model_sd[k],)
+                p[k] = [(weight, convert_func)]
         return p
 
-    def model_state_dict(self, filter_prefix=None):
-        sd = self.model.state_dict()
-        keys = list(sd.keys())
-        if filter_prefix is not None:
-            for k in keys:
-                if not k.startswith(filter_prefix):
-                    sd.pop(k)
-        return sd
+    def patch_weight_to_device(self, key, device_to=None, inplace_update=False, return_weight=False, force_cast=False):
+        weight, set_func, convert_func = get_key_weight(self.model, key)
+        if key not in self.patches and not force_cast:
+            return weight
 
-    def forge_patch_model(self, target_device=None):
-        for k, item in self.object_patches.items():
-            old = backend.utils.get_attr(self.model, k)
+        inplace_update = self.weight_inplace_update or inplace_update
 
-            if k not in self.object_patches_backup:
-                self.object_patches_backup[k] = old
+        if key not in self.backup and not return_weight:
+            self.backup[key] = collections.namedtuple("Dimension", ["weight", "inplace_update"])(weight.to(device=self.offload_device, copy=inplace_update), inplace_update)
 
-            backend.utils.set_attr_raw(self.model, k, item)
-
-        if target_device is not None:
-            self.model.to(target_device)
-            self.current_device = target_device
-
-        return self.model
-
-    def forge_unpatch_model(self, target_device=None):
-        if target_device is not None:
-            self.model.to(target_device)
-            self.current_device = target_device
-
-        keys = list(self.object_patches_backup.keys())
-
-        for k in keys:
-            backend.utils.set_attr_raw(self.model, k, self.object_patches_backup[k])
-
-        self.object_patches_backup = {}
-        return
-
-    def patch_weight_to_device(self, key, device_to=None):
-        if key not in self.patches:
-            return
-
-        weight = backend.utils.get_attr(self.model, key)
-
-        inplace_update = self.weight_inplace_update
-
-        if key not in self.backup:
-            self.backup[key] = weight.to(device=self.offload_device, copy=inplace_update)
-
+        temp_dtype = memory_management.lora_compute_dtype(device_to) if key in self.patches else None
         if device_to is not None:
-            temp_weight = backend.memory_management.cast_to_device(weight, device_to, torch.float32, copy=True)
+            temp_weight = memory_management.cast_to_device(weight, device_to, temp_dtype, copy=True)
         else:
-            temp_weight = weight.to(torch.float32, copy=True)
-        out_weight = self.calculate_weight(self.patches[key], temp_weight, key).to(weight.dtype)
-        if inplace_update:
-            backend.utils.copy_to_param(self.model, key, out_weight)
+            temp_weight = weight.to(temp_dtype, copy=True)
+        if convert_func is not None:
+            temp_weight = convert_func(temp_weight, inplace=True)
+
+        out_weight = merge_lora_to_weight(self.patches[key], temp_weight, key) if key in self.patches else temp_weight
+        if set_func is None:
+            if key in self.patches:
+                out_weight = stochastic_rounding(out_weight, weight.dtype, seed=string_to_seed(key))
+            if return_weight:
+                return out_weight
+            elif inplace_update:
+                utils.copy_to_param(self.model, key, out_weight)
+            else:
+                utils.set_attr(self.model, key, out_weight)
         else:
-            backend.utils.set_attr_param(self.model, key, out_weight)
+            return set_func(out_weight, inplace_update=inplace_update, seed=string_to_seed(key), return_weight=return_weight)
 
-    def patch_model(self, device_to=None, patch_weights=True):
-        for k in self.object_patches:
-            old = backend.utils.set_attr(self.model, k, self.object_patches[k])
-            if k not in self.object_patches_backup:
-                self.object_patches_backup[k] = old
+    def pin_weight_to_device(self, key):
+        weight, _, _ = get_key_weight(self.model, key)
+        if memory_management.pin_memory(weight):
+            self.pinned.add(key)
 
-        if patch_weights:
-            model_sd = self.model_state_dict()
-            for key in self.patches:
-                if key not in model_sd:
-                    printF(name=MasterName.get_master_name(),
-                           info="could not patch. key doesn't exist in model: {}".format(key)).printf()
-                    continue
+    def unpin_weight(self, key):
+        if key in self.pinned:
+            weight, _, _ = get_key_weight(self.model, key)
+            memory_management.unpin_memory(weight)
+            self.pinned.remove(key)
 
-                self.patch_weight_to_device(key, device_to)
+    def unpin_all_weights(self):
+        for key in list(self.pinned):
+            self.unpin_weight(key)
 
-            if device_to is not None:
-                self.model.to(device_to)
-                self.current_device = device_to
+    def _load_list(self):
+        loading = []
+        for n, m in self.model.named_modules():
+            default = False
+            params = {name: param for name, param in m.named_parameters(recurse=False)}
+            for name, _ in m.named_parameters(recurse=True):
+                if name not in params:
+                    default = True
+                    break
+            if not default and (hasattr(m, "parameters_manual_cast") or len(params) > 0):
+                module_mem = memory_management.module_size(m)
+                module_offload_mem = module_mem
+                if hasattr(m, "parameters_manual_cast"):
 
-        return self.model
+                    def check_module_offload_mem(key):
+                        if key in self.patches:
+                            return low_vram_patch_estimate_vram(self.model, key)
+                        model_dtype = getattr(self.model, "manual_cast_dtype", None)
+                        weight, _, _ = get_key_weight(self.model, key)
+                        if model_dtype is None or weight is None:
+                            return 0
+                        if weight.dtype != model_dtype or isinstance(weight, QuantizedTensor):
+                            return weight.numel() * model_dtype.itemsize
+                        return 0
 
-    def patch_model_lowvram(self, device_to=None, lowvram_model_memory=0, force_patch_weights=False):
-        self.patch_model(device_to, patch_weights=False)
-        printF(name=MasterName.get_master_name(), info="loading in lowvram mode {} MB".format(lowvram_model_memory/(1024 * 1024))).printf()
-        class LowVramPatch:
-            def __init__(self, key, model_patcher):
-                self.key = key
-                self.model_patcher = model_patcher
-            def __call__(self, weight):
-                return self.model_patcher.calculate_weight(self.model_patcher.patches[self.key], weight, self.key)
+                    module_offload_mem += check_module_offload_mem("{}.weight".format(n))
+                    module_offload_mem += check_module_offload_mem("{}.bias".format(n))
+                loading.append((module_offload_mem, module_mem, n, m, params))
+        return loading
 
+    def load(self, device_to=None, lowvram_model_memory=0, force_patch_weights=False, full_load=False):
         mem_counter = 0
         patch_counter = 0
-        for n, m in self.model.named_modules():
+        lowvram_counter = 0
+        lowvram_mem_counter = 0
+        loading = self._load_list()
+
+        load_completely = []
+        offloaded = []
+        offload_buffer = 0
+        loading.sort(reverse=True)
+        for i, x in enumerate(loading):
+            module_offload_mem, module_mem, n, m, params = x
+
             lowvram_weight = False
-            if hasattr(m, "comfy_cast_weights"):
-                module_mem = backend.memory_management.module_size(m)
-                if mem_counter + module_mem >= lowvram_model_memory:
-                    lowvram_weight = True
+
+            potential_offload = max(offload_buffer, module_offload_mem + sum([x1[1] for x1 in loading[i + 1 : i + 1 + memory_management.NUM_STREAMS]]))
+            lowvram_fits = mem_counter + module_mem + potential_offload < lowvram_model_memory
 
             weight_key = "{}.weight".format(n)
             bias_key = "{}.bias".format(n)
 
+            if not full_load and hasattr(m, "parameters_manual_cast"):
+                if not lowvram_fits:
+                    offload_buffer = potential_offload
+                    lowvram_weight = True
+                    lowvram_counter += 1
+                    lowvram_mem_counter += module_mem
+                    if hasattr(m, "prev_parameters_manual_cast"):
+                        continue
+
+            cast_weight = self.force_cast_weights
+            m.forge_force_cast_weights = self.force_cast_weights
             if lowvram_weight:
+                if hasattr(m, "parameters_manual_cast"):
+                    m.weight_function = []
+                    m.bias_function = []
+
                 if weight_key in self.patches:
                     if force_patch_weights:
                         self.patch_weight_to_device(weight_key)
                     else:
-                        m.weight_function = LowVramPatch(weight_key, self)
+                        m.weight_function = [LowVramPatch(weight_key, self.patches)]
                         patch_counter += 1
                 if bias_key in self.patches:
                     if force_patch_weights:
                         self.patch_weight_to_device(bias_key)
                     else:
-                        m.bias_function = LowVramPatch(bias_key, self)
+                        m.bias_function = [LowVramPatch(bias_key, self.patches)]
                         patch_counter += 1
 
-                m.prev_comfy_cast_weights = m.comfy_cast_weights
-                m.comfy_cast_weights = True
+                cast_weight = True
+                offloaded.append((module_mem, n, m, params))
             else:
-                if hasattr(m, "weight"):
-                    self.patch_weight_to_device(weight_key, device_to)
-                    self.patch_weight_to_device(bias_key, device_to)
-                    m.to(device_to)
-                    mem_counter += backend.memory_management.module_size(m)
-                    printF(name=MasterName.get_master_name(),
-                           info="lowvram: loaded module regularly {} {}".format(n, m)).printf()
+                if hasattr(m, "parameters_manual_cast"):
+                    wipe_lowvram_weight(m)
 
-        self.model_lowvram = True
-        self.lowvram_patch_counter = patch_counter
+                if full_load or lowvram_fits:
+                    mem_counter += module_mem
+                    load_completely.append((module_mem, n, m, params))
+                else:
+                    offload_buffer = potential_offload
+
+            if cast_weight and hasattr(m, "parameters_manual_cast"):
+                m.prev_parameters_manual_cast = m.parameters_manual_cast
+                m.parameters_manual_cast = True
+
+            if weight_key in self.weight_wrapper_patches:
+                m.weight_function.extend(self.weight_wrapper_patches[weight_key])
+
+            if bias_key in self.weight_wrapper_patches:
+                m.bias_function.extend(self.weight_wrapper_patches[bias_key])
+
+        load_completely.sort(reverse=True)
+        for x in load_completely:
+            n = x[1]
+            m = x[2]
+            params = x[3]
+            if hasattr(m, "forge_patched_weights"):
+                if m.forge_patched_weights == True:
+                    continue
+
+            for param in params.keys():
+                key = key_param_name_to_key(n, param)
+                self.unpin_weight(key)
+                self.patch_weight_to_device(key, device_to=device_to)
+
+            if memory_management.is_device_cuda(device_to):
+                torch.cuda.synchronize()
+            elif memory_management.is_device_xpu(device_to):
+                torch.xpu.synchronize()
+
+            logger.debug("lowvram: loaded module regularly {} {}".format(n, m))
+            m.forge_patched_weights = True
+
+        for x in load_completely:
+            x[2].to(device_to)
+
+        for x in offloaded:
+            n = x[1]
+            params = x[3]
+            for param in params:
+                self.pin_weight_to_device(key_param_name_to_key(n, param))
+
+        usable_stat = "{:.2f} MB usable, ".format(lowvram_model_memory / (1024 * 1024)) if lowvram_model_memory < 1e32 else ""
+        if lowvram_counter > 0:
+            logger.info("loaded partially; {}{:.2f} MB loaded, {:.2f} MB offloaded, {:.2f} MB buffer reserved, lowvram patches: {}".format(usable_stat, mem_counter / (1024 * 1024), lowvram_mem_counter / (1024 * 1024), offload_buffer / (1024 * 1024), patch_counter))
+            self.model.model_lowvram = True
+        else:
+            logger.info("loaded completely; {}{:.2f} MB loaded, full load: {}".format(usable_stat, mem_counter / (1024 * 1024), full_load))
+            self.model.model_lowvram = False
+            if full_load:
+                self.model.to(device_to)
+                mem_counter = self.model_size()
+
+        self.current_device = device_to
+        self.model.lowvram_patch_counter += patch_counter
+        self.model.model_loaded_weight_memory = mem_counter
+        self.model.model_offload_buffer_memory = offload_buffer
+        self.model.current_weight_patches_uuid = self.patches_uuid
+
+    def patch_model(self, device_to=None, lowvram_model_memory=0, load_weights=True, force_patch_weights=False):
+        for k in self.object_patches:
+            old = utils.set_attr_raw(self.model, k, self.object_patches[k])
+            if k not in self.object_patches_backup:
+                self.object_patches_backup[k] = old
+
+        if lowvram_model_memory == 0:
+            full_load = True
+        else:
+            full_load = False
+
+        if load_weights:
+            self.load(device_to, lowvram_model_memory=lowvram_model_memory, force_patch_weights=force_patch_weights, full_load=full_load)
         return self.model
-
-    def calculate_weight(self, patches, weight, key):
-        for p in patches:
-            strength = p[0]
-            v = p[1]
-            strength_model = p[2]
-            offset = p[3]
-            function = p[4]
-            if function is None:
-                function = lambda a: a
-
-            old_weight = None
-            if offset is not None:
-                old_weight = weight
-                weight = weight.narrow(offset[0], offset[1], offset[2])
-
-            if strength_model != 1.0:
-                weight *= strength_model
-
-            if isinstance(v, list):
-                v = (self.calculate_weight(v[1:], v[0].clone(), key), )
-
-            if len(v) == 1:
-                patch_type = "diff"
-            elif len(v) == 2:
-                patch_type = v[0]
-                v = v[1]
-
-            if patch_type == "diff":
-                w1 = v[0]
-                if strength != 0.0:
-                    if w1.shape != weight.shape:
-                        printF(name=MasterName.get_master_name(),
-                               info="WARNING SHAPE MISMATCH {} WEIGHT NOT MERGED {} != {}".format(key, w1.shape, weight.shape)).printf()
-                    else:
-                        weight += function(strength * backend.memory_management.cast_to_device(w1, weight.device, weight.dtype))
-            elif patch_type == "lora": #lora/locon
-                mat1 = backend.memory_management.cast_to_device(v[0], weight.device, torch.float32)
-                mat2 = backend.memory_management.cast_to_device(v[1], weight.device, torch.float32)
-                dora_scale = v[4]
-                if v[2] is not None:
-                    alpha = v[2] / mat2.shape[0]
-                else:
-                    alpha = 1.0
-
-                if v[3] is not None:
-                    #locon mid weights, hopefully the math is fine because I didn't properly test it
-                    mat3 = backend.memory_management.cast_to_device(v[3], weight.device, torch.float32)
-                    final_shape = [mat2.shape[1], mat2.shape[0], mat3.shape[2], mat3.shape[3]]
-                    mat2 = torch.mm(mat2.transpose(0, 1).flatten(start_dim=1), mat3.transpose(0, 1).flatten(start_dim=1)).reshape(final_shape).transpose(0, 1)
-                try:
-                    lora_diff = torch.mm(mat1.flatten(start_dim=1), mat2.flatten(start_dim=1)).reshape(weight.shape)
-                    if dora_scale is not None:
-                        weight = function(weight_decompose(dora_scale, weight, lora_diff, alpha, strength))
-                    else:
-                        weight += function(((strength * alpha) * lora_diff).type(weight.dtype))
-                except Exception as e:
-                    printF(name=MasterName.get_master_name(),
-                           info="ERROR {} {} {}".format(patch_type, key, e)).printf()
-            elif patch_type == "lokr":
-                w1 = v[0]
-                w2 = v[1]
-                w1_a = v[3]
-                w1_b = v[4]
-                w2_a = v[5]
-                w2_b = v[6]
-                t2 = v[7]
-                dora_scale = v[8]
-                dim = None
-
-                if w1 is None:
-                    dim = w1_b.shape[0]
-                    w1 = torch.mm(backend.memory_management.cast_to_device(w1_a, weight.device, torch.float32),
-                                  backend.memory_management.cast_to_device(w1_b, weight.device, torch.float32))
-                else:
-                    w1 = backend.memory_management.cast_to_device(w1, weight.device, torch.float32)
-
-                if w2 is None:
-                    dim = w2_b.shape[0]
-                    if t2 is None:
-                        w2 = torch.mm(backend.memory_management.cast_to_device(w2_a, weight.device, torch.float32),
-                                      backend.memory_management.cast_to_device(w2_b, weight.device, torch.float32))
-                    else:
-                        w2 = torch.einsum('i j k l, j r, i p -> p r k l',
-                                          backend.memory_management.cast_to_device(t2, weight.device, torch.float32),
-                                          backend.memory_management.cast_to_device(w2_b, weight.device, torch.float32),
-                                          backend.memory_management.cast_to_device(w2_a, weight.device, torch.float32))
-                else:
-                    w2 = backend.memory_management.cast_to_device(w2, weight.device, torch.float32)
-
-                if len(w2.shape) == 4:
-                    w1 = w1.unsqueeze(2).unsqueeze(2)
-                if v[2] is not None and dim is not None:
-                    alpha = v[2] / dim
-                else:
-                    alpha = 1.0
-
-                try:
-                    lora_diff = torch.kron(w1, w2).reshape(weight.shape)
-                    if dora_scale is not None:
-                        weight = function(weight_decompose(dora_scale, weight, lora_diff, alpha, strength))
-                    else:
-                        weight += function(((strength * alpha) * lora_diff).type(weight.dtype))
-                except Exception as e:
-                    printF(name=MasterName.get_master_name(),
-                           info="ERROR {} {} {}".format(patch_type, key, e)).printf()
-            elif patch_type == "loha":
-                w1a = v[0]
-                w1b = v[1]
-                if v[2] is not None:
-                    alpha = v[2] / w1b.shape[0]
-                else:
-                    alpha = 1.0
-
-                w2a = v[3]
-                w2b = v[4]
-                dora_scale = v[7]
-                if v[5] is not None: #cp decomposition
-                    t1 = v[5]
-                    t2 = v[6]
-                    m1 = torch.einsum('i j k l, j r, i p -> p r k l',
-                                      backend.memory_management.cast_to_device(t1, weight.device, torch.float32),
-                                      backend.memory_management.cast_to_device(w1b, weight.device, torch.float32),
-                                      backend.memory_management.cast_to_device(w1a, weight.device, torch.float32))
-
-                    m2 = torch.einsum('i j k l, j r, i p -> p r k l',
-                                      backend.memory_management.cast_to_device(t2, weight.device, torch.float32),
-                                      backend.memory_management.cast_to_device(w2b, weight.device, torch.float32),
-                                      backend.memory_management.cast_to_device(w2a, weight.device, torch.float32))
-                else:
-                    m1 = torch.mm(backend.memory_management.cast_to_device(w1a, weight.device, torch.float32),
-                                  backend.memory_management.cast_to_device(w1b, weight.device, torch.float32))
-                    m2 = torch.mm(backend.memory_management.cast_to_device(w2a, weight.device, torch.float32),
-                                  backend.memory_management.cast_to_device(w2b, weight.device, torch.float32))
-
-                try:
-                    lora_diff = (m1 * m2).reshape(weight.shape)
-                    if dora_scale is not None:
-                        weight = function(weight_decompose(dora_scale, weight, lora_diff, alpha, strength))
-                    else:
-                        weight += function(((strength * alpha) * lora_diff).type(weight.dtype))
-                except Exception as e:
-                    printF(name=MasterName.get_master_name(),
-                           info="ERROR {} {} {}".format(patch_type, key, e)).printf()
-            elif patch_type == "glora":
-                if v[4] is not None:
-                    alpha = v[4] / v[0].shape[0]
-                else:
-                    alpha = 1.0
-
-                dora_scale = v[5]
-
-                a1 = backend.memory_management.cast_to_device(v[0].flatten(start_dim=1), weight.device, torch.float32)
-                a2 = backend.memory_management.cast_to_device(v[1].flatten(start_dim=1), weight.device, torch.float32)
-                b1 = backend.memory_management.cast_to_device(v[2].flatten(start_dim=1), weight.device, torch.float32)
-                b2 = backend.memory_management.cast_to_device(v[3].flatten(start_dim=1), weight.device, torch.float32)
-
-                try:
-                    lora_diff = (torch.mm(b2, b1) + torch.mm(torch.mm(weight.flatten(start_dim=1), a2), a1)).reshape(weight.shape)
-                    if dora_scale is not None:
-                        weight = function(weight_decompose(dora_scale, weight, lora_diff, alpha, strength))
-                    else:
-                        weight += function(((strength * alpha) * lora_diff).type(weight.dtype))
-                except Exception as e:
-                    printF(name=MasterName.get_master_name(),
-                           info="ERROR {} {} {}".format(patch_type, key, e)).printf()
-            else:
-                printF(name=MasterName.get_master_name(), info="patch type not recognized {} {}".format(patch_type, key)).printf()
-
-            if old_weight is not None:
-                weight = old_weight
-
-        return weight
 
     def unpatch_model(self, device_to=None, unpatch_weights=True):
         if unpatch_weights:
-            if self.model_lowvram:
+            self.unpin_all_weights()
+            if self.model.model_lowvram:
                 for m in self.model.modules():
-                    if hasattr(m, "prev_comfy_cast_weights"):
-                        m.comfy_cast_weights = m.prev_comfy_cast_weights
-                        del m.prev_comfy_cast_weights
-                    m.weight_function = None
-                    m.bias_function = None
+                    wipe_lowvram_weight(m)
 
-                self.model_lowvram = False
-                self.lowvram_patch_counter = 0
+                self.model.model_lowvram = False
+                self.model.lowvram_patch_counter = 0
 
             keys = list(self.backup.keys())
 
-            if self.weight_inplace_update:
-                for k in keys:
-                    backend.utils.copy_to_param(self.model, k, self.backup[k])
-            else:
-                for k in keys:
-                    backend.utils.set_attr_param(self.model, k, self.backup[k])
+            for k in keys:
+                bk = self.backup[k]
+                if bk.inplace_update:
+                    utils.copy_to_param(self.model, k, bk.weight)
+                else:
+                    utils.set_attr(self.model, k, bk.weight)
 
+            self.model.current_weight_patches_uuid = None
             self.backup.clear()
 
             if device_to is not None:
                 self.model.to(device_to)
                 self.current_device = device_to
+            self.model.model_loaded_weight_memory = 0
+            self.model.model_offload_buffer_memory = 0
+
+            for m in self.model.modules():
+                if hasattr(m, "forge_patched_weights"):
+                    del m.forge_patched_weights
 
         keys = list(self.object_patches_backup.keys())
         for k in keys:
-            backend.utils.set_attr(self.model, k, self.object_patches_backup[k])
+            utils.set_attr_raw(self.model, k, self.object_patches_backup[k])
 
         self.object_patches_backup.clear()
 
-    def current_loaded_device(self):
-        return self.current_device
+    def partially_unload(self, device_to, memory_to_free=0, force_patch_weights=False):
+        memory_freed = 0
+        patch_counter = 0
+        unload_list = self._load_list()
+        unload_list.sort()
 
-    def loaded_size(self):
-        return self.model.model_loaded_weight_memory
+        offload_buffer = self.model.model_offload_buffer_memory
+        if len(unload_list) > 0:
+            NS = memory_management.NUM_STREAMS
+            offload_weight_factor = [min(offload_buffer / (NS + 1), unload_list[0][1])] * NS
 
-    def get_learned_conditioning(self, *text):
-        return self.model.get_learned_conditioning(*text)
+        for unload in unload_list:
+            if memory_to_free + offload_buffer - self.model.model_offload_buffer_memory < memory_freed:
+                break
+            module_offload_mem, module_mem, n, m, params = unload
+
+            potential_offload = module_offload_mem + sum(offload_weight_factor)
+
+            lowvram_possible = hasattr(m, "parameters_manual_cast")
+            if hasattr(m, "forge_patched_weights") and m.forge_patched_weights == True:
+                move_weight = True
+                for param in params:
+                    key = key_param_name_to_key(n, param)
+                    bk = self.backup.get(key, None)
+                    if bk is not None:
+                        if not lowvram_possible:
+                            move_weight = False
+                            break
+
+                        if bk.inplace_update:
+                            utils.copy_to_param(self.model, key, bk.weight)
+                        else:
+                            utils.set_attr(self.model, key, bk.weight)
+                        self.backup.pop(key)
+
+                weight_key = "{}.weight".format(n)
+                bias_key = "{}.bias".format(n)
+                if move_weight:
+                    cast_weight = self.force_cast_weights
+                    m.to(device_to)
+                    if lowvram_possible:
+                        if weight_key in self.patches:
+                            if force_patch_weights:
+                                self.patch_weight_to_device(weight_key)
+                            else:
+                                m.weight_function.append(LowVramPatch(weight_key, self.patches))
+                                patch_counter += 1
+                        if bias_key in self.patches:
+                            if force_patch_weights:
+                                self.patch_weight_to_device(bias_key)
+                            else:
+                                m.bias_function.append(LowVramPatch(bias_key, self.patches))
+                                patch_counter += 1
+                        cast_weight = True
+
+                    if cast_weight and hasattr(m, "parameters_manual_cast"):
+                        m.prev_parameters_manual_cast = m.parameters_manual_cast
+                        m.parameters_manual_cast = True
+                    m.forge_patched_weights = False
+                    memory_freed += module_mem
+                    offload_buffer = max(offload_buffer, potential_offload)
+                    offload_weight_factor.append(module_mem)
+                    offload_weight_factor.pop(0)
+                    logger.debug("freed {}".format(n))
+
+                    for param in params:
+                        self.pin_weight_to_device(key_param_name_to_key(n, param))
+
+        self.model.model_lowvram = True
+        self.model.lowvram_patch_counter += patch_counter
+        self.model.model_loaded_weight_memory -= memory_freed
+        self.model.model_offload_buffer_memory = offload_buffer
+        logger.info("Unloaded partially: {:.2f} MB freed, {:.2f} MB remains loaded, {:.2f} MB buffer reserved, lowvram patches: {}".format(memory_freed / (1024 * 1024), self.model.model_loaded_weight_memory / (1024 * 1024), offload_buffer / (1024 * 1024), self.model.lowvram_patch_counter))
+        return memory_freed
+
+    def partially_load(self, device_to, extra_memory=0, force_patch_weights=False):
+        unpatch_weights = self.model.current_weight_patches_uuid is not None and (self.model.current_weight_patches_uuid != self.patches_uuid or force_patch_weights)
+
+        used = self.model.model_loaded_weight_memory
+        self.unpatch_model(self.offload_device, unpatch_weights=unpatch_weights)
+        if unpatch_weights:
+            extra_memory += used - self.model.model_loaded_weight_memory
+
+        self.patch_model(load_weights=False)
+        if extra_memory < 0 and not unpatch_weights:
+            self.partially_unload(self.offload_device, -extra_memory, force_patch_weights=force_patch_weights)
+            return 0
+        full_load = False
+        if self.model.model_lowvram == False and self.model.model_loaded_weight_memory > 0:
+            return 0
+        if self.model.model_loaded_weight_memory + extra_memory > self.model_size():
+            full_load = True
+        current_used = self.model.model_loaded_weight_memory
+
+        try:
+            self.load(device_to, lowvram_model_memory=current_used + extra_memory, force_patch_weights=force_patch_weights, full_load=full_load)
+        except Exception as e:
+            self.detach()
+            raise e
+
+        return self.model.model_loaded_weight_memory - current_used
+
+    def detach(self, unpatch_all=True):
+        self.model_patches_to(self.offload_device)
+        if unpatch_all:
+            self.unpatch_model(self.offload_device, unpatch_weights=unpatch_all)
+        return self.model
+
+    def cleanup(self):
+        self.model_patches_call_function(function_name="cleanup")
+        if hasattr(self.model, "current_patcher"):
+            self.model.current_patcher = None
+
+    def __del__(self):
+        self.unpin_all_weights()
+        self.detach(unpatch_all=False)

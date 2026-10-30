@@ -1,18 +1,18 @@
-import os
-import torch
 import base64
 import json
+import os
 import zlib
+
 import numpy as np
 import safetensors.torch
-
+import torch
 from PIL import Image
 
 
 class EmbeddingEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, torch.Tensor):
-            return {'TORCHTENSOR': obj.cpu().detach().numpy().tolist()}
+            return {"TORCHTENSOR": obj.cpu().detach().numpy().tolist()}
         return json.JSONEncoder.default(self, obj)
 
 
@@ -21,8 +21,8 @@ class EmbeddingDecoder(json.JSONDecoder):
         json.JSONDecoder.__init__(self, *args, object_hook=self.object_hook, **kwargs)
 
     def object_hook(self, d):
-        if 'TORCHTENSOR' in d:
-            return torch.from_numpy(np.array(d['TORCHTENSOR']))
+        if "TORCHTENSOR" in d:
+            return torch.from_numpy(np.array(d["TORCHTENSOR"]))
         return d
 
 
@@ -36,7 +36,7 @@ def embedding_from_b64(data):
     return json.loads(d, cls=EmbeddingDecoder)
 
 
-def lcg(m=2 ** 32, a=1664525, c=1013904223, seed=0):
+def lcg(m=2**32, a=1664525, c=1013904223, seed=0):
     while True:
         seed = (a * seed + c) % m
         yield seed % 255
@@ -58,14 +58,14 @@ def crop_black(img, tol=0):
 
 def extract_image_data_embed(image):
     d = 3
-    outarr = crop_black(np.array(image.convert('RGB').getdata()).reshape(image.size[1], image.size[0], d).astype(np.uint8)) & 0x0F
+    outarr = crop_black(np.array(image.convert("RGB").getdata()).reshape(image.size[1], image.size[0], d).astype(np.uint8)) & 0x0F
     black_cols = np.where(np.sum(outarr, axis=(0, 2)) == 0)
     if black_cols[0].shape[0] < 2:
         print(f'{os.path.basename(getattr(image, "filename", "unknown image file"))}: no embedded information found.')
         return None
 
-    data_block_lower = outarr[:, :black_cols[0].min(), :].astype(np.uint8)
-    data_block_upper = outarr[:, black_cols[0].max() + 1:, :].astype(np.uint8)
+    data_block_lower = outarr[:, : black_cols[0].min(), :].astype(np.uint8)
+    data_block_upper = outarr[:, black_cols[0].max() + 1 :, :].astype(np.uint8)
 
     data_block_lower = xor_block(data_block_lower)
     data_block_upper = xor_block(data_block_upper)
@@ -152,24 +152,24 @@ class EmbeddingDatabase:
         name, ext = os.path.splitext(filename)
         ext = ext.upper()
 
-        if ext in ['.PNG', '.WEBP', '.JXL', '.AVIF']:
+        if ext in [".PNG", ".WEBP", ".JXL", ".AVIF"]:
             _, second_ext = os.path.splitext(name)
-            if second_ext.upper() == '.PREVIEW':
+            if second_ext.upper() == ".PREVIEW":
                 return
 
             embed_image = Image.open(path)
-            if hasattr(embed_image, 'text') and 'sd-ti-embedding' in embed_image.text:
-                data = embedding_from_b64(embed_image.text['sd-ti-embedding'])
-                name = data.get('name', name)
+            if hasattr(embed_image, "text") and "sd-ti-embedding" in embed_image.text:
+                data = embedding_from_b64(embed_image.text["sd-ti-embedding"])
+                name = data.get("name", name)
             else:
                 data = extract_image_data_embed(embed_image)
                 if data:
-                    name = data.get('name', name)
+                    name = data.get("name", name)
                 else:
                     return
-        elif ext in ['.BIN', '.PT']:
+        elif ext in [".BIN", ".PT"]:
             data = torch.load(path, map_location="cpu")
-        elif ext in ['.SAFETENSORS']:
+        elif ext in [".SAFETENSORS"]:
             data = safetensors.torch.load_file(path, device="cpu")
         else:
             return
@@ -220,27 +220,27 @@ class EmbeddingDatabase:
             return None, None
 
         for ids, embedding in possible_matches:
-            if tokens[offset:offset + len(ids)] == ids:
+            if tokens[offset : offset + len(ids)] == ids:
                 return embedding, len(ids)
 
         return None, None
 
 
-def create_embedding_from_data(data, name, filename='unknown embedding file', filepath=None):
-    if 'string_to_param' in data:  # textual inversion embeddings
-        param_dict = data['string_to_param']
-        param_dict = getattr(param_dict, '_parameters', param_dict)  # fix for torch 1.12.1 loading saved file from torch 1.11
-        assert len(param_dict) == 1, 'embedding file has multiple terms in it'
+def create_embedding_from_data(data, name, filename="unknown embedding file", filepath=None):
+    if "string_to_param" in data:  # textual inversion embeddings
+        param_dict = data["string_to_param"]
+        param_dict = getattr(param_dict, "_parameters", param_dict)  # fix for torch 1.12.1 loading saved file from torch 1.11
+        assert len(param_dict) == 1, "embedding file has multiple terms in it"
         emb = next(iter(param_dict.items()))[1]
         vec = emb.detach().to(dtype=torch.float32)
         shape = vec.shape[-1]
         vectors = vec.shape[0]
-    elif type(data) == dict and 'clip_g' in data and 'clip_l' in data:  # SDXL embedding
+    elif type(data) == dict and "clip_g" in data and "clip_l" in data:  # SDXL embedding
         vec = {k: v.detach().to(dtype=torch.float32) for k, v in data.items()}
-        shape = data['clip_g'].shape[-1] + data['clip_l'].shape[-1]
-        vectors = data['clip_g'].shape[0]
+        shape = data["clip_g"].shape[-1] + data["clip_l"].shape[-1]
+        vectors = data["clip_g"].shape[0]
     elif type(data) == dict and type(next(iter(data.values()))) == torch.Tensor:  # diffuser concepts
-        assert len(data.keys()) == 1, 'embedding file has multiple terms in it'
+        assert len(data.keys()) == 1, "embedding file has multiple terms in it"
 
         emb = next(iter(data.values()))
         if len(emb.shape) == 1:
@@ -252,10 +252,13 @@ def create_embedding_from_data(data, name, filename='unknown embedding file', fi
         raise Exception(f"Couldn't identify {filename} as neither textual inversion embedding nor diffuser concept.")
 
     embedding = Embedding(vec, name)
-    embedding.step = data.get('step', None)
-    embedding.sd_checkpoint = data.get('sd_checkpoint', None)
-    embedding.sd_checkpoint_name = data.get('sd_checkpoint_name', None)
+    embedding.step = data.get("step", None)
+    embedding.sd_checkpoint = data.get("sd_checkpoint", None)
+    embedding.sd_checkpoint_name = data.get("sd_checkpoint_name", None)
     embedding.vectors = vectors
     embedding.shape = shape
+
+    if filepath:
+        embedding.filename = filepath
 
     return embedding

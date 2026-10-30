@@ -1,0 +1,12 @@
+{
+	"Type": "CHECKPOINT MERGE",
+	"NSFW": "True",
+	"Update_Date":"Jun 23, 2024",
+	"Base": "SDXL 1.0",
+	"Links": "https://civitai.work/models/119012/bluepencil-xl?modelVersionId=592322",
+	"Version": "v7.0.0",
+	"Tags": "BASE MODEL ANIME FEMALE",
+	"Usage_Tips": "",
+	"Author": "blue_pen5805 404 Image Contest Participant",
+	"ReMark": "Stable Versions: v7.0.0, v5.0.0, v3.1.0, v2.0.0, v1.0.0 / LCM, Lightning versions"
+}
