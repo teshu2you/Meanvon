@@ -196,20 +196,21 @@ def generate_clicked(task: task_manager.AsyncTask):
 
     task_manager.async_tasks.append(task)
 
-    while not finished:
-        time.sleep(0.01)
-        # print(f"task.yields --------- 111: {task.yields}")
-        if len(task.yields) > 0:
-            # print(f"task.yields ---------- 222: {task.yields}")
+    try:
+        while not finished:
+            time.sleep(0.01)
+
+            # 没有新事件就继续等，不要掉出循环
+            if len(task.yields) == 0:
+                continue
+
             flag, product = task.yields.pop(0)
 
             if flag == "preview":
                 # help bad internet connection by skipping duplicated preview
-                if len(task.yields) > 0:  # if we have the next item
-                    if (
-                        task.yields[0][0] == "preview"
-                    ):  # if the next item is also a preview
-                        continue
+                if len(task.yields) > 0 and task.yields[0][0] == "preview":
+                    continue
+                
                 percentage, title, image, img_pp, img_rr = product
                 yield (
                     gr.update(
@@ -282,7 +283,23 @@ def generate_clicked(task: task_manager.AsyncTask):
                     for filepath in product:
                         if isinstance(filepath, str) and os.path.exists(filepath):
                             os.remove(filepath)
-                continue  # 添加 continue，避免后续代码继续执行
+                
+    finally:
+        # 无论成功、失败还是中断，都清掉本轮生成的临时图，避免 tmp/ 无限累积。
+        # 画廊还在显示的话，图片已经被 gradio 复制进自己的缓存，删除源文件不影响展示。
+        try:
+            from modules import ui_tempdir
+            ui_tempdir.cleanup_tmpdr()
+        except Exception as e:
+            print(f"Warning: cleanup tmp images failed: {e}")
+
+        # latent 调试图不在 tmp/ 里，单独删
+        try:
+            _latent_dump = os.path.join(os.getcwd(), "latent_debug_pre_vae.png")
+            if os.path.isfile(_latent_dump):
+                os.remove(_latent_dump)
+        except OSError:
+            pass
 
     execution_time = time.perf_counter() - execution_start_time
     print(f"Total time: {execution_time:.2f} seconds")

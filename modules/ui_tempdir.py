@@ -140,19 +140,43 @@ def on_tmpdir_changed():
     register_tmp_file(shared.demo, os.path.join(shared.opts.temp_dir, "x"))
 
 
+def _tmp_dir_candidates():
+    """所有可能落临时图的目录。优先 shared.opts.temp_dir，其次 <data_path>/tmp。"""
+    dirs = []
+    configured = getattr(shared.opts, "temp_dir", None)
+    if isinstance(configured, str) and configured.strip():
+        dirs.append(configured)
+    try:
+        from modules.paths_internal import data_path
+        dirs.append(os.path.join(data_path, "tmp"))
+    except Exception:
+        pass
+    dirs.append(os.path.join(os.getcwd(), "tmp"))
+
+    result = []
+    for d in dirs:
+        try:
+            absolute = os.path.abspath(os.fspath(d))
+        except (TypeError, ValueError):
+            continue
+        if absolute not in result:
+            result.append(absolute)
+    return result
+
+
 def cleanup_tmpdr():
-    temp_dir = shared.opts.temp_dir
-    if temp_dir == "" or not os.path.isdir(temp_dir):
-        return
-
-    for root, _, files in os.walk(temp_dir, topdown=False):
-        for name in files:
-            _, extension = os.path.splitext(name)
-            if extension != ".png":
-                continue
-
-            filename = os.path.join(root, name)
-            os.remove(filename)
+    """删除所有临时目录下的 .png。每轮生成结束后调用，成功/失败/中断都要清。"""
+    for temp_dir in _tmp_dir_candidates():
+        if not os.path.isdir(temp_dir):
+            continue
+        for root, _, files in os.walk(temp_dir, topdown=False):
+            for name in files:
+                if not name.lower().endswith(".png"):
+                    continue
+                try:
+                    os.remove(os.path.join(root, name))
+                except OSError:
+                    pass
 
 
 def is_gradio_temp_path(path: str) -> bool:
