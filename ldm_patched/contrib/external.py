@@ -1091,6 +1091,9 @@ class GLIGENTextBoxApply:
 class EmptyLatentImage:
     def __init__(self):
         self.device = ldm_patched.modules.model_management.intermediate_device()
+        # 默认按 SD 的 8× 构造；采样前由 modules.core.sample() 按 VAE 实际
+        # downscale_ratio 重建网格（FLUX.2 / MOSS 是 16×），这里不动接口。
+        self.downscale_ratio = 8
 
     @classmethod
     def INPUT_TYPES(s):
@@ -1105,6 +1108,23 @@ class EmptyLatentImage:
 
     def generate(self, width, height, batch_size=1):
         latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=self.device)
+        return ({"samples": latent},)
+
+
+class EmptyLatentImageRatio(EmptyLatentImage):
+    """Forge 内部用：按 VAE 实际下采样率（如 FLUX.2 / MOSS 的 16×）生成空 latent。
+
+    EmptyLatentImage 的 8× 是 SD 系约定，不改它（classic pipeline 与旧工作流依赖），
+    只在 flow 引擎需要时临时覆盖 downscale_ratio。
+    """
+
+    def __init__(self, downscale_ratio=8):
+        super().__init__()
+        self.downscale_ratio = int(downscale_ratio)
+
+    def generate(self, width, height, batch_size=1):
+        f = self.downscale_ratio
+        latent = torch.zeros([batch_size, 4, height // f, width // f], device=self.device)
         return ({"samples": latent},)
 
 

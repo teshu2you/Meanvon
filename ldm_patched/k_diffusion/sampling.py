@@ -1156,3 +1156,200 @@ def sample_dpmpp_2s_ancestral_cfg_pp(model, x, sigmas, extra_args=None, callback
         if sigmas[i + 1] > 0:
             x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up
     return x
+
+
+def _get_model_sampling(model):
+    """Resolve the model_sampling / predictor object behind the sampler model wrapper.
+
+    The sampler receives a KSamplerX0Inpaint wrapper whose ``inner_model`` is a
+    CFGGuider. Its ``inner_model`` is either a KModel (exposes ``predictor``) or a
+    legacy BaseModel (exposes ``model_sampling``).
+    """
+    inner_model = getattr(model, "inner_model", None)
+    model_impl = getattr(inner_model, "inner_model", None)
+    if model_impl is None:
+        return None
+    predictor = getattr(model_impl, "predictor", None)
+    if predictor is not None:
+        return predictor
+    return getattr(model_impl, "model_sampling", None)
+
+
+def _is_const(model_sampling):
+    if model_sampling is None:
+        return False
+    if getattr(model_sampling, "prediction_type", None) == "const":
+        return True
+    return isinstance(
+        model_sampling,
+        (
+            ldm_patched.modules.model_sampling.ModelSamplingFlux,
+            ldm_patched.modules.model_sampling.ModelSamplingDiscreteFlow,
+        ),
+    )
+
+
+def sigma_to_half_log_snr(sigma, model_sampling):
+    """Convert sigma to half-logSNR log(alpha_t / sigma_t)."""
+    if _is_const(model_sampling):
+        # log((1 - t) / t) = log((1 - sigma) / sigma)
+        return sigma.logit().neg()
+    return sigma.log().neg()
+
+
+def half_log_snr_to_sigma(half_log_snr, model_sampling):
+    """Convert half-logSNR log(alpha_t / sigma_t) to sigma."""
+    if _is_const(model_sampling):
+        # 1 / (1 + exp(half_log_snr))
+        return half_log_snr.neg().sigmoid()
+    return half_log_snr.neg().exp()
+
+
+def offset_first_sigma_for_snr(sigmas, model_sampling, percent_offset=1e-4):
+    """Adjust the first sigma to avoid invalid logSNR."""
+    if len(sigmas) <= 1:
+        return sigmas
+    if _is_const(model_sampling) and sigmas[0] >= 1:
+        sigmas = sigmas.clone()
+        sigmas[0] = model_sampling.percent_to_sigma(percent_offset)
+    return sigmas
+
+
+@torch.no_grad()
+def res_multistep(model, x, sigmas, extra_args=None, callback=None, disable=None, s_noise=1., noise_sampler=None, eta=1., cfg_pp=False):
+    extra_args = {} if extra_args is None else extra_args
+    noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
+    model_sampling = _get_model_sampling(model)
+    s_noise = s_noise * getattr(model_sampling, "noise_scale", 1.0)
+    s_in = x.new_ones([x.shape[0]])
+    sigma_fn = lambda t: t.neg().exp()
+    t_fn = lambda sigma: sigma.log().neg()
+    phi1_fn = lambda t: torch.expm1(t) / t
+    phi2_fn = lambda t: (phi1_fn(t) - 1.0) / t
+
+    old_sigma_down = None
+    old_denoised = None
+    uncond_denoised = None
+
+    def post_cfg_function(args):
+        nonlocal uncond_denoised
+        uncond_denoised = args["uncond_denoised"]
+        return args["denoised"]
+
+    if cfg_pp:
+        model_options = extra_args.get("model_options", {}).copy()
+        extra_args["model_options"] = ldm_patched.modules.model_patcher.set_model_options_post_cfg_function(model_options, post_cfg_function, disable_cfg1_optimization=True)
+
+    for i in trange(len(sigmas) - 1, disable=disable):
+        denoised = model(x, sigmas[i] * s_in, **extra_args)
+        sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1], eta=eta)
+        if callback is not None:
+            callback({"x": x, "i": i, "sigma": sigmas[i], "sigma_hat": sigmas[i], "denoised": denoised})
+        if sigma_down == 0 or old_denoised is None:
+            # Euler method
+            if cfg_pp:
+                d = to_d(x, sigmas[i], uncond_denoised)
+                x = denoised + d * sigma_down
+            else:
+                d = to_d(x, sigmas[i], denoised)
+                dt = sigma_down - sigmas[i]
+                x = x + d * dt
+        else:
+            # Second order multistep method in https://arxiv.org/pdf/2308.02157
+            t, t_old, t_next, t_prev = t_fn(sigmas[i]), t_fn(old_sigma_down), t_fn(sigma_down), t_fn(sigmas[i - 1])
+            h = t_next - t
+            c2 = (t_prev - t_old) / h
+
+            phi1_val, phi2_val = phi1_fn(-h), phi2_fn(-h)
+            b1 = torch.nan_to_num(phi1_val - phi2_val / c2, nan=0.0)
+            b2 = torch.nan_to_num(phi2_val / c2, nan=0.0)
+
+            if cfg_pp:
+                x = x + (denoised - uncond_denoised)
+                x = sigma_fn(h) * x + h * (b1 * uncond_denoised + b2 * old_denoised)
+            else:
+                x = sigma_fn(h) * x + h * (b1 * denoised + b2 * old_denoised)
+
+        # Noise addition
+        if sigmas[i + 1] > 0:
+            x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up
+
+        if cfg_pp:
+            old_denoised = uncond_denoised
+        else:
+            old_denoised = denoised
+        old_sigma_down = sigma_down
+    return x
+
+
+@torch.no_grad()
+def sample_res_multistep(model, x, sigmas, extra_args=None, callback=None, disable=None, s_noise=1., noise_sampler=None):
+    return res_multistep(model, x, sigmas, extra_args=extra_args, callback=callback, disable=disable, s_noise=s_noise, noise_sampler=noise_sampler, eta=0., cfg_pp=False)
+
+
+@torch.no_grad()
+def sample_er_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, s_noise=1.0, noise_sampler=None, noise_scaler=None, max_stage=3):
+    """
+    Extended Reverse-Time SDE solver
+    arXiv: https://arxiv.org/abs/2309.06169
+    reference: https://github.com/QinpengCui/ER-SDE-Solver/blob/main/er_sde_solver.py
+    """
+    extra_args = {} if extra_args is None else extra_args
+    noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
+    s_in = x.new_ones([x.shape[0]])
+
+    def default_er_sde_noise_scaler(x):
+        return x * ((x ** 0.3).exp() + 10.0)
+
+    noise_scaler = default_er_sde_noise_scaler if noise_scaler is None else noise_scaler
+    num_integration_points = 200.0
+    point_indice = torch.arange(0, num_integration_points, dtype=torch.float32, device=x.device)
+
+    model_sampling = _get_model_sampling(model)
+    sigmas = offset_first_sigma_for_snr(sigmas, model_sampling)
+    half_log_snrs = sigma_to_half_log_snr(sigmas, model_sampling)
+    er_lambdas = half_log_snrs.neg().exp()
+
+    old_denoised = None
+    old_denoised_d = None
+
+    for i in trange(len(sigmas) - 1, disable=disable):
+        denoised = model(x, sigmas[i] * s_in, **extra_args)
+        if callback is not None:
+            callback({"x": x, "i": i, "sigma": sigmas[i], "sigma_hat": sigmas[i], "denoised": denoised})
+        stage_used = min(max_stage, i + 1)
+        if sigmas[i + 1] == 0:
+            x = denoised
+        else:
+            er_lambda_s, er_lambda_t = er_lambdas[i], er_lambdas[i + 1]
+            alpha_s = sigmas[i] / er_lambda_s
+            alpha_t = sigmas[i + 1] / er_lambda_t
+            r_alpha = alpha_t / alpha_s
+            r = noise_scaler(er_lambda_t) / noise_scaler(er_lambda_s)
+
+            # Stage 1 Euler
+            x = r_alpha * r * x + alpha_t * (1 - r) * denoised
+
+            if stage_used >= 2:
+                dt = er_lambda_t - er_lambda_s
+                lambda_step_size = -dt / num_integration_points
+                lambda_pos = er_lambda_t + point_indice * lambda_step_size
+                scaled_pos = noise_scaler(lambda_pos)
+
+                # Stage 2
+                s = torch.sum(1 / scaled_pos) * lambda_step_size
+                denoised_d = (denoised - old_denoised) / (er_lambda_s - er_lambdas[i - 1])
+                x = x + alpha_t * (dt + s * noise_scaler(er_lambda_t)) * denoised_d
+
+                if stage_used >= 3:
+                    # Stage 3
+                    s_u = torch.sum((lambda_pos - er_lambda_s) / scaled_pos) * lambda_step_size
+                    denoised_u = (denoised_d - old_denoised_d) / ((er_lambda_s - er_lambdas[i - 2]) / 2)
+                    x = x + alpha_t * ((dt ** 2) / 2 + s_u * noise_scaler(er_lambda_t)) * denoised_u
+                old_denoised_d = denoised_d
+
+            if s_noise > 0:
+                x = x + alpha_t * noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * (er_lambda_t ** 2 - er_lambda_s ** 2 * r ** 2).sqrt().nan_to_num(nan=0.0)
+        old_denoised = denoised
+    return x
+

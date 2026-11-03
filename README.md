@@ -22,6 +22,9 @@ Meanvon is a lightweight AI toolbox that supports basic AI applications such as 
 
 ## Updates / Changelog
 
+### 🆕 2026-11-1
+- 🔥 **Support Anima, MossImage** — new model introduced by civitai
+
 ### 🆕 2026-09-8
 - 🔥 **Support Zimage, MiniMax, Krea2, QwenImage** — new model introduced by alibaba/Comyfui/minimax ...
 
@@ -195,82 +198,4 @@ This application uses the following software and technologies:
 
 ## Bug Fix / Troubleshooting
 
-### fix 1
-
-**Description:** `ModuleNotFoundError: No module named 'torchvision.transforms.functional_tensor'`
-
-`from torchvision.transforms._functional_tensor import rgb_to_grayscale` was moved/renamed. Update the imports accordingly:
-
-```python
-from scipy import special
-from scipy.stats import multivariate_normal
-from torchvision.transforms._functional_tensor import rgb_to_grayscale
-```
-
-### fix 2
-
-**Description:** When using xformers cross-attention:
-
-```
-X:\python_project\Meanvon\venv\lib\site-packages\diffusers\utils\outputs.py:63: UserWarning:
-torch.utils._pytree._register_pytree_node is deprecated.
-Please use torch.utils._pytree.register_pytree_node instead.
-torch.utils._pytree._register_pytree_node(
-```
-
-This is only a deprecation warning. Switch the call to the new API shown above to silence it.
-
-### fix 3
-
-**Description:** `A matching Triton is not available, some optimizations will not be enabled. Error caught was: No module named 'triton'`
-
-Download the two files:
-
-- triton: https://huggingface.co/r4ziel/xformers_pre_built/resolve/main/triton-2.0.0-cp310-cp310-win_amd64.whl
-- cmake: https://pypi.org/project/cmake/#files
-
-Then install:
-
-```bash
-pip install https://huggingface.co/r4ziel/xformers_pre_built/resolve/main/triton-2.0.0-cp310-cp310-win_amd64.whl
-python -m pip install cmake-3.29.0.1-py3-none-win_amd64.whl
-```
-
-### fix 4
-
-**Description:** GFPGAN model path issue with SadTalker.
-
-**File:** `extensions\sadtalker\src\utils\face_enhancer.py`
-
-Look for the `else` block where `bg_upsampler = None` is set, then apply the fix:
-
-```python
-    else:
-        bg_upsampler = None
-
-    # fix: look for the GFPGAN weights in the correct local path
-    gfpgan_path = os.path.join(os.getcwd(), "models/gfpgan/weights")
-    print(gfpgan_path)
-    model_path = os.path.join(gfpgan_path, model_name + '.pth')
-    print(model_path)
-
-    if not os.path.isfile(model_path):
-        model_path = os.path.join('models/checkpoints', model_name + '.pth')
-```
-
-**File:** `venv\Lib\site-packages\gfpgan\utils.py`
-
-```python
-        self.face_helper = FaceRestoreHelper(
-            upscale,
-            face_size=512,
-            crop_ratio=(1, 1),
-            det_model='retinaface_resnet50',
-            save_ext='png',
-            use_parse=True,
-            device=self.device,
-            model_rootpath='models/gfpgan/weights')   # fix
-
-        if model_path.startswith('https://'):
-            model_path = load_file_from_url(
-```
+removed

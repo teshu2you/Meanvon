@@ -948,7 +948,10 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                 _shape = (3, p.height, p.width)
             else:
                 latent_channels = shared.sd_model.forge_objects.vae.latent_channels
-                _shape = (latent_channels, _times, p.height // opt_f, p.width // opt_f) if shared.sd_model.is_wan else (latent_channels, p.height // opt_f, p.width // opt_f)
+                # opt_f 来自 VAE.upscale_ratio（FLUX.2 / MOSS / Qwen-Image-2.1 是 16），
+                # 不能写死 8，否则噪声网格与 DiT 的 RoPE 训练尺度错位（MOSS 会过曝）。
+                _f = opt_f if isinstance(opt_f, int) and opt_f > 0 else 8
+                _shape = (latent_channels, _times, p.height // _f, p.width // _f) if shared.sd_model.is_wan else (latent_channels, p.height // _f, p.width // _f)
 
             p.rng = rng.ImageRNG(_shape, p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, seed_resize_from_h=p.seed_resize_from_h, seed_resize_from_w=p.seed_resize_from_w)
 

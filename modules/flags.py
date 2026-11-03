@@ -39,7 +39,9 @@ KSAMPLER = {
     "des": "DEIS",
     "ipndm": "IPNDM",
     "ipndm_v": "IPNDM_V",
-    "restart": "Restart"
+    "restart": "Restart",
+    "res_multistep": "Res Multistep",
+    "er_sde": "ER SDE"
 }
 
 SAMPLER_EXTRA = {
@@ -57,7 +59,7 @@ KSAMPLER_NAMES = list(KSAMPLER.keys())
 #                   "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm", "lcm", "lightning"]
 # SAMPLER_NAMES = KSAMPLER_NAMES + ["ddim", "uni_pc", "uni_pc_bh2"]
 
-SCHEDULER_NAMES = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "lcm", "turbo", "align_your_steps", "tcd", "edm_playground_v2.5"]
+SCHEDULER_NAMES = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "lcm", "turbo", "align_your_steps", "tcd", "edm_playground_v2.5", "beta"]
 SAMPLER_NAMES = KSAMPLER_NAMES + list(SAMPLER_EXTRA.keys())
 
 sampler_list = SAMPLER_NAMES

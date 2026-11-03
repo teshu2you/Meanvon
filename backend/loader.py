@@ -160,6 +160,16 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
             assert isinstance(state_dict, dict) and len(state_dict) > 16, "You do not have VAE state dict!"
             from backend.nn.vae import AutoencoderKLFlux2
 
+            # ===== diffusers 命名归一化（MOSS-image VAE 过曝/噪点的真正原因）=====
+            # 外部 VAE（如 models/vae/moss-image-vae.safetensors）是 diffusers 原生格式：
+            #   decoder.mid_block.resnets.0.norm1 / decoder.up_blocks.N.resnets.M ...
+            # 而 backend/nn/vae.py 用的是整合后的扁平命名：
+            #   decoder.mid.block_1.norm1 / decoder.up.N.block.M ...
+            # 直接 load_state_dict(strict=False) 只会匹配到 15/251 个键，
+            # decoder 绝大部分权重停在随机初始化 → 输出均值失控 (mean=+0.77) → 过曝。
+            # 这里在构建网络前做一次转换，保证键与结构一一对应。
+            state_dict = _normalize_flux2_vae_keys(state_dict)
+
             config = AutoencoderKLFlux2.load_config(config_path)
 
             if int(state_dict["decoder.conv_in.weight"].shape[0]) == 384:  # Small Decoder
@@ -856,6 +866,46 @@ def process_pid(state_dict: dict[str, torch.Tensor]):
 
     state_dict.clear()
     state_dict.update(out)
+
+
+def _normalize_flux2_vae_keys(state_dict: dict) -> dict:
+    """把 diffusers 原生命名的 Flux2 VAE 权重转成 backend/nn/vae.py 的扁平命名。
+
+    兼容两类来源：
+      1) diffusers 目录式权重（decoder.up_blocks.N.resnets.M / mid_block）
+      2) 已经带 *quant_conv 前缀但仍是块式命名
+    已经是对应命名的直接原样返回。
+    """
+    if not isinstance(state_dict, dict) or not state_dict:
+        return state_dict
+
+    # 已经是本地结构（含 decoder.conv_in 且没有 up_blocks/mid_block）→ 不动
+    _is_diffusers = (
+        "decoder.up_blocks.0.resnets.0.norm1.weight" in state_dict
+        or "decoder.mid_block.resnets.0.norm1.weight" in state_dict
+        or "encoder.down_blocks.0.resnets.0.norm1.weight" in state_dict
+    )
+    if not _is_diffusers:
+        return state_dict
+
+    try:
+        from modules_forge.packages.huggingface_guess.diffusers_convert import (
+            convert_vae_state_dict,
+        )
+    except Exception as e:
+        logger.warning(f"[VAE] diffusers_convert 不可用，保留原始键：{e}")
+        return state_dict
+
+    try:
+        converted = convert_vae_state_dict(dict(state_dict))
+        logger.info(
+            "[VAE] diffusers -> flat 键名转换：{} -> {} 个张量".format(
+                len(state_dict), len(converted))
+        )
+        return converted
+    except Exception as e:
+        logger.warning(f"[VAE] diffusers 键名转换失败，保留原始：{e}")
+        return state_dict
 
 
 def _load_unet(path: os.PathLike):

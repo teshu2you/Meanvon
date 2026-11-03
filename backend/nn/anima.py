@@ -469,12 +469,24 @@ class Anima(nn.Module):
         return x_B_C_Tt_Hp_Wp
 
     def forward(self, x: torch.Tensor, timesteps: torch.Tensor, context: torch.Tensor, padding_mask: Optional[torch.Tensor] = None, **kwargs):
+        # Anima 只生成图像（T=1），但底层 Cosmos Predict2 DiT 只接受 5D
+        # (B, C, T, H, W)。Forge 的 flow 采样路径（core.ksampler 的 flow 分支 /
+        # default_pipeline 的空 latent）按图像惯例给的是 4D (B, C, H, W)，
+        # 这里补一条时间轴，出口再压回 4D，避免 prepare_embedded_sequence
+        # 读取 shape[4] 时抛 "IndexError: tuple index out of range"。
+        input_is_4d = x.dim() == 4
+        if input_is_4d:
+            x = x.unsqueeze(2)
+
         orig_shape = list(x.shape)
 
         for ref in dynamic_args.ref_latents:
+            ref = ref.to(x)
+            if ref.dim() == 4:  # 4D 参考 latent 同样要补时间轴才能沿 T 拼接
+                ref = ref.unsqueeze(2)
             if x.shape[0] == 2:  # batch_cond_uncond
                 ref = torch.cat((ref, ref), dim=0)
-            x = torch.cat((x, ref.to(x)), dim=2)
+            x = torch.cat((x, ref), dim=2)
 
         x = pad_to_patch_size(x, (self.patch_temporal, self.patch_spatial, self.patch_spatial))
         x_B_C_T_H_W = x
@@ -509,6 +521,8 @@ class Anima(nn.Module):
 
         x_B_T_H_W_O = self.final_layer(x_B_T_H_W_D.to(crossattn_emb.dtype), t_embedding_B_T_D, adaln_lora_B_T_3D=adaln_lora_B_T_3D)
         x_B_C_Tt_Hp_Wp = self.unpatchify(x_B_T_H_W_O)[:, :, : orig_shape[-3], : orig_shape[-2], : orig_shape[-1]]
+        if input_is_4d:  # 图像路径：输入 4D → 输出也保持 4D
+            x_B_C_Tt_Hp_Wp = x_B_C_Tt_Hp_Wp.squeeze(2)
         return x_B_C_Tt_Hp_Wp
 
 

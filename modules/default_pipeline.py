@@ -48,6 +48,7 @@ from ldm_patched.modules.model_base import SDXL, SDXLRefiner, HunyuanDiT
 from modules.sample_hijack import clip_separate
 from ldm_patched.k_diffusion.sampling import BrownianTreeNoiseSampler
 from modules.settings import default_settings
+from backend.args import dynamic_args
 from util.printf import printF, MasterName
 
 # xl_base: core.StableDiffusionModel = None
@@ -81,6 +82,31 @@ final_refiner_vae = None
 final_loras = None
 
 loaded_ControlNets = {}
+
+# ===== 小型 config 读取helper =====
+def _cfg_float(key, default):
+    try:
+        return float(getattr(modules.config, key))
+    except Exception:
+        return float(default)
+
+
+def _cfg_bool(key, default):
+    try:
+        return bool(getattr(modules.config, key))
+    except Exception:
+        return bool(default)
+
+
+# ===== VAE 精度（MOSS-Image 彩噪修复）=====
+# forge_loader 会把 unet-only 模型的「额外权重」按 unet 的 compute dtype（bf16）
+# 一起加载，MOSS 的 32ch VAE 因此以 bf16 入库；bf16 只有 8 位尾数，
+# GroupNorm / attention 累加误差在 decode 末尾被 .clamp(0,1) 放大成彩色噪点。
+#   default_force_vae_fp32  = False → 完全关闭本修复
+#   default_reload_vae_fp32 = False → 只把现有权重/计算 dtype 转 fp32，
+#                                     不重读文件（省一次 I/O，但精度只能停在 bf16 舍入后）
+MOSS_FORCE_VAE_FP32 = _cfg_bool("default_force_vae_fp32", True)
+MOSS_RELOAD_VAE_FP32 = _cfg_bool("default_reload_vae_fp32", True)
 
 
 @torch.no_grad()
@@ -440,6 +466,30 @@ def _get_aux_state_dicts(model_file_type, model_name=None, flux2_variant=None):
             _p(getattr(cfg, "default_kolors_chatglm_name", None), cfg.path_llm),
         ]
         
+    elif model_file_type == constants.TYPE_Anima:
+        # Anima 是 unet-only checkpoint：transformer 在 ckpt 内，
+        # 文本编码器（Qwen3-0.6B）与 VAE（AutoencoderKLQwenImage）必须外部补齐。
+        paths = [
+            _p(getattr(cfg, "default_anima_vae_name", None), cfg.path_vae),
+            _p(getattr(cfg, "default_anima_text_encoder", None), cfg.path_text_encoder),
+        ]
+
+    elif model_file_type == constants.TYPE_MossImage:
+        # MOSS-Image 也是 unet-only checkpoint（layers.N.proj.*）：
+        #   - VAE = FLUX.2 的 AutoencoderKLFlux2（32ch latent，backend 用 is_flux2=True 加载）
+        #   - 文本编码器 = Qwen3.5-9B（qwen35_9b，int8/convrot 量化权重）
+        # 缺任意一份，backend/loader.py 会在 load_huggingface_component 里断言失败，
+        # 异常 message 完全不提缺件 —— 所以和 Anima 一样在这里先拦。
+        vae_path = _p(getattr(cfg, "default_mossimage_vae_name", None), cfg.path_vae)
+        te_path = _p(getattr(cfg, "default_mossimage_text_encoder", None), cfg.path_text_encoder)
+
+        if vae_path is None:
+            missing.append(("MOSS-Image VAE（FLUX.2 VAE，32ch）", "default_mossimage_vae_name"))
+        if te_path is None:
+            missing.append(("MOSS-Image text encoder（Qwen3.5-9B）", "default_mossimage_text_encoder"))
+
+        paths = [vae_path, te_path]
+
     elif model_file_type == constants.TYPE_HunyuanDiT:
         # HunyuanDiT 使用 CLIP-L + mT5-XXL 双文本编码器 + SDXL VAE。
         # checkpoint 若为 unet-only，这三份必须外部提供，
@@ -501,6 +551,17 @@ def get_model_file_type(name):
     if "hunyuandit" in l_name:
         return constants.TYPE_HunyuanDiT
 
+    # Anima 与 Flux 共用部分 key 布局，但 TE 是 Qwen3-0.6B、VAE 是 Wan21，
+    # 必须走 forge_loader 的 Anima 引擎，不能落到旧式 SD/SDXL 解析。
+    if "anima" in l_name:
+        return constants.TYPE_Anima
+
+    # MOSS-Image（civitai 上的 MossImage_Base / MossImage_SFT）同样是 unet-only：
+    # transformer 的 key 是 layers.N.proj.*，旧式 model_detection 完全不认识，
+    # 不在这里拦就会一路走到 "Could not detect model type"。
+    if "moss" in l_name:
+        return constants.TYPE_MossImage
+
     # --- 加速/蒸馏类放最后 ---
     if "lcm" in l_name:
         return constants.TYPE_LCM
@@ -524,6 +585,206 @@ def _looks_like_te_mismatch(err):
     if any(s in msg for s in _TE_MISMATCH_SIGNATURES):
         return True
     return "text_encoder" in msg and ("size mismatch" in msg or "shape" in msg)
+
+
+# ===== VAE fp32 =====
+_VAE_DTYPE_ATTRS = ("vae_dtype", "dtype", "compute_dtype", "_vae_dtype")
+_VAE_SD_PREFIXES = ("", "first_stage_model.", "vae.", "model.", "first_stage_model.model.")
+
+
+def _vae_fsm(vae):
+    """取出真正的 nn.Module（first_stage_model 或 patcher.model）。"""
+    if vae is None:
+        return None
+    fsm = getattr(vae, "first_stage_model", None)
+    if fsm is None:
+        fsm = getattr(getattr(vae, "patcher", None), "model", None)
+    return fsm
+
+
+def _vae_dtype_of(vae):
+    fsm = _vae_fsm(vae)
+    if isinstance(fsm, torch.nn.Module):
+        for p in fsm.parameters():
+            if p.is_floating_point():
+                return p.dtype
+        for b in fsm.buffers():
+            if b.is_floating_point():
+                return b.dtype
+    for attr in _VAE_DTYPE_ATTRS:
+        d = getattr(vae, attr, None)
+        if isinstance(d, torch.dtype):
+            return d
+    return None
+
+
+def _vae_wrapper_dtype(vae):
+    for attr in _VAE_DTYPE_ATTRS:
+        d = getattr(vae, attr, None)
+        if isinstance(d, torch.dtype):
+            return d
+    return None
+
+
+def _vae_is_quantized(fsm):
+    if not isinstance(fsm, torch.nn.Module):
+        return False
+    for m in fsm.modules():
+        for attr in ("weight_function", "quant_type", "quantized", "weight_quant"):
+            if getattr(m, attr, None):
+                return True
+    return False
+
+
+def _should_force_vae_fp32(model_file_type=None, vae=None):
+    if not MOSS_FORCE_VAE_FP32:
+        return False
+    if model_file_type is not None:
+        if model_file_type == constants.TYPE_MossImage:
+            return True
+        # 想让其它引擎也走这条修复，在 config 里加
+        # default_force_fp32_vae_types = [constants.TYPE_Flux2, ...]
+        extra = getattr(modules.config, "default_force_fp32_vae_types", ())
+        try:
+            return model_file_type in tuple(extra)
+        except TypeError:
+            return False
+    if getattr(dynamic_args, "moss", False):
+        return True
+    ch = getattr(vae, "latent_channels", None)
+    return isinstance(ch, int) and ch >= 32
+
+
+@torch.no_grad()
+def _reload_vae_weights_fp32(vae, path, reason=""):
+    """从原始文件重读 VAE 权重并统一成 fp32。
+
+    只有文件里的 key 与当前 VAE 结构重叠足够多（>=50% 且 shape 一致）才覆写，
+    避免把 text encoder 之类的文件误灌进 VAE。
+    """
+    fsm = _vae_fsm(vae)
+    if not isinstance(fsm, torch.nn.Module) or not path:
+        return False
+    try:
+        path = os.fspath(path)
+    except TypeError:
+        return False
+    if not os.path.isfile(path):
+        return False
+
+    sd = None
+    try:
+        from safetensors.torch import load_file as _sf_load
+        sd = _sf_load(path, device="cpu")
+    except Exception:
+        sd = None
+    if not isinstance(sd, dict):
+        try:
+            sd = torch.load(path, map_location="cpu")
+        except Exception:
+            sd = None
+    if isinstance(sd, dict) and isinstance(sd.get("state_dict"), dict):
+        sd = sd["state_dict"]
+    if not isinstance(sd, dict) or not sd:
+        return False
+
+    try:
+        own = fsm.state_dict()
+    except Exception:
+        return False
+    if not own:
+        return False
+
+    # 文件里若是 bf16/fp16，先升到 fp32 再灌入
+    sd = {k: (v.float() if v.is_floating_point() else v)
+          for k, v in sd.items() if torch.is_tensor(v)}
+
+    best, best_frac, best_prefix = None, 0.0, ""
+    for prefix in _VAE_SD_PREFIXES:
+        cand = sd if not prefix else {
+            k[len(prefix):]: v for k, v in sd.items() if k.startswith(prefix)
+        }
+        if not cand:
+            continue
+        hit = sum(1 for k, v in cand.items()
+                  if k in own and tuple(own[k].shape) == tuple(v.shape))
+        frac = hit / float(len(own))
+        if frac > best_frac:
+            best, best_frac, best_prefix = cand, frac, prefix
+
+    if best is None or best_frac < 0.5:
+        printF(name=MasterName.get_master_name(),
+               info="[VAE-PREC] {} 的权重文件与 VAE 结构不匹配"
+                    "（best_prefix='{}' match={:.0%}），跳过重载".format(
+                        reason, best_prefix, best_frac)).printf()
+        return False
+
+    matched = {k: v for k, v in best.items()
+               if k in own and tuple(own[k].shape) == tuple(v.shape)}
+    try:
+        fsm.load_state_dict(matched, strict=False)
+    except Exception as e:
+        printF(name=MasterName.get_master_name(),
+               info="[VAE-PREC] load_state_dict 失败，跳过重载：{}".format(e)).printf()
+        return False
+
+    printF(name=MasterName.get_master_name(),
+           info="[VAE-PREC] {} 从文件重载 {} 个张量为 fp32（prefix='{}'）".format(
+               reason, len(matched), best_prefix)).printf()
+    return True
+
+
+@torch.no_grad()
+def _force_vae_fp32(vae, reason="", source_path=None, reload=False):
+    """把 VAE 的权重与计算 dtype 统一成 fp32。返回 True 表示本次确有动作。"""
+    if vae is None:
+        return False
+    fsm = _vae_fsm(vae)
+    if not isinstance(fsm, torch.nn.Module):
+        return False
+    if _vae_is_quantized(fsm):
+        printF(name=MasterName.get_master_name(),
+               info="[VAE-PREC] {} 使用量化权重，跳过 FP32 强转".format(reason)).printf()
+        return False
+
+    prev = _vae_dtype_of(vae)
+    # 快速出口：第二次及以后（每张图都会调一次）直接返回
+    if not reload and prev == torch.float32 and _vae_wrapper_dtype(vae) in (None, torch.float32):
+        return False
+
+    reloaded = False
+    if reload and MOSS_RELOAD_VAE_FP32 and source_path:
+        reloaded = _reload_vae_weights_fp32(vae, source_path, reason)
+
+    try:
+        fsm.float()  # 原地转 fp32，device 不变（不影响 offload）
+    except Exception as e:
+        printF(name=MasterName.get_master_name(),
+               info="[VAE-PREC] fsm.float() 失败：{}".format(e)).printf()
+
+    # decode 时 wrapper 会用自己的 dtype 去 cast 输入，
+    # 若只改权重不改记账，会变成「输入 bf16 / 权重 fp32」的 dtype 报错。
+    for obj in (vae, fsm, getattr(vae, "patcher", None)):
+        if obj is None:
+            continue
+        for attr in _VAE_DTYPE_ATTRS:
+            if not hasattr(obj, attr):
+                continue
+            try:
+                setattr(obj, attr, torch.float32)
+            except Exception:
+                pass
+        if hasattr(obj, "manual_cast_dtype"):
+            try:
+                setattr(obj, "manual_cast_dtype", None)  # 禁止 forward 里再手动 cast 到 bf16
+            except Exception:
+                pass
+
+    printF(name=MasterName.get_master_name(),
+           info="[VAE-PREC] {} : {} -> {} | reload_from_file={} | fsm={}".format(
+               reason or "vae", prev, _vae_dtype_of(vae), reloaded,
+               type(fsm).__name__)).printf()
+    return True
 
 @torch.no_grad()
 @torch.inference_mode()
@@ -625,7 +886,16 @@ def refresh_base_model(name, performance_selection=None):
         except Exception as _e:
             printF(name=MasterName.get_master_name(),
                    info="[POST-LOAD] probe failed: {}".format(_e)).printf()
-            
+
+        # 👇 VAE 精度修复：必须早于任何 encode / decode
+        if _should_force_vae_fp32(model_file_type):
+            _force_vae_fp32(
+                model_base.vae,
+                reason="{} / {}".format(model_file_type, os.path.basename(str(filename))),
+                source_path=(aux[0] if aux else None),   # 各分支的 aux[0] 都是 VAE
+                reload=True,
+            )
+                        
         if variant:
             _FLUX2_RESOLVED[os.path.basename(str(filename))] = variant
             printF(name=MasterName.get_master_name(),
@@ -1720,22 +1990,41 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
     target_unet, target_vae, target_refiner_unet, target_refiner_vae, target_clip, target_model_ori \
         = final_unet, final_vae, final_refiner_unet, final_refiner_vae, final_clip, final_model_ori
 
+    # 防御：切模型 / 重载后 VAE 可能又被按 bf16 载入；已在 fp32 时这里是空操作。
+    if _should_force_vae_fp32(vae=target_vae):
+        _force_vae_fp32(target_vae, reason="process_diffusion")
+        _force_vae_fp32(target_refiner_vae, reason="process_diffusion/refiner")
+        
     assert refiner_swap_method in ['joint', 'separate', 'vae']
 
-    target_is_flow = isinstance(target_model_ori, (Flux, Flux2, Kolors, ZImage, QwenImage, Krea2))
+    # 统一走 core.is_flow_engine()（FORGE_FLOW_ENGINES），避免两处名单不同步：
+    # Anima 是 Wan21 VAE + Cosmos Predict2 DiT 的 flow 引擎，之前不在名单里，
+    # 于是 process_diffusion 走了 SD 的 core.generate_empty_latent（4 通道 4D），
+    # 模型 x_embedder 需要 16 通道 + 5D 输入 → 采样第一步就崩。
+    target_is_flow = core.is_flow_engine(target_model_ori)
 
     if latent is None:
         if target_is_flow:
-            latent_channels = target_model_ori.forge_objects.vae.latent_channels
+            _flow_vae = target_model_ori.forge_objects.vae
+            latent_channels = _flow_vae.latent_channels
+            # 不能写死 //8：FLUX.2 / MOSS-Image / Qwen-Image-2.1 的 latent 空间下采样是 16×。
+            # 网格尺寸错了会让 DiT 的 RoPE 坐标与训练尺度错位（MOSS-Image 表现就是过曝）。
+            _flow_ratio = getattr(_flow_vae, "downscale_ratio", 8)
+            if not isinstance(_flow_ratio, int):
+                _flow_ratio = 8
             initial_latent = {
                 "samples": torch.zeros(
-                    (1, latent_channels, height // 8, width // 8),
+                    (1, latent_channels, height // _flow_ratio, width // _flow_ratio),
                     dtype=torch.float32,
                     device=ldm_patched.modules.model_management.get_torch_device(),
                 )
             }
         else:
             initial_latent = core.generate_empty_latent(width=width, height=height, batch_size=1)
+        _lat = initial_latent["samples"]
+        printF(name=MasterName.get_master_name(),
+               info="[Sampler] empty latent shape={} (pixel {}x{})".format(
+                   tuple(_lat.shape), width, height)).printf()
     else:
         initial_latent = latent
 
@@ -1812,6 +2101,10 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
     #   ② 统一由 _diag_pre_decode / _diag_post_decode 两个 helper 承担
     #   ③ [FIX/PRE-DECODE] 真正跑到 decode 之前
     #   ④ 对 joint / separate / vae 三条路径都调 _diag_post_decode
+    # 注意：这里曾经有一个 _moss_normalize_pre_decode()「解码前把 latent 的
+    # std 拉回 1」的补丁，它只是把 latent.Flux2Image 误用 FLUX.1 缩放
+    # （(x-0.1159)/0.3611 放大 2.77 倍）这个 bug 遮掉一部分，还会把正确
+    # 的 latent 推到错误的量级，所以在修好 latent_format 之后已经删除。
     # =================================================================
     def _diag_pre_decode(sampled, unet, vae_used):
         try:
@@ -1887,17 +2180,22 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
                             tuple(_s.shape),
                             float(_s.std()),
                         )).printf()
+            # 采样器出口已经执行过一次 process_out，这里不能再做第二次，
+            # 否则日志会显示 (−) 2.49 → 6.89 这种“看起来失控”的假象，
+            # 很容易被误判成 latent 异常。这里只标注入口是否已在 VAE 空间。
             if _lf_v is not None and hasattr(_lf_v, "process_out"):
-                _after = _lf_v.process_out(_s)
-                printF(name=MasterName.get_master_name(),
-                    info="[DIAG-DECODE] after process_out: mean={:+.4f} std={:.4f} "
-                            "min={:+.4f} max={:+.4f} | scale_factor={} | "
-                            "has latents_mean={} latents_std={}".format(
-                                float(_after.mean()), float(_after.std()),
-                                float(_after.min()), float(_after.max()),
-                                getattr(_lf_v, "scale_factor", None),
-                                hasattr(_lf_v, "latents_mean"),
-                                hasattr(_lf_v, "latents_std"))).printf()
+                _in_vae_space = core._LF_IS_VAE_SPACE(type(_lf_v).__name__, _s)
+                if _in_vae_space:
+                    printF(name=MasterName.get_master_name(),
+                        info="[DIAG-DECODE] process_out 已由采样器出口应用，"
+                             "decode 入口即 VAE 空间（不再重复变换）").printf()
+                else:
+                    _after = _lf_v.process_out(_s)
+                    printF(name=MasterName.get_master_name(),
+                        info="[DIAG-DECODE] after process_out: mean={:+.4f} std={:.4f} "
+                             "min={:+.4f} max={:+.4f}".format(
+                                 float(_after.mean()), float(_after.std()),
+                                 float(_after.min()), float(_after.max()))).printf()
         except Exception as _e:
             printF(name=MasterName.get_master_name(),
                    info="[DIAG-DECODE] failed: {}".format(_e)).printf()
@@ -1905,16 +2203,19 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
         # ---- 3) VAE 内部指纹 ----
         try:
             _fsm = getattr(vae_used, "first_stage_model", None)
-            _fk, _shape = None, "N/A"
+            _fk, _shape, _param_dtype = None, "N/A", None
             if _fsm is not None and hasattr(_fsm, "state_dict"):
                 _sd = _fsm.state_dict()
                 _fk = next(iter(_sd), None)
                 if _fk is not None:
                     _shape = tuple(_sd[_fk].shape)
+                    _param_dtype = _sd[_fk].dtype
             printF(name=MasterName.get_master_name(),
-                   info="[VAE-PROBE] fsm_class={} | first_key={} | shape={}".format(
-                       type(_fsm).__name__ if _fsm is not None else "None",
-                       _fk, _shape)).printf()
+                   info="[VAE-PROBE] fsm_class={} | first_key={} | shape={} | "
+                        "param_dtype={} | vae_dtype={}".format(
+                            type(_fsm).__name__ if _fsm is not None else "None",
+                            _fk, _shape, _param_dtype,
+                            getattr(vae_used, "vae_dtype", None))).printf()
         except Exception as _e:
             printF(name=MasterName.get_master_name(),
                    info="[VAE-PROBE] failed: {}".format(_e)).printf()
@@ -1962,6 +2263,39 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
     # =================================================================
     # 采样 + 解码
     # =================================================================
+    # MOSS-Image 专用：latent 通道必须与 DiT 的 video_embedder.in_features 一致。
+    # 不一致时采样第 1 步才会在 F.linear 里报矩阵维度错误，很难定位；
+    # 这里提前比对，把两边的数字直接打出来。
+    if getattr(dynamic_args, "moss", False):
+        try:
+            _diT = target_unet.forge_objects.unet.model.diffusion_model
+            _emb_in = int(_diT.video_embedder.in_features)
+            _lat_ch = int(initial_latent["samples"].shape[1])
+            printF(name=MasterName.get_master_name(),
+                   info="[MOSS/compile] latent_channels={} | DiT.video_embedder.in_features={} | "
+                        "DiT.latent_channels={} | vae.latent_channels={}".format(
+                            _lat_ch, _emb_in, getattr(_diT, "latent_channels", None),
+                            getattr(target_vae, "latent_channels", None))).printf()
+            if _lat_ch != _emb_in:
+                # 回到「以模型为基准」：采样器会用这个 latent 的形状造噪声，
+                # 所以必须和 DiT 的输入通道对齐，否则第 1 步就崩。
+                initial_latent = {
+                    "samples": torch.zeros(
+                        (1, _emb_in) + tuple(initial_latent["samples"].shape[2:]),
+                        dtype=initial_latent["samples"].dtype,
+                        device=initial_latent["samples"].device,
+                    )
+                }
+                printF(name=MasterName.get_master_name(),
+                       info="[MOSS/compile] 按 DiT 输入通道 {} 重建空 latent：{} "
+                            "（VAE 报告 {} 通道）".format(
+                                _emb_in, tuple(initial_latent["samples"].shape), _lat_ch)).printf()
+        except RuntimeError:
+            raise
+        except Exception as _e:
+            printF(name=MasterName.get_master_name(),
+                   info="[MOSS/compile] 通道校验跳过: {}".format(_e)).printf()
+
     if refiner_swap_method == 'joint':
         sampled_latent = core.ksampler(
             model=target_unet,
@@ -2035,6 +2369,7 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
         target_model = target_refiner_vae
         if target_model is None:
             target_model = target_vae
+        _diag_pre_decode(sampled_latent, target_unet, target_model)
         decoded_latent = core.decode_vae(vae=target_model, latent_image=sampled_latent, tiled=tiled)
         _diag_post_decode(decoded_latent)
 

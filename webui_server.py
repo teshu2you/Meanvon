@@ -527,27 +527,33 @@ def output_to_revision_handler(gallery):
 # =========================================================================
 MODEL_TYPE_PRESETS = [
     {
+        # 注意：此条目混合了 Base 与蒸馏版。以下数值对应 Base 9B 的 HF 模型卡设置
+        # （Steps 20–30, CFG 1.0–3.5, euler + simple/normal）。
+        # 蒸馏版应改为 4 steps / CFG 1.0，不可沿用此条目。
         "label": "FLUX.2 Klein 4B / 9B",
         "keys": [("flux", "klein")],
         "ratios": [(1024, 1024), (768, 1024), (1024, 768), (1024, 576), (1216, 704)],
-        "steps": 20, "cfg": 4.0, "adaptive_cfg": 4.0,
-        "sampler_pairs": [("euler", "simple"), ("dpmpp_2m", "normal")],
+        "steps": 20, "cfg": 3.5, "adaptive_cfg": 3.5,
+        "sampler_pairs": [("euler", "simple"), ("euler", "normal")],
     },
     {
+        # SimpleTuner Flux 2 shipped workflow: 28 steps at CFG 3.5[reference:0]
         "label": "FLUX.2 [dev]",
         "keys": [("flux", "2", "dev")],
         "ratios": [(1024, 1024), (768, 1024), (1024, 768), (1216, 704), (1024, 576)],
-        "steps": 24, "cfg": 3.5, "adaptive_cfg": 3.5,
+        "steps": 28, "cfg": 3.5, "adaptive_cfg": 3.5,
         "sampler_pairs": [("euler", "simple"), ("euler", "beta")],
     },
     {
+        # RealFlux 1.0b Dev 模型卡: Euler Beta / 25+ steps / CFG 1.0
         "label": "FLUX.1 [dev]",
         "keys": [("flux", "1", "dev")],
         "ratios": [(1024, 1024), (768, 1024), (1024, 768)],
-        "steps": 20, "cfg": 1.0, "adaptive_cfg": 1.0,
-        "sampler_pairs": [("euler", "karras"), ("dpmpp_2m", "karras")],
+        "steps": 25, "cfg": 1.0, "adaptive_cfg": 1.0,
+        "sampler_pairs": [("euler", "beta"), ("euler", "karras")],
     },
     {
+        # FLUX.1 Schnell 蒸馏模型标准设置：4 steps / CFG 1.0 / euler simple
         "label": "FLUX.1 [Schnell]",
         "keys": [("flux", "1", "schnell")],
         "ratios": [(1024, 1024), (768, 1024), (1024, 768)],
@@ -555,13 +561,15 @@ MODEL_TYPE_PRESETS = [
         "sampler_pairs": [("euler", "simple")],
     },
     {
+        # Qwen-Image 工作流参考表 Comfy 列: Steps 20 / CFG 4.0
         "label": "Qwen-Image 3.0",
         "keys": [("qwen", "3")],
         "ratios": [(1024, 1024), (768, 1024), (1024, 768)],
-        "steps": 25, "cfg": 4.0, "adaptive_cfg": 4.0,
-        "sampler_pairs": [("dpmpp_2m", "karras"), ("euler", "normal")],
+        "steps": 20, "cfg": 4.0, "adaptive_cfg": 4.0,
+        "sampler_pairs": [("euler", "simple"), ("dpmpp_2m", "karras")],
     },
     {
+        # ComfyUI 官方 2.1 模板: 25 steps / cfg 1 / euler / simple[reference:3]
         "label": "Qwen-Image 2.1",
         "keys": [("qwen", "2")],
         "ratios": [(1024, 1024), (768, 768), (720, 720)],
@@ -569,60 +577,120 @@ MODEL_TYPE_PRESETS = [
         "sampler_pairs": [("euler", "simple"), ("dpmpp_2m", "simple")],
     },
     {
+        # Z-Image Turbo README: 8–9 steps / CFG 1.0 / euler_ancestral + beta
         "label": "Z-Image Turbo",
         "keys": [("zimage", "turbo"), ("zimage", "lcm")],
         "ratios": [(1024, 1024), (1280, 720), (720, 1280)],
         "steps": 8, "cfg": 1.0, "adaptive_cfg": 1.0,
-        "sampler_pairs": [("euler_ancestral", "beta"), ("er_sde", "beta"), ("euler", "sgm_uniform")],
+        "sampler_pairs": [("euler_ancestral", "beta"), ("dpmpp_sde", "beta")],
     },
     {
+        # ComfyUI 官方 Base 指南: 30–50 steps / cfg 3–5[reference:5]
         "label": "Z-Image Base",
         "keys": [("zimage", "base")],
         "ratios": [(1024, 1024), (768, 768)],
-        "steps": 28, "cfg": 4.0, "adaptive_cfg": 4.0,
-        "sampler_pairs": [("dpmpp_2m", "karras"), ("dpmpp_sde", "karras"), ("euler_ancestral", "normal")],
+        "steps": 30, "cfg": 4.0, "adaptive_cfg": 4.0,
+        "sampler_pairs": [("dpmpp_2m", "karras"), ("dpmpp_sde", "karras")],
     },
     {
+        # Instruct-Distil / Distil 变体: 8 diffusion steps
         "label": "HunyuanImage 3.0 Lite / Distilled",
-        "keys": [("hunyuan", "lite"), ("hunyuan", "distill")],
+        "keys": [("hunyuan", "lite"), ("hunyuan", "distil")],
         "ratios": [(1024, 1024), (768, 1024), (1024, 768)],
         "steps": 8, "cfg": 1.0, "adaptive_cfg": 1.0,
         "sampler_pairs": [("euler", "simple")],
     },
     {
+        # Comfy_HunyuanImage3 节点默认值: steps 25 / guidance_scale 6.0[reference:7][reference:8]
         "label": "HunyuanImage 3.0",
         "keys": [("hunyuan", "3")],
         "ratios": [(1024, 1024), (896, 1152), (768, 1280)],
-        "steps": 25, "cfg": 2.5, "adaptive_cfg": 2.5,
+        "steps": 25, "cfg": 6.0, "adaptive_cfg": 6.0,
         "sampler_pairs": [("dpmpp_2m", "karras")],
     },
     {
+        # stabilityai/stable-diffusion-3.5-large 模型卡: steps 40 / cfg 4 / euler / simple
         "label": "SD 3.5 Large / Medium",
         "keys": [("sd", "35"), ("stable", "3", "5"), ("sd", "3", "5")],
         "ratios": [(1024, 1024), (768, 1024), (1024, 768)],
-        "steps": 28, "cfg": 4.0, "adaptive_cfg": 4.0,
-        "sampler_pairs": [("euler", "normal"), ("dpmpp_2m", "simple")],
+        "steps": 40, "cfg": 4.0, "adaptive_cfg": 4.0,
+        "sampler_pairs": [("euler", "simple"), ("dpmpp_2m", "simple")],
     },
     {
+        # 社区比对结论（“best picture”）: euler_ancestral / CFG 3.5 / 20 steps preset
         "label": "Ideogram 4",
         "keys": [("ideogram", "4")],
         "ratios": [(1024, 1024), (1280, 720), (1152, 864)],
-        "steps": 28, "cfg": 7.0, "adaptive_cfg": 7.0,
-        "sampler_pairs": [("euler", "normal"), ("dpmpp_2m", "simple")],
+        "steps": 20, "cfg": 3.5, "adaptive_cfg": 3.5,
+        "sampler_pairs": [("euler_ancestral", "normal"), ("euler", "normal")],
     },
     {
+        # 按你的指定：euler + simple / 20 steps / CFG 1.0（逼真效果）
         "label": "Krea2",
         "keys": [("krea", "2")],
         "ratios": [(1024, 1024), (896, 1152), (1152, 896)],
-        "steps": 20, "cfg": 4.0, "adaptive_cfg": 4.0,
-        "sampler_pairs": [("euler", "normal"), ("dpmpp_2m", "simple")]
+        "steps": 20, "cfg": 2.0, "adaptive_cfg": 2.0,
+        "sampler_pairs": [("euler", "simple")],
     },
     {
+        # ComfyUI 0.3.x 默认组合：dpmpp_2m + karras，25–30 steps，CFG 6–8
         "label": "SDXL / SDXL family",
         "keys": [("sdxl",), ("sd", "xl"), ("pony",), ("illustrious",), ("noobai",), ("animagine",)],
         "ratios": [(1024, 1024), (1152, 896), (1280, 720), (896, 1152), (768, 1024)],
         "steps": 28, "cfg": 6.0, "adaptive_cfg": 7.0,
         "sampler_pairs": [("dpmpp_2m", "karras"), ("dpmpp_sde", "karras")],
+    },
+    {
+        # OpenMOSS/MOSS-Image-SFT 官方采样设置：
+        # Sampler Euler flow matching / Scheduler sgm_uniform
+        # Steps 50 / CFG 3.0 / Shift 5.0 / 负向提示词留空
+        # SLG 默认关闭（它会等价放大 CFG，负向留空时最容易过曝）；需要时到 Settings 手动开
+        # 来源：mlx-community SFT 模型卡、ComfyUI Wiki、社区 LoRA 默认参数
+        "label": "MOSS Image SFT",
+        "keys": [("moss", "image", "sft")],
+        "ratios": [(1024, 1024), (1344, 768), (768, 1344)],
+        "steps": 50, "cfg": 3.0, "adaptive_cfg": 3.0,
+        "sampler_pairs": [("euler", "sgm_uniform")],
+    },
+    {
+        # OpenMOSS/MOSS-Image-Base 官方 USERGUIDE：
+        # Steps ≥ 50 / CFG 3.0（范围 3.0–6.0）/ Shift 5.0 / Euler / sgm_uniform
+        # SLG 默认关闭（等价放大 CFG，容易过曝）；Base 未做 CFG 蒸馏，CFG 必须 >1 才生效
+        # Comfy-Org 加速模板为 25 steps / er_sde + simple，仅作备选
+        # 若加载 8-step DMD 或 4-step rapid-moss LoRA，应切换为 Steps 4–8 / CFG 1.0
+        "label": "MOSS Image Base",
+        "keys": [("moss", "image", "base")],
+        "ratios": [(1024, 1024), (1344, 768), (768, 1344)],
+        "steps": 50, "cfg": 3.0, "adaptive_cfg": 3.0,
+        "sampler_pairs": [("euler", "sgm_uniform"), ("er_sde", "simple")],
+    },
+    {
+        # Anima README：Steps 28–50, CFG 7–8, Sampler/scheduler res_multistep + Beta
+        # 备选：er_sde + beta（社区广泛使用的稳定组合）
+        "label": "Anima",
+        "keys": [("anima",)],
+        "ratios": [(832, 1216), (1216, 832), (1024, 1024)],
+        "steps": 28, "cfg": 7.0, "adaptive_cfg": 7.0,
+        "sampler_pairs": [("res_multistep", "beta"), ("er_sde", "beta")],
+    },
+    {
+        # FLUX 3 Image Klein Base：Euler / Simple, 50 steps, CFG 3.5
+        # 来源：GGUF 量化模型卡、Graydient 工作流、ComfyUI PR 均一致
+        "label": "FLUX 3",
+        "keys": [("flux", "3")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768), (1216, 704)],
+        "steps": 50, "cfg": 3.5, "adaptive_cfg": 3.5,
+        "sampler_pairs": [("euler", "simple")],
+    },
+    {
+        # FLUX 3 Image Klein Step-Distilled：Euler / Simple, 16 steps, CFG 1.0
+        # Guidance 已蒸馏进模型，CFG 保持 1.0，不可拉高
+        # 来源：Abiray GGUF 模型卡、realrebelai 模型卡、ComfyUI PR 均一致
+        "label": "FLUX3.Klein",
+        "keys": [("flux", "3", "klein")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768), (1216, 704)],
+        "steps": 16, "cfg": 1.0, "adaptive_cfg": 1.0,
+        "sampler_pairs": [("euler", "simple")],
     },
 ]
 
@@ -2375,10 +2443,10 @@ with gr.Blocks(
                 )
             ]
            
-            y = list(x[4:-2])
+            y = list(x[3:-2])
             z = [y[nn:nn + 3] for nn in range(0, len(y), 3)]
             for lf in z:
-                if lf[1] is not None and "\\" in lf[1]:
+                if isinstance(lf[1], str) and "\\" in lf[1]:
                     lf[1] = lf[1].replace('\\\\', '\\')
                 if lf[1] is None or lf[1] not in modules.config.lora_filenames:
                     missing_value = "None" if lf[1] is None else "Not Exist!->"

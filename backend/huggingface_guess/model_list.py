@@ -835,7 +835,7 @@ class ErnieImage(BASE):
         }
 
 class MOSSImage(BASE):
-    huggingface_repo = "MOSS-Image"
+    huggingface_repo = "OpenMOSS-Team/MOSS-Image-SFT"
 
     unet_config = {
         "image_model": "moss_image",
@@ -843,12 +843,16 @@ class MOSSImage(BASE):
 
     unet_extra_config = {}
 
+    # 与 scheduler/scheduler_config.json 保持一致（MOSSImageScheduler: shift=5.0）。
+    # 注意：loader 实际实例化的是 modules_forge 那份 model_list，
+    # 两边必须同值，否则改了这一份不会生效。
     sampling_settings = {
         "multiplier": 1.0,
-        "shift": 3.0,
+        "shift": 5.0,
     }
 
-    latent_format = latent.Flux2
+    # 图像 VAE：16× 空间下采样 + 128ch 打包 latent
+    latent_format = latent.Flux2Image
     memory_usage_factor = 2.0
 
     supported_inference_dtypes = [

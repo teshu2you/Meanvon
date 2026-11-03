@@ -26,6 +26,8 @@ TYPE_Kolors = "kolors"
 TYPE_ZImage = "zimage"
 TYPE_QwenImage = "qwenimage"
 TYPE_Krea2 = "krea2"
+TYPE_Anima = "anima"
+TYPE_MossImage = "mossimage"
 
 # 所有由 backend.loader.forge_loader（diffusers 组件式加载）而非
 # ldm_patched 旧式 checkpoint 解析加载的模型族。
@@ -39,6 +41,8 @@ TYPE_FORGE_ENGINES = (
     TYPE_QwenImage,
     TYPE_Krea2,
     TYPE_HunyuanDiT,
+    TYPE_Anima,
+    TYPE_MossImage,
 )
 
 # import parameter, used by webui_server.py and work.py

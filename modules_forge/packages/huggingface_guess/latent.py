@@ -202,9 +202,19 @@ class QwenImage21(LatentFormat):
         return latent * self.latents_std.to(latent.device, latent.dtype) + self.latents_mean.to(latent.device, latent.dtype)
 
 class Flux2(LatentFormat):
+    """FLUX.2 latent 格式。
+
+    ⚠ 两侧必须一致：backend/huggingface_guess/latent.py 里的 Flux2 做的是
+    (x / 0.3611 + 0.1159) 的线性映射，而这里之前是恒等变换。
+    loader 用的是 modules_forge 这一份，于是“采样出口 process_out”变成了
+    空操作，latent 带着缩放后的量级进 VAE → 彩色噪点。
+    """
+
     def __init__(self):
         self.latent_channels = 128
         self.spacial_downscale_ratio = 16
+        self.scale_factor = 0.3611
+        self.shift_factor = 0.1159
         self.latent_rgb_factors = [
             [ 0.0058,  0.0113,  0.0073],
             [ 0.0495,  0.0443,  0.0836],
@@ -242,6 +252,37 @@ class Flux2(LatentFormat):
         self.latent_rgb_factors_bias = [-0.0329, -0.0718, -0.0851]
         self.latent_rgb_factors_reshape = lambda t: t.reshape(t.shape[0], 32, 2, 2, t.shape[-2], t.shape[-1]).permute(0, 1, 4, 2, 5, 3).reshape(t.shape[0], 32, t.shape[-2] * 2, t.shape[-1] * 2)
         self.taesd_decoder_name = "taef2_decoder"
+
+    def process_in(self, latent):
+        return (latent - self.shift_factor) * self.scale_factor
+
+    def process_out(self, latent):
+        return (latent / self.scale_factor) + self.shift_factor
+
+
+class Flux2Image(Flux2):
+    """MOSS-Image 这类**图像** VAE 的 latent 格式。
+
+    数值缩放必须是恒等映射（scale_factor = 1.0 / shift_factor = 0.0）。
+
+    AutoencoderKLFlux2 的输入/输出本来就是 BN 标准化后的 packed latent：
+        pixels → encoder → patchify → BN(归一化) → 采样
+        latent → BN(反归一化) → unpatchify → decoder → pixels
+    中间没有任何线性缩放。沿用 Flux2 的 (x / 0.3611 + 0.1159) 会把 VAE
+    decode 入口的 latent 放大 2.77 倍 —— 实测 512×512 真实图像 round-trip：
+        decode(z)              : PSNR 32.6 dB  mean +0.15  clamp 0.2%
+        decode(process_out(z)) : PSNR 13.3 dB  mean +0.31  clamp 34.8%
+    后者就是「整体过曝 + 彩色噪条纹」。
+
+    注：backend/huggingface_guess/latent.py 里的 Flux2Image 必须与此一致。
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.latent_channels = 128
+        self.spacial_downscale_ratio = 16
+        self.scale_factor = 1.0
+        self.shift_factor = 0.0
 
     def process_in(self, latent):
         return latent

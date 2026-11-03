@@ -426,6 +426,12 @@ default_qwenimage_text_encoder = 'qwen_2.5_vl_7b.safetensors'
 default_krea2_vae_name = "wan_2.1_vae.safetensors"
 default_krea2_text_encoder = "qwen_3vl_4b_bf16.safetensors"
 
+default_mossimage_vae_name = "moss-image-vae.safetensors"
+default_mossimage_text_encoder = "qwen3.5_9b_int8_convrot.safetensors"
+
+default_anima_vae_name = "qwen_image_vae.safetensors"
+default_anima_text_encoder = "qwen_3_06b_base.safetensors"
+
 default_hunyuandit_vae_name = None
 default_hunyuandit_text_encoder_clip = None
 default_hunyuandit_text_encoder_mt5 = None
@@ -466,7 +472,7 @@ model_types = [
     # "StableAudio",
     # "AuraFlow",
     # "QwenImage",
-    "HunyuanDiT",
+    # "HunyuanDiT",
     "Krea2",
     # "Flux3",
     "Flux1_Schnell",
@@ -476,7 +482,12 @@ model_types = [
     # "Kolors",
     "ZImage_Turbo",
     "ZImage_Base",
-    # "ErnieImage"  
+    # "ErnieImage",
+    # ---- Moss Image 分支拆分：Base（基础版）/ SFT（微调版） ----
+    "MossImage_Base",
+    "MossImage_SFT",
+    # ---- Anima ----
+    "Anima",
 ]
 
 # ---- ZImage 分支拆分：Turbo（蒸馏快速版）/ Base（基础版） ----
@@ -523,6 +534,72 @@ def is_zimage_base(model_type: str) -> bool:
 def get_zimage_config(model_type: str) -> dict:
     """按分支类型返回对应配置，未命中返回空 dict。"""
     return zimage_branch_configs.get(model_type, {})
+
+
+# ---- Moss Image 分支（Base / SFT）----
+# 公共默认（两分支共用，可在各自 dict 里覆盖）
+_mossimage_common = {
+    'vae_name': default_mossimage_vae_name,
+    'text_encoder': default_mossimage_text_encoder,
+}
+
+# Base 分支配置
+mossimage_base_config = {
+    **_mossimage_common,
+    'model_type': 'MossImage_Base',
+    'default_steps': 30,
+    'default_cfg_scale': 5.0,
+}
+
+# SFT 分支配置
+mossimage_sft_config = {
+    **_mossimage_common,
+    'model_type': 'MossImage_SFT',
+    'default_steps': 30,
+    'default_cfg_scale': 5.0,
+}
+
+mossimage_branch_configs = {
+    'MossImage_Base': mossimage_base_config,
+    'MossImage_SFT': mossimage_sft_config,
+}
+
+
+def is_mossimage(model_type: str) -> bool:
+    """是否为任意 Moss Image 分支。"""
+    return model_type in mossimage_branch_configs
+
+
+def is_mossimage_base(model_type: str) -> bool:
+    return model_type == 'MossImage_Base'
+
+
+def is_mossimage_sft(model_type: str) -> bool:
+    return model_type == 'MossImage_SFT'
+
+
+def get_mossimage_config(model_type: str) -> dict:
+    """按分支类型返回对应配置，未命中返回空 dict。"""
+    return mossimage_branch_configs.get(model_type, {})
+
+
+# ---- Anima ----
+anima_config = {
+    'model_type': 'Anima',
+    'vae_name': default_anima_vae_name,
+    'text_encoder': default_anima_text_encoder,
+    'default_steps': 30,
+    'default_cfg_scale': 5.0,
+}
+
+
+def is_anima(model_type: str) -> bool:
+    return model_type == 'Anima'
+
+
+def get_anima_config(model_type: str) -> dict:
+    return anima_config if model_type == 'Anima' else {}
+
 
 default_model_type = "SDXL"
 
@@ -739,6 +816,7 @@ metadata_created_by = get_config_item_or_set_default(
     default_value='',
     validator=lambda x: isinstance(x, str)
 )
+
 
 example_inpaint_prompts = [[x] for x in example_inpaint_prompts]
 

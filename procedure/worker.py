@@ -1340,6 +1340,22 @@ class taskManager:
             negative_prompts = remove_empty_str(
                 [safe_str(p) for p in self.negative_prompt.splitlines()], default='')
 
+            # ===== 换行合并：prompt 里的换行不再拆成多 task =====
+            # 原行为：第 1 行是主 prompt，其余行进 extra_positive_prompts，
+            # 会被 clip_encode 编译成多条 cond，process_diffusion 的多 prompt
+            # 分支就会逐条递归采样 —— 一次点击出 4 张（每条换行一张）。
+            # 新行为：把所有行合并成一条 prompt（逗号连接），只采一次。
+            if len(prompts) > 1:
+                printF(name=MasterName.get_master_name(),
+                       info="[Prompt] {} 行 prompt 合并为 1 条 task（换行不再拆分）".format(
+                           len(prompts))).printf()
+                merged = ', '.join(p.strip() for p in prompts if p.strip())
+                prompts = [merged]
+            if len(negative_prompts) > 1:
+                merged_neg = ', '.join(p.strip() for p in negative_prompts if p.strip())
+                negative_prompts = [merged_neg]
+            # ===== 换行合并结束 =====
+
             prompt = prompts[0]
             negative_prompt = negative_prompts[0]
 
@@ -1349,9 +1365,6 @@ class taskManager:
             if prompt == '':
                 # disable expansion when empty since it is not meaningful and influences image prompt
                 self.use_expansion = False
-
-            extra_positive_prompts = prompts[1:] if len(prompts) > 1 else []
-            extra_negative_prompts = negative_prompts[1:] if len(negative_prompts) > 1 else []
 
             self.progressbar(async_task, 3, 'Loading models ...')
             pipeline.refresh_everything(base_model_name=self.base_model_name,

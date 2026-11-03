@@ -17,7 +17,11 @@ class MOSSImage(ForgeDiffusionEngine):
 
         clip = CLIP(model_dict={"qwen35_9b": huggingface_components["text_encoder"]}, tokenizer_dict={"qwen35_9b": huggingface_components["tokenizer"]})
 
-        vae = VAE(model=huggingface_components["vae"], is_flux2=True)
+        # MOSS-Image 用的是 AutoencoderKLFlux2 的「图像」用法：
+        # 空间 16× 下采样 + 32ch × patch(2,2) = 128ch latent。
+        # 不能复用 is_flux2=True（那条分支是给视频/打包路径的），
+        # 否则 latent 通道与采样网格会与 DiT 的 RoPE 尺度错位 → 过曝。
+        vae = VAE(model=huggingface_components["vae"], is_flux2_image=True)
 
         k_predictor = self._get_predictor()
 

@@ -62,7 +62,20 @@ class KModel(torch.nn.Module):
         self.model_config = _KModelConfig(self._resolve_latent_format())
 
     def _resolve_latent_format(self):
-        # 底层 config / diffusion_model 若自带 latent_format，优先尊重它
+        # 底层 config / diffusion_model 若自带 latent_format，优先尊重它。
+        # 注意 model_list 的 BASE.__init__ 已经把 `latent_format = latent.Flux2` 实例化了，
+        # 这里只需兜住“拿到的是类”的情况（部分 config 直接透传类属性），
+        # 避免静默回落到恒等映射导致 process_out 失效。
+        for src in (self.config, self.diffusion_model):
+            lf = getattr(src, "latent_format", None)
+            if isinstance(lf, type) and hasattr(lf, "process_out"):
+                try:
+                    return lf()
+                except Exception as e:
+                    memory_management.logger.warning(
+                        f"KModel: failed to instantiate latent_format {getattr(lf, '__name__', lf)}: {e}"
+                    )
+
         for src in (self.config, self.diffusion_model):
             lf = getattr(src, "latent_format", None)
             if lf is not None and hasattr(lf, "process_out"):

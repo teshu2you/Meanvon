@@ -367,19 +367,39 @@ class AutoencoderKLFlux2(IntegratedAutoencoderKL):
         z = self.postprocess_encode(z)
         return z
 
+    def _dbg(self, tag, z, always=False):
+        try:
+            if always or getattr(self, "debug_latent", False):
+                memory_management.logger.info(
+                    "[MOSS/VAE] {}: shape={} mean={:+.4f} std={:.4f} min={:+.3f} max={:+.3f}".format(
+                        tag, tuple(z.shape), float(z.float().mean()), float(z.float().std()),
+                        float(z.float().min()), float(z.float().max())))
+        except Exception:
+            pass
+
     def decode(self, z):
+        self._dbg("decode in (packed)", z)
         z = self.preprocess_decode(z)
         s = torch.sqrt(memory_management.cast_to(self.bn.running_var.view(1, -1, 1, 1), dtype=z.dtype, device=z.device) + self.bn_eps)
         m = memory_management.cast_to(self.bn.running_mean.view(1, -1, 1, 1), dtype=z.dtype, device=z.device)
         z = torch.addcmul(m, z, s)
+        self._dbg("after bn undo", z, always=True)
+        # 如果 latent 量级合理但输出仍是彩色噪点，优先怀疑 bf16 精度：
+        # bn 反标准化 (m + z*s) 对低精度极敏感，误差会被后续 GroupNorm 放大。
+        if getattr(self, "debug_latent", False) and z.dtype != torch.float32:
+            memory_management.logger.warning(
+                "[MOSS/VAE] decode 正在使用 {} 精度；若出现彩色噪点，请把 VAE 设为 fp32".format(z.dtype))
         z = rearrange(
             z,
             "... (c pi pj) i j -> ... c (i pi) (j pj)",
             pi=self.ps[0],
             pj=self.ps[1],
         )
+        self._dbg("after unshuffle", z)
 
-        return super().decode(z)
+        out = super().decode(z)
+        self._dbg("decoder out", out, always=True)
+        return out
 
     def preprocess_decode(self, latent: torch.Tensor):
         packed_channels: int = latent.size(1)

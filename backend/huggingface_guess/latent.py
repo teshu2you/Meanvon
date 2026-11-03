@@ -219,3 +219,42 @@ class SDXL_Flux2(Flux2):
         super().__init__()
         self.latent_rgb_factors_reshape = None
         self.latent_channels = 32
+
+
+class Flux2Image(Flux2):
+    """FLUX.2 / MOSS-Image 这类**图像** VAE 的 latent 格式。
+
+    结构参数：
+        latent_channels = 128   ← DiT 输入/输出通道（32ch × patch 2×2）
+        downscale_ratio = 16    ← 像素 → latent 的空间下采样
+
+    数值缩放必须是**恒等映射**（scale_factor = 1.0 / shift_factor = 0.0）。
+
+    原因：AutoencoderKLFlux2 的输入/输出本来就是 BN 标准化之后的 packed
+    latent。diffusers 的 FLUX.2 / MOSS 流程是
+        pixels → encoder → patchify → BN(归一化)  → 采样
+        latent → BN(反归一化) → unpatchify → decoder → pixels
+    中间没有任何线性缩放。如果沿用 latent.Flux 的 (x-0.1159)*0.3611，
+    VAE decode 入口的 latent 会被放大 1/0.3611≈2.77 倍，实测（512×512
+    真实图像 round-trip，latent.Flux2Image 修复前）：
+        decode(z)                 : PSNR 32.6 dB  mean +0.15  clamp 0.2%
+        decode(process_out(z))    : PSNR 13.3 dB  mean +0.31  clamp 34.8%
+    后者的表现就是「整体过曝 + 彩色噪条纹」。
+    """
+
+    latent_channels = 128
+    downscale_ratio = 16
+
+    def __init__(self):
+        super().__init__()
+        self.latent_channels = 128
+        self.downscale_ratio = 16
+        # 覆盖 latent.Flux.__init__ 里写死的 FLUX.1 VAE 缩放
+        self.scale_factor = 1.0
+        self.shift_factor = 0.0
+
+    def process_in(self, latent):
+        return latent
+
+    def process_out(self, latent):
+        return latent

@@ -590,6 +590,10 @@ _FORGE_ENGINE_NAME_KEYWORDS = (
     "krea2", "krea-2", "krea_2",
     "kolors",
     "hunyuan",
+    "anima",
+    # MOSS-Image：unet-only checkpoint（layers.N.proj.*），
+    # VAE = FLUX.2 的 32ch VAE，TE = Qwen3.5-9B，必须走 forge_loader 补齐。
+    "moss",
 )
 
 def _load_with_forge_loader(ckpt_path, vae_filename_param):

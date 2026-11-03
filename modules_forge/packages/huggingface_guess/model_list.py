@@ -610,7 +610,7 @@ class MOSSImage(BASE):
     memory_usage_factor = 14.6
 
     unet_extra_config = {}
-    latent_format = latent.Flux2
+    latent_format = latent.Flux2Image
 
     supported_inference_dtypes = [torch.bfloat16, torch.float32]
 

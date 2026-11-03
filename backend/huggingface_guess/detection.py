@@ -117,11 +117,16 @@ def detect_unet_config(state_dict, key_prefix):
         unet_config["n_layers"] = double_layers + single_layers
         return unet_config
 
-    if '{}xxx.0.yyy.weight'.format(key_prefix) in state_dict_keys:  # MOSS
+    if "{}shared_block_modulation.weight".format(key_prefix) in state_dict_keys and "{}layers.0.proj.ffn_up_gate.weight".format(key_prefix) in state_dict_keys:  # MOSS-Image
         unet_config = {}
         unet_config["image_model"] = "moss_image"
+        unet_config["dim"] = int(state_dict["{}shared_block_modulation.weight".format(key_prefix)].shape[0]) // 6
+        unet_config["ffn_dim"] = int(state_dict["{}layers.0.proj.ffn_up_gate.weight".format(key_prefix)].shape[0]) // 2
+        unet_config["num_heads"] = unet_config["dim"] // 128
+        unet_config["num_layers"] = count_blocks(state_dict_keys, "{}layers.".format(key_prefix) + "{}.")
+        unet_config["fused_qkv"] = "{}layers.0.proj.qkv.weight".format(key_prefix) in state_dict_keys
         return unet_config
-    
+
     if '{}mlp_t5.0.weight'.format(key_prefix) in state_dict_keys:  # Hunyuan DiT
         unet_config = {}
         unet_config["image_model"] = "hydit"

@@ -1,10 +1,13 @@
 import sys
 from backend import utils
 import backend
+from backend.args import dynamic_args
 from backend.diffusion_engine.flux import Flux
 from backend.diffusion_engine.kolors import Kolors
 
 from backend.diffusion_engine.krea import Krea2
+from backend.diffusion_engine.anima import Anima
+from backend.diffusion_engine.moss_image import MOSSImage
 from backend.modules.k_model import KModel
 from modules import devices
 from modules.rng import ImageRNG
@@ -61,7 +64,7 @@ opFreeU = FreeU_V2()
 opModelSamplingContinuousEDM = ModelSamplingContinuousEDM()
 
 # 需要按潜在通道数 + 8 倍缩放自行构造噪声的 flow-matching 引擎
-FORGE_FLOW_ENGINES = (Flux, Flux2, ZImage, QwenImage, Kolors, Krea2)
+FORGE_FLOW_ENGINES = (Flux, Flux2, ZImage, QwenImage, Kolors, Krea2, Anima, MOSSImage)
 
 # ===== HunyuanDiT 1.2 灰度修复开关 =====
 HUNYUAN_DEC_DIAG       = True    # 只读诊断
@@ -73,6 +76,21 @@ HUNYUAN_DEC_TARGET_STD = 1.40    # VAE 空间 std 目标（1.1~1.5 之间调）
 # 现在默认 False：假定 vae.decode 会应用 process_out，
 # 所以 ksampler 需要把 sample() 的出口先 process_in 回模型空间。
 KSAMPLER_SKIP_UNDO_PROCESS_OUT = False
+
+
+def _LF_IS_VAE_SPACE(lf_name: str, samples: torch.Tensor) -> bool:
+    """判断 decode 入口的 latent 是否已经处在 VAE 空间。
+
+    采样器出口 CFGGuider.inner_sample 会对 samples 调用一次
+    model_config.latent_format.process_out()，所以图像 VAE 路径收到的
+    latent **已经是 VAE 空间**，再 process_out 一次就会得到
+    (2.49 → 6.89) 这种失控量级，BN 逐通道反标准化后就是彩色噪点。
+
+    视频 VAE（Wan21 系）走的是另一条已在内部处理过的路。
+    """
+    if lf_name in ("Wan21", "Wan21V2", "Wan22", "HunyuanVideo"):
+        return samples.dim() >= 4
+    return True
 
 def is_flow_engine(model) -> bool:
     """直接引擎 / StableDiffusionModel(model_ori=引擎) 都认。
@@ -87,6 +105,19 @@ def is_flow_engine(model) -> bool:
     if isinstance(ori, FORGE_FLOW_ENGINES):
         return True
     return False
+
+
+def _get_first_stage_model(model):
+    """engine / UnetPatcher / StableDiffusionModel 都能取到 first_stage_model。"""
+    for _src in (getattr(model, "forge_objects", None),
+                 getattr(getattr(model, "forge_objects", None), "vae", None),
+                 model):
+        if _src is None:
+            continue
+        _fsm = getattr(_src, "first_stage_model", None)
+        if _fsm is not None:
+            return _fsm
+    return None
 
 
 def get_latent_format(model, vae=None):
@@ -651,9 +682,13 @@ def decode_vae(vae, latent_image, tiled=False):
             _vae_std = -1.0
             _vae_std_src = "none"
             _lf_name = type(_lf).__name__ if _lf is not None else "None"
-            if _lf_name in ("Wan21", "Wan21V2") and _s.dim() >= 4:
+            # 判断 decode 入口收到的是「模型空间」还是「VAE 空间」。
+            # 采样器出口（CFGGuider.inner_sample）已经做过 process_out，
+            # 所以这里默认就当它是 VAE 空间，绝不能再来一次
+            # （2.49 → 6.89 的二次放大就是彩色噪点的直接原因）。
+            if _LF_IS_VAE_SPACE(_lf_name, _s):
                 _vae_std = float(_s.float().std())
-                _vae_std_src = "sampler_process_out"
+                _vae_std_src = "sampler_process_out(already applied)"
             elif _lf is not None and hasattr(_lf, "process_out"):
                 _vae_std = float(_lf.process_out(_s.float()).std())
                 _vae_std_src = "lf"
@@ -684,6 +719,53 @@ def decode_vae(vae, latent_image, tiled=False):
     # 手动 _fsm.to(float32) 会让 vae.decode 内部 bf16 样本撞 fp32 权重 → crash
     # 需要 fp32 VAE 请到 Forge UI → Settings → VAE precision = fp32
     # =====
+    # MOSS-Image：32ch GroupNorm + BN 反标准化对低精度极敏感，bf16 会把量化
+    # 误差在 decode 末尾放大成彩色噪点。这里把样本与 VAE 一起提成 fp32。
+    if getattr(dynamic_args, "moss", False):
+        try:
+            _fsm_dt = next(_fsm.parameters()).dtype if _fsm is not None else None
+            printF(name=MasterName.get_master_name(),
+                   info="[MOSS/DEC] latent dtype={} | vae_dtype={}".format(
+                       _s.dtype, _fsm_dt)).printf()
+            if _fsm is not None and _fsm_dt not in (None, torch.float32):
+                _fsm.float()
+        except Exception as _e:
+            printF(name=MasterName.get_master_name(),
+                   info="[MOSS/DEC] fp32 upgrade failed: {}".format(_e)).printf()
+
+        # ===== MOSS decode 前 latent 分布哨兵 =====
+        # MOSS 的 packed 128ch latent 是 VAE 内部 BatchNorm 归一化后的空间，
+        # 正常采样收敛后 per-image 全局 std 应回到 ~0.6~1.2（与 encode 真实
+        # 图像的 BN 空间一致，实测 ~0.85）。若 sampler 输出明显偏离
+        # （std < 0.35 画面发灰 / std > 2.0 过曝+彩色噪条纹），
+        # 说明 x0 分布异常（调度/CFG/guidance 链路问题）。
+        # 这里不做静默重缩（会掩盖真正的采样 bug），只打醒目告警 + 结构诊断：
+        try:
+            _f = _s.float()
+            _mu, _sd = float(_f.mean()), float(_f.std())
+            _flag = ""
+            if _sd > 2.0:
+                _flag = " ← 过曝风险：latent 幅度过大（x0 收敛异常，"
+                _flag += "检查 CFG/guidance 是否双重放大）"
+            elif _sd < 0.35:
+                _flag = " ← 发灰风险：latent 幅度过小（采样未收敛或步骤太少）"
+            printF(name=MasterName.get_master_name(),
+                   info="[MOSS/DEC] packed latent mean={:+.4f} std={:.4f} "
+                        "min={:+.3f} max={:+.3f} shape={}{}".format(
+                            _mu, _sd, float(_f.min()), float(_f.max()),
+                            tuple(_s.shape), _flag)).printf()
+            if _flag:
+                # 每通道诊断：BN 空间的合理分布是逐通道 ~N(0,1)
+                _pcm = _f.mean(dim=(0, 2, 3))
+                _pcs = _f.std(dim=(0, 2, 3))
+                printF(name=MasterName.get_master_name(),
+                       info="[MOSS/DEC] per-ch mean=[{:+.3f},{:+.3f}] "
+                            "std=[{:.3f},{:.3f}]（正常应 ~[-1,1] / ~[0.3,2]）".format(
+                                float(_pcm.min()), float(_pcm.max()),
+                                float(_pcs.min()), float(_pcs.max()))).printf()
+        except Exception as _e:
+            printF(name=MasterName.get_master_name(),
+                   info="[MOSS/DEC] sentinel failed: {}".format(_e)).printf()
 
     # ===== 归一化 + DC 校正（纯数值，保持原 dtype） =====
     if HUNYUAN_DEC_NORM and _lf is not None and hasattr(_lf, "process_out"):
@@ -743,27 +825,7 @@ def decode_vae(vae, latent_image, tiled=False):
             _s_dec_4d = _s_dec.squeeze(2)
 
         if _s_dec_4d is not None:
-            # ===== 诊断：把 4D latent 直接转成灰度图 dump 出来 =====
-            if HUNYUAN_DEC_DIAG:
-                try:
-                    import os as _os
-                    from PIL import Image as _PILImage
-                    _lat_vis = _s_dec_4d[0].float().mean(0)  # (H,W)
-                    _lo, _hi = float(_lat_vis.min()), float(_lat_vis.max())
-                    if _hi > _lo + 1e-6:
-                        _lat_vis = (_lat_vis - _lo) / (_hi - _lo)
-                    _lat_u8 = (_lat_vis * 255).clamp(0, 255).byte().cpu().numpy()
-                    _dump_path = _os.path.join(
-                        _os.getcwd(), "latent_debug_pre_vae.png")
-                    _PILImage.fromarray(_lat_u8).save(_dump_path)
-                    printF(name=MasterName.get_master_name(),
-                            info="[VAE-DEC/dump] latent 已存 {}".format(_dump_path)).printf()
-                except Exception as _e:
-                    printF(name=MasterName.get_master_name(),
-                            info="[VAE-DEC/dump] failed: {}".format(_e)).printf()
-            # =====
-            
-            if _lf_name in ("Wan21", "Wan21V2"):
+            if _lf_name in ("Wan21", "Wan21V2"): 
                 # The sampler has already applied latent_format.process_out.
                 _old_std  = float(_s_dec_4d.float().std())
                 _old_mean = float(_s_dec_4d.float().mean())
@@ -979,9 +1041,83 @@ def encode_vae_inpaint(vae, pixels, mask):
 
 VAE_approx_models = {}
 
+
+def _resolve_latent_channels(model):
+    """尽力解析当前模型的潜空间通道数。
+
+    flow 引擎（Flux / Flux2 / ZImage / QwenImage / MOSS-Image …）的通道数
+    不一定挂在同一个对象上：
+        Flux2      → forge_objects.vae.latent_channels = 128
+        QwenImage  → forge_objects.vae.latent_channels = 16
+        MOSS-Image → forge_objects.vae.latent_channels = 128（VAE 侧推导）
+    VAE 缺失时退化到 DiT 侧（MOSS 的 DiT 自己也有 latent_channels）。
+    """
+    candidates = (
+        getattr(getattr(model, "forge_objects", None), "vae", None),
+        getattr(getattr(getattr(model, "forge_objects", None), "unet", None), "model", None),
+        getattr(model, "forge_objects", None),
+    )
+    for cand in candidates:
+        ch = getattr(cand, "latent_channels", None)
+        if isinstance(ch, int) and ch > 0:
+            return ch
+    return None
+
+
+def _filter_matching_state_dict(sd, module):
+    """只保留「键名 + 形状」都匹配的权重。
+
+    VAEApprox 用 strict=False 加载也只能忽略“缺失/多余”的键，
+    形状不一致依然会抛 RuntimeError（例如把 qwen_image_vae.safetensors 的
+    conv1.weight[32,32,1,1,1] 塞进 VAEApprox 的 conv1.weight[8,16,7,7]）。
+    """
+    own = module.state_dict()
+    matched = {}
+    for k, v in sd.items():
+        target = own.get(k) if isinstance(sd, dict) else None
+        if target is not None and hasattr(v, "shape") and tuple(target.shape) == tuple(v.shape):
+            matched[k] = v
+    return matched
+
+
+def _latent_rgb_preview(x0, latent_format):
+    """用 latent_rgb_factors 做廉价预览（不依赖任何 VAEApprox 权重）。
+
+    Flux / Flux2 的 latent_format 自带 latent_rgb_factors（Flux2 还带
+    reshape：128ch → 32ch + 2×2 空间展开），得到的预览虽然糊，
+    但结构与采样方向是一致的，远好过随机初始化网络的噪声。
+    """
+    factors, bias, reshape = sd_vae_approx.latent_format(latent_format)
+    sample = x0[:1].float()
+    if reshape is not None:
+        sample = reshape(sample)
+    sample = sample[0].movedim(0, -1)
+    img = torch.nn.functional.linear(
+        sample, factors.to(sample), bias=None if bias is None else bias.to(sample))
+    return img.permute(2, 0, 1).unsqueeze(0)
+
+
+def _cheap_preview(x0, latent_format):
+    """预览兜底：latent_rgb_factors → 通道归一化，保证永远不抛异常。"""
+    try:
+        if latent_format is not None and getattr(latent_format, "latent_rgb_factors", None) is not None:
+            return _latent_rgb_preview(x0, latent_format) * 255.0
+    except Exception as e:
+        printF(name=MasterName.get_master_name(),
+               info="[PREVIEW] latent_rgb_factors 预览失败，退回通道归一化: {}".format(e)).printf()
+
+    x = x0[:1].float()
+    if x.shape[1] < 3:
+        x = x.repeat(1, 3, 1, 1)
+    x = x[:, :3]
+    x = (x - x.amin()) / (x.amax() - x.amin() + 1e-6)
+    return x * 255.0
+
+
 class VAEApprox(torch.nn.Module):
     def __init__(self, latent_channels=4):
         super(VAEApprox, self).__init__()
+        self.latent_channels = latent_channels
         self.conv1 = torch.nn.Conv2d(latent_channels, 8, (7, 7))
         self.conv2 = torch.nn.Conv2d(8, 16, (5, 5))
         self.conv3 = torch.nn.Conv2d(16, 32, (3, 3))
@@ -1047,7 +1183,13 @@ def get_previewer(model):
     global VAE_approx_models
     from modules.config import path_vae_approx
 
-    if is_flow_engine(model):
+    _is_flow = is_flow_engine(model)
+    # flow 引擎的 latent 通道数因模型而异（Flux 16 / Flux2 128 / MOSS 128 …）。
+    # 它既决定了 VAEApprox 的 conv1 输入通道，也决定缓存是否可复用。
+    _latent_channels = _resolve_latent_channels(model) if _is_flow else None
+    _latent_format = get_latent_format(model) if _is_flow else None
+
+    if _is_flow:
         # 新引擎的 VAE 潜通道数不同（16 / 128），复用 FLUX 的 approx 网络
         vae_approx_filename = os.path.join(
             path_vae,
@@ -1063,19 +1205,49 @@ def get_previewer(model):
         else:
             vae_approx_filename = os.path.join(path_vae_approx, 'vaeapp_sd15.pth')
 
-    if vae_approx_filename in VAE_approx_models:
-        VAE_approx_model = VAE_approx_models[vae_approx_filename]
+    # 缓存键必须带 latent 通道数：旧实现只用文件名，而所有 flow 引擎共用
+    # models/vae/ae.safetensors，于是先跑过 Flux1/ZImage（16ch）再切到
+    # Flux2/MOSS（128ch）时，会命中 16ch 的 VAEApprox，
+    # 采样第一步回调里就炸：
+    #   Given groups=1, weight of size [8, 16, 7, 7],
+    #   expected input[1, 128, 150, 150] to have 16 channels, but got 128
+    cache_key = (os.path.abspath(vae_approx_filename), _latent_channels)
+
+    if cache_key in VAE_approx_models:
+        VAE_approx_model = VAE_approx_models[cache_key]
     else:
-        if is_flow_engine(model) or isinstance(model, Kolors):
-            sd = utils.load_torch_file(vae_approx_filename, safe_load=False, device='cpu' if devices.device.type != 'cuda' else None)
-            VAE_approx_model = VAEApprox(latent_channels=model.forge_objects.vae.latent_channels)
-            VAE_approx_model.load_state_dict(sd, strict=False)
+        if _is_flow or isinstance(model, Kolors):
+            sd = {}
+            VAE_approx_model = None
+            try:
+                sd = utils.load_torch_file(
+                    vae_approx_filename, safe_load=False,
+                    device='cpu' if devices.device.type != 'cuda' else None)
+            except Exception as e:
+                printF(name=MasterName.get_master_name(),
+                       info="[PREVIEW] 读取 {} 失败，改用 latent_rgb_factors 预览: {}".format(
+                           os.path.basename(vae_approx_filename), e)).printf()
+
+            if sd:
+                _candidate = VAEApprox(latent_channels=_latent_channels or 4)
+                _matched = _filter_matching_state_dict(sd, _candidate)
+                # 只有真正命中 conv1（输入通道一致）才说明这是 approx 网络。
+                # ae.safetensors 之类是真实 VAE 权重，键名/形状都不匹配；
+                # 这时 load_state_dict(strict=False) 只会留下随机初始化，
+                # 预览是彩色噪声，不如直接退回 latent_rgb_factors。
+                if "conv1.weight" in _matched:
+                    _candidate.load_state_dict(_matched, strict=False)
+                    _candidate.eval()
+                    _candidate.to(devices.device, devices.dtype)
+                    # 缺了 current_type，preview_function 里 x0.to() 会抛 TypeError
+                    _candidate.current_type = devices.dtype
+                    VAE_approx_model = _candidate
+                else:
+                    printF(name=MasterName.get_master_name(),
+                           info="[PREVIEW] {} 不是 VAEApprox 权重（无匹配的 conv1），"
+                                "使用 latent_rgb_factors 廉价预览（latent_channels={}）".format(
+                                    os.path.basename(vae_approx_filename), _latent_channels)).printf()
             del sd
-            VAE_approx_model.eval()
-            VAE_approx_model.to(devices.device, devices.dtype)
-            # flow 分支漏设了 current_type，preview_function 里
-            # x0.to(current_type) 会因 None 抛 TypeError。
-            VAE_approx_model.current_type = devices.dtype
         else:
             sd = torch.load(vae_approx_filename, map_location='cpu')
             VAE_approx_model = VAEApprox()
@@ -1091,15 +1263,38 @@ def get_previewer(model):
                 VAE_approx_model.current_type = torch.float32
 
             VAE_approx_model.to(ldm_patched.modules.model_management.get_torch_device())
-        VAE_approx_models[vae_approx_filename] = VAE_approx_model
+        VAE_approx_models[cache_key] = VAE_approx_model
+
+    _mismatch_warned = [False]
 
     @torch.no_grad()
     @torch.inference_mode()
     def preview_function(x0, step, total_steps):
         with torch.no_grad():
-            # current_type 可能仍是 None（旧缓存或异常分支），此时跳过 dtype 转换
-            x_sample = x0 if VAE_approx_model.current_type is None else x0.to(VAE_approx_model.current_type)
-            x_sample = VAE_approx_model(x_sample) * 127.5 + 127.5
+            # Wan21 系（Krea2 / Anima）在标准 processing 路径里可能是 5D
+            # (B, C, T, H, W)，而 VAEApprox 只吃 4D —— 取第一帧做预览。
+            if x0.dim() == 5:
+                x0 = x0[:, :, 0] if x0.shape[2] > 1 else x0.squeeze(2)
+
+            x_sample = None
+            if VAE_approx_model is not None:
+                _expect = getattr(VAE_approx_model, "latent_channels", x0.shape[1])
+                if int(x0.shape[1]) == int(_expect):
+                    # current_type 可能仍是 None（旧缓存或异常分支），此时跳过 dtype 转换
+                    _x = x0 if VAE_approx_model.current_type is None else x0.to(VAE_approx_model.current_type)
+                    x_sample = VAE_approx_model(_x) * 127.5 + 127.5
+                elif not _mismatch_warned[0]:
+                    # 预览只是 UI 装饰，绝不能因为它把整次生成打断
+                    # （例如缓存串味 / 动态换 VAE 导致通道数前后不一致）
+                    _mismatch_warned[0] = True
+                    printF(name=MasterName.get_master_name(),
+                           info="[PREVIEW] latent 通道 {} 与预览网络 {} 不一致，"
+                                "本张图改用廉价预览".format(
+                                    int(x0.shape[1]), int(_expect))).printf()
+
+            if x_sample is None:
+                x_sample = _cheap_preview(x0, _latent_format)
+
             x_sample = einops.rearrange(x_sample, 'b c h w -> b h w c')[0]
             x_sample = x_sample.cpu().numpy().clip(0, 255).astype(np.uint8)
 
@@ -1236,6 +1431,32 @@ def ksampler(model, positive, negative, latent, seed=None, steps=30, cfg=7.0, sa
         sigmas = sigmas.clone().to(ldm_patched.modules.model_management.get_torch_device())
 
     if is_flow_engine(model):
+        if width is not None and height is not None:
+            _px_w, _px_h = width, height
+        elif width is not None or height is not None:
+            _px_w = _px_h = width or height
+        else:
+            _px_w = _px_h = None
+
+        # ===== 空 latent 网格校正 =====
+        # opEmptyLatentImage 固定按 8× 生成（SD 约定）。FLUX.2 / MOSS-Image 的
+        # VAE 是 16×，网格错一倍会让 DiT 的 RoPE 坐标与训练尺度错位 → 过曝。
+        # 仅在“空 latent”（全零）且宽高能整除真实下采样率时重建，
+        # img2img / inpaint 的真实 latent 一律不动（宽度不整除时保持原样，避免丢图）。
+        _fsm_ = _get_first_stage_model(model)
+        _ratio_ = getattr(getattr(model, "forge_objects", None), "vae", None)
+        _ratio_ = getattr(_ratio_, "downscale_ratio", None) or getattr(_fsm_, "downscale_ratio", None)
+        if isinstance(_ratio_, int) and _ratio_ > 1 and latent_image.dim() == 4 \
+                and latent_image.shape[0] == 1 and torch.count_nonzero(latent_image) == 0:
+            if _px_w is not None and _px_w % _ratio_ == 0 and _px_h % _ratio_ == 0 \
+                    and latent_image.shape[-2:] != (_px_h // _ratio_, _px_w // _ratio_):
+                latent_image = torch.zeros(
+                    (1, latent_image.shape[1], _px_h // _ratio_, _px_w // _ratio_),
+                    dtype=latent_image.dtype, device=latent_image.device)
+                printF(name=MasterName.get_master_name(),
+                       info="[KSAMPLER] empty latent 按 VAE 下采样率 {} 校正为 {} (pixel {}x{})".format(
+                           _ratio_, tuple(latent_image.shape), _px_w, _px_h)).printf()
+
         # 支持 4D（Flux 风格图像 latent [B,C,H,W]）与 5D（Wan2.1 风格
         # 视频 VAE latent [B,C,T,H,W]）两种布局。图像生成时 T=1，
         # 但模型内部的 Conv3d 仍按 5D 处理，noise 必须同维。

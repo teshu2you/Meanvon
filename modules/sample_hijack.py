@@ -6,7 +6,7 @@ from ldm_patched.contrib.external_align_your_steps import AlignYourStepsSchedule
 from collections import namedtuple
 from ldm_patched.contrib.external_custom_sampler import SDTurboScheduler
 from ldm_patched.k_diffusion import sampling as k_diffusion_sampling
-from ldm_patched.modules.samplers import normal_scheduler, simple_scheduler, ddim_scheduler
+from ldm_patched.modules.samplers import normal_scheduler, simple_scheduler, ddim_scheduler, beta_scheduler
 from ldm_patched.modules.model_base import SDXLRefiner, SDXL, ModelSamplingContinuousEDM, ModelSamplingContinuousV, ModelSamplingDiscrete, BaseModel
 from ldm_patched.modules.conds import CONDRegular
 from ldm_patched.modules.sample import cleanup_additional_models
@@ -165,6 +165,8 @@ def calculate_sigmas_scheduler_hacked(obj, scheduler_name, steps):
         sigmas = ddim_scheduler(model_sampling, steps)
     elif scheduler_name == "sgm_uniform":
         sigmas = normal_scheduler(model_sampling, steps, sgm=True)
+    elif scheduler_name == "beta":
+        sigmas = beta_scheduler(model_sampling, steps)
     elif scheduler_name == "turbo":
         sigmas = SDTurboScheduler().get_sigmas(model=obj, steps=steps, denoise=1.0)[0]
     elif scheduler_name == "align_your_steps":

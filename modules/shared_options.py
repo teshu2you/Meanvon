@@ -239,7 +239,7 @@ options_templates.update(
             "sdxl_10": OptionRow(),
             "sdxl_zero_neg": OptionInfo(False, "[SDXL] Zero out the conditioning when negative prompt is empty").info("old behavior ; causes NaN when using SageAttention").needs_reload_ui(),
             "divslg": OptionDiv(),
-            "slg_enable": OptionInfo(True, "[Moss-Image] Enable Skip Layer Guidance", infotext="Skip Layer Guidance").info("the official document recommends skipping uncond for layer 22, optionally 24 and 26"),
+            "slg_enable": OptionInfo(False, "[Moss-Image] Enable Skip Layer Guidance", infotext="Skip Layer Guidance").info("official document recommends skipping uncond for layer 22 only when you need stronger prompt separation ; it effectively boosts CFG and can blow out highlights, so it is OFF by default"),
             "slg_single_layers": OptionInfo("22", "Layers to Skip", gr.Textbox, {"lines": 1, "max_lines": 1, "placeholder": "22, 24, 26"}, infotext="SLG Single Layers").info("comma-separated block indices"),
             "slg_1": OptionRow(),
             "slg_start_percent": OptionInfo(0.0, "Start Percent", gr.Number, infotext="SLG Start Percent"),

@@ -120,8 +120,46 @@ def tiled_scale(samples, function, tile_x=64, tile_y=64, overlap=8, upscale_amou
     return tiled_scale_multidim(samples, function, (tile_y, tile_x), overlap=overlap, upscale_amount=upscale_amount, out_channels=out_channels, output_device=output_device)
 
 
+def _weight_shape(module, name):
+    """按 'a.b.weight' 逐级取属性，拿不到就返回 None。"""
+    try:
+        obj = module
+        for part in name.split("."):
+            obj = getattr(obj, part, None)
+            if obj is None:
+                return None
+        return tuple(obj.shape)
+    except Exception:
+        return None
+
+
+def _infer_flux2_latent_channels(model, fallback=16):
+    """从 AutoencoderKLFlux2 的真实权重推导采样器用的 latent 通道数。
+
+    打包规则：planar(32ch) → packed(128ch)，即 channel = 32 × patch²。
+    decode 入口在 preprocess_decode() 之后，网络看到的已是 planar 通道，
+    所以只能从 decoder.conv_in 的输入通道 × patch² 反推打包后的通道数。
+    post_quant_conv 是 32→32 恒等通道，不能用来推断。
+    """
+    decoder = getattr(model, "decoder", None)
+
+    shp = _weight_shape(decoder, "conv_in.weight")
+    if shp is not None and len(shp) >= 2:
+        planar = int(shp[1])
+        pack = 1
+        ps = getattr(model, "ps", None) or (2, 2)
+        try:
+            pack = int(ps[0]) * int(ps[1])
+        except Exception:
+            for p in tuple(getattr(getattr(model, "config", None), "patch_size", (2, 2)) or (2, 2)):
+                pack *= int(p)
+        return planar * pack
+
+    return int(fallback)
+
+
 class VAE:
-    def __init__(self, model=None, device=None, dtype=None, no_init=False, *, is_wan=False, is_qwen21=False, is_flux2=False, is_mugen=False):
+    def __init__(self, model=None, device=None, dtype=None, no_init=False, *, is_wan=False, is_qwen21=False, is_flux2=False, is_flux2_image=False, is_mugen=False):
         if no_init:
             return
 
@@ -145,7 +183,15 @@ class VAE:
             self.upscale_ratio = 8
             self.downscale_ratio = 8
             self.latent_dim = 2
-            self.latent_channels = 32 if is_mugen else int(getattr(model.config, 'latent_channels', 16))
+            _latent_channels = 32 if is_mugen else int(getattr(model.config, 'latent_channels', 16))
+            if is_flux2_image:
+                # AutoencoderKLFlux2 的「真实 latent 通道」以网络为准：
+                #   decoder.conv_in.weight = [C, latent_channels, 3, 3]  (latent_channels = 32)
+                #   decoder.post_quant_conv.weight = [..., 128, ...]      (打包后 = 128)
+                # config.json 里的 latent_channels 不是 DiT/采样器的通道数，
+                # 之前直接取 config 导致 VAE 报告 16ch、DiT 却是 128ch。
+                _latent_channels = _infer_flux2_latent_channels(model, fallback=_latent_channels)
+            self.latent_channels = _latent_channels
             self.memory_used_encode = lambda shape, dtype: (1767 * shape[2] * shape[3]) * memory_management.dtype_size(dtype)
             self.memory_used_decode = lambda shape, dtype: (2178 * shape[2] * shape[3] * 64) * memory_management.dtype_size(dtype)
 
@@ -154,6 +200,17 @@ class VAE:
                 self.downscale_ratio = 16
                 self.latent_channels = 128
                 self.memory_used_decode = lambda shape, dtype: (2178 * shape[2] * shape[3] * 64) * memory_management.dtype_size(dtype) * 4.0
+
+            if is_flux2_image:
+                # FLUX.2 / MOSS-Image 这类「图像」VAE：空间 16× 下采样，
+                # 但 latent 通道是 AutoencoderKLFlux2 的 bn 输出（patch_size 2x2）。
+                # 必须与 latent_channels 一起从 config 推导，否则采样网格（H/W）
+                # 会与 DiT 的 RoPE 训练尺度错位 → 过曝。
+                self.upscale_ratio = 16
+                self.downscale_ratio = 16
+                memory_management.logger.info(
+                    "VAE(flux2-image): latent_channels={}, ratio=16".format(_latent_channels)
+                )
 
         else:
             self.upscale_ratio = (lambda a: max(0, a * 4 - 3), 8, 8)
