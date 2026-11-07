@@ -124,6 +124,7 @@ def state_dict_prefix_replace(state_dict, replace_prefix, filter_keys=False):
 def detect_quantization(state_dict: dict[str, torch.Tensor], *, is_unet: bool = False) -> dict | None:
     count: dict[str, int] = {}
     skipped: list[tuple[str, str]] = []
+    convrot_seen: set = set()
 
     for key, val in state_dict.items():
         if not key.endswith(".comfy_quant"):
@@ -159,6 +160,18 @@ def detect_quantization(state_dict: dict[str, torch.Tensor], *, is_unet: bool = 
             continue
 
         count[fmt] = count.get(fmt, 0) + 1
+        if obj.get("convrot"):
+            convrot_seen.add((fmt, obj.get("convrot_groupsize")))
+
+    if convrot_seen:
+        # 只是提示：真正的处理方式由 loader 决定
+        #   * comfy_kitchen.int8_linear(convrot=True) 可用 → 内核原生旋转，零重现误差
+        #   * 不可用 → loader 会回退“反旋转 + 重算 scale”
+        # 具体走了哪条看 loader 打印的 [quant] 行。
+        print(
+            "[quant] 权重带 convrot 旋转 {}：由 TensorWiseINT8Layout / "
+            "comfy_kitchen.int8_linear(convrot=True) 处理（见 loader 的 [quant] 日志确认是否可用）".format(
+                sorted(convrot_seen)))
 
     if skipped:
         for k, why in skipped[:5]:

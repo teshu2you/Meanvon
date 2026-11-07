@@ -513,26 +513,38 @@ def load_last_prompt_handler(*args):
     return ctrls
 
 
+def _upload_file_path(x):
+    # Gradio 4/5: UploadButton 可能传 FileData 对象（.name/.path）或纯字符串
+    if hasattr(x, 'path'):
+        return x.path
+    if hasattr(x, 'name'):
+        return x.name
+    return x
+
+
 def load_input_images_handler(files):
-    return list(map(lambda x: x.name, files)), gr.update(selected=GALLERY_ID_INPUT), gr.update(value=len(files))
+    paths = list(map(_upload_file_path, files))
+    return paths, gr.update(selected=GALLERY_ID_INPUT), gr.update(value=len(paths))
 
 
 def load_revision_images_handler(files):
-    return gr.update(value=True), list(map(lambda x: x.name, files[:4])), gr.update(selected=GALLERY_ID_REVISION)
+    return gr.update(value=True), list(map(_upload_file_path, files[:4])), gr.update(selected=GALLERY_ID_REVISION)
 
 
 def output_to_input_handler(gallery):
-    if len(gallery) == 0:
+    if not gallery:  # None 或空列表
         return [], gr.update()
     else:
-        return list(map(lambda x: x['name'], gallery)), gr.update(selected=GALLERY_ID_INPUT)
+        return list(map(lambda x: x['name'] if isinstance(x, dict) else x, gallery)), \
+            gr.update(selected=GALLERY_ID_INPUT)
 
 
 def output_to_revision_handler(gallery):
-    if len(gallery) == 0:
+    if not gallery:  # None 或空列表
         return gr.update(value=False), [], gr.update()
     else:
-        return gr.update(value=True), list(map(lambda x: x['name'], gallery[:4])), gr.update(
+        gallery = gallery[:4]
+        return gr.update(value=True), list(map(lambda x: x['name'] if isinstance(x, dict) else x, gallery)), gr.update(
             selected=GALLERY_ID_REVISION)
 
 # =========================================================================
@@ -544,19 +556,35 @@ def output_to_revision_handler(gallery):
 # =========================================================================
 MODEL_TYPE_PRESETS = [
     {
-        # 注意：此条目混合了 Base 与蒸馏版。以下数值对应 Base 9B 的 HF 模型卡设置
-        # （Steps 20–30, CFG 1.0–3.5, euler + simple/normal）。
-        # 蒸馏版应改为 4 steps / CFG 1.0，不可沿用此条目。
+        "label": "FLUX.3 Klein Step_Distilled",
+        "keys": [("flux", "3", "klein", "distill")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768), (1216, 704), (1024, 576)],
+        "steps": 16, "cfg": 1.0, "adaptive_cfg": 1.0,
+        "sampler_pairs": [("euler", "simple"), ("dpmpp_2m", "normal")],
+    },
+    {
+        # 非蒸馏基础模型，用于微调、LoRA 训练和需要精细控制的场景
+        # 官方推荐: 50 steps, CFG 3.5, Euler/Simple
+        "label": "FLUX.3 Klein Base",
+        "keys": [("flux", "3", "klein", "base")],
+        "ratios": [(1024, 1024), (768, 1024), (1024, 768), (1216, 704), (1024, 576)],
+        "steps": 50, "cfg": 3.5, "adaptive_cfg": 3.5,
+        "sampler_pairs": [("euler", "simple"), ("dpmpp_2m", "normal")],
+    },
+    {
+        # 蒸馏版 Klein：guidance-embed 内化引导，CFG 固定 1.0；
+        # 蒸馏模型 4-10 步即可出图，Base 的 20-30 步参数不适用。
         "label": "FLUX.2 Klein 4B / 9B",
         "keys": [("flux", "klein")],
         "ratios": [(1024, 1024), (768, 1024), (1024, 768), (1024, 576), (1216, 704)],
-        "steps": 20, "cfg": 3.5, "adaptive_cfg": 3.5,
-        "sampler_pairs": [("euler", "simple"), ("euler", "normal")],
+        "steps": 8, "cfg": 1.0, "adaptive_cfg": 1.0,
+        "sampler_pairs": [("euler", "simple")],
     },
     {
-        # SimpleTuner Flux 2 shipped workflow: 28 steps at CFG 3.5[reference:0]
-        "label": "FLUX.2 [dev]",
-        "keys": [("flux", "2", "dev")],
+        # FLUX.2 Base（Mistral-TE 全量版）：需要外部 CFG 提供方向，
+        # 28 步 / CFG 3.5 是官方推荐设置。
+        "label": "FLUX.2 Base",
+        "keys": [("flux", "2")],
         "ratios": [(1024, 1024), (768, 1024), (1024, 768), (1216, 704), (1024, 576)],
         "steps": 28, "cfg": 3.5, "adaptive_cfg": 3.5,
         "sampler_pairs": [("euler", "simple"), ("euler", "beta")],
@@ -759,7 +787,18 @@ def _pick_sampler_pair(pairs, sampler_choices, scheduler_choices):
 
 app = FastAPI()
 #
-# from fastapi.staticfiles import StaticFiles
+# 静态资源挂载：static/*.js 里的 window.playNotification / refresh_grid_delayed
+# 等前端函数依赖这个挂载，之前被注释掉会导致:
+#   Uncaught ReferenceError: playNotification is not defined
+try:
+    from fastapi.staticfiles import StaticFiles as _StaticFiles
+
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    if os.path.isdir(static_dir):
+        app.mount("/static", _StaticFiles(directory=static_dir), name="static")
+        print(f"[static] mounted /static -> {static_dir}")
+except Exception as _e:
+    print(f"[static] mount failed: {_e}")
 # import os
 #
 # # 确保 static 文件夹存在
@@ -794,6 +833,74 @@ def dump_default_english_config():
 
 with gr.Blocks(
     title=title,
+    # 静态脚本注入 + 完成通知音的“DOM 观察者”
+    #   之前只靠 Gradio 的 js 事件回调，事件链一旦有任何异常/顺序问题就不会响。
+    #   这里改成轮询 #generate_button 的可见性：生成中该按钮被隐藏，恢复显示即代表生成完成。
+    #   同样带两级兜底：Gradio 的 <audio> → /static/notification.mp3 → WebAudio 蜂鸣。
+    head='''<script src="/static/script.js" defer></script>
+<script>
+(function () {
+  var NOTIFY_URL = "/static/notification.mp3";
+  function log() { try { console.log.apply(console, ["[notify]"].concat([].slice.call(arguments))); } catch (e) {} }
+  function isHidden(el) {
+    if (!el) return true;
+    if (el.offsetParent === null) return true;
+    var st = getComputedStyle(el);
+    return st.display === "none" || st.visibility === "hidden";
+  }
+  function checkboxOn() {
+    var cb = document.querySelector('#play_notification_sound input[type=checkbox]');
+    if (!cb) return true;            // 找不到控件就默认允许
+    return !!cb.checked;
+  }
+  function beep() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      var ctx = window.__mvNotifyCtx || (window.__mvNotifyCtx = new AC());
+      if (ctx.state === "suspended" && ctx.resume) ctx.resume();
+      var t0 = ctx.currentTime;
+      [880.0, 1174.66].forEach(function (f, i) {
+        var o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "sine"; o.frequency.value = f;
+        var s = t0 + i * 0.18;
+        g.gain.setValueAtTime(0.0001, s);
+        g.gain.exponentialRampToValueAtTime(0.22, s + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, s + 0.16);
+        o.connect(g); g.connect(ctx.destination); o.start(s); o.stop(s + 0.18);
+      });
+      log("beep");
+    } catch (e) { log("beep failed", e); }
+  }
+  function play() {
+    if (!checkboxOn()) { log("disabled by checkbox"); return; }
+    var el = document.querySelector("#audio_notification audio");
+    if (el) {
+      try {
+        el.currentTime = 0;
+        var p1 = el.play();
+        if (p1 && p1.then) p1.then(function () { log("played via element"); })
+                             .catch(function (e) { log("element play failed", e); beep(); });
+        return;
+      } catch (e) { log("element error", e); }
+    }
+    try {
+      var a = new Audio(NOTIFY_URL);
+      var p2 = a.play();
+      if (p2 && p2.then) p2.then(function () { log("played via mp3"); })
+                           .catch(function (e) { log("mp3 play failed", e); beep(); });
+    } catch (e) { log("mp3 error", e); beep(); }
+  }
+  var wasBusy = false;
+  setInterval(function () {
+    var btn = document.querySelector("#generate_button");
+    if (!btn) return;
+    if (isHidden(btn)) { wasBusy = true; return; }
+    if (wasBusy) { wasBusy = false; log("generation finished -> play"); play(); }
+  }, 700);
+  log("watcher armed");
+})();
+</script>''',
     theme=gr.themes.Soft(
         primary_hue=gr.themes.colors.rose,
         secondary_hue=gr.themes.colors.lime,
@@ -1031,17 +1138,17 @@ with gr.Blocks(
                                                      elem_classes='min_check')
                 # image_factory_advanced_checkbox = gr.Checkbox(label='Configuration', value=modules.config.default_image_factory_advanced_checkbox, container=True, elem_classes='min_check')
             with gr.Accordion(visible=False) as image_input_panel:
-                with gr.Tabs():
+                with gr.Tabs(label='ImageManagement'):
                     with gr.Tab(label='Image 2 Image') as uov_tab:
                         with gr.Row():
                             img2img_mode = gr.Checkbox(label='Image Gallery', value=settings['img2img_mode'])
                         with gr.Row(visible=False) as image_2_image_panel:
 
-                            input_gallery = gr.Gallery(label='Input', show_label=True, object_fit='contain',
+                            img2img_gallery = gr.Gallery(label='Input', show_label=True, object_fit='contain',
                                                        height=700,
                                                        visible=True)
 
-                            revision_gallery = gr.Gallery(label='Revision', show_label=True, object_fit='contain',
+                            image_prompt_gallery = gr.Gallery(label='Revision (max 4 images)', show_label=True, object_fit='contain',
                                                           height=700, visible=True)
                         with gr.Row():
                             revision_mode = gr.Checkbox(label='Revision (prompting with images)',
@@ -1119,18 +1226,22 @@ with gr.Blocks(
 
 
                         def verify_revision(rev, gallery_in, gallery_rev, gallery_out):
+                            gallery_in = gallery_in or []
+                            gallery_rev = gallery_rev or []
+                            gallery_out = gallery_out or []
+                            _to_path = lambda x: x['name'] if isinstance(x, dict) and 'name' in x else x
+
                             if rev and len(gallery_rev) == 0:
                                 if len(gallery_in) > 0:
                                     gr.Info('Revision: imported input')
-                                    return gr.update(), list(map(lambda x: x['name'], gallery_in[:1]))
+                                    return gr.update(), list(map(_to_path, gallery_in[:1]))
                                 elif len(gallery_out) > 0:
                                     gr.Info('Revision: imported output')
-                                    return gr.update(), list(map(lambda x: x['name'], gallery_out[:1]))
+                                    return gr.update(), list(map(_to_path, gallery_out[:1]))
                                 else:
                                     gr.Warning('Revision: disabled (no images available)')
                                     return gr.update(value=False), gr.update()
-                            else:
-                                return gr.update(), gr.update()
+                            return gr.update(), gr.update()
 
                         with gr.Row():
                             control_lora_canny = gr.Checkbox(label='Control-LoRA: Canny', value=settings['control_lora_canny'])
@@ -1559,7 +1670,8 @@ with gr.Blocks(
 
                 with gr.Row():
                     play_notification_sound = gr.Checkbox(label='Notificate me when all tasks done',
-                                                          value=settings['play_notification_sound'], interactive=True)
+                                                          value=settings['play_notification_sound'], interactive=True,
+                                                          elem_id='play_notification_sound')
 
                     notification_file = 'notification.mp3'
                     if os.path.exists(notification_file):
@@ -2600,6 +2712,27 @@ with gr.Blocks(
                 gr.update(value=scheduler) if scheduler else gr.update(),  # scheduler_name
             ]
 
+        def _mt_step4_img2img_denoise(model_type):
+            """图生图 denoise：不同模型族的噪声语义不同，切模型时同步推荐值。
+
+            flow（Flux/ZImage/Anima/Moss…）起始 sigma ≈ denoise、初始 latent 权重
+            = 1 - denoise，所以同一数值在 SDXL 和 Anima 上效果完全不同。
+
+            注意：这里只回写 value，**不要**改 minimum/maximum。
+            这个 slider 在 image_2_image_panel 里（img2img_mode 未勾选时是隐藏的），
+            对隐藏/未挂载的组件改边界会让 Gradio 把组件重渲染成灰色（不可拖动）状态。
+            上限约束由后端 procedure/worker.resolve_img2img_denoise() 负责，不影响出图结果。
+            """
+            prof = modules.config.get_img2img_denoise_profile(model_type)
+            if prof.get('matched') in (None, 'default'):
+                return gr.update()
+            gr.Info(
+                '{}: img2img denoise 推荐 {:.2f}（可用 {:.2f} ~ {:.2f}）— {}'.format(
+                    model_type or 'default',
+                    prof['recommend'], prof['minimum'], prof['maximum'], prof['note'])
+            )
+            return gr.update(value=float(prof['recommend']))
+
         model_type_selector.change(
             fn=_mt_step1_fixed_steps,
             inputs=[model_type_selector],
@@ -2617,13 +2750,25 @@ with gr.Blocks(
                      switch_sampler, sampler_name, scheduler_name],
             queue=False, show_progress=False,
         )
+
+        # 图生图 denoise 随模型族动态调整：独立注册一个 change，
+        # 不挂在上面那条预设链上（只回写 value，不动 slider 边界，
+        # 也不与该链的输出顺序耦合，避免 slider 被重渲染成灰色）。
+        model_type_selector.change(
+            fn=_mt_step4_img2img_denoise,
+            inputs=[model_type_selector],
+            outputs=[img2img_denoise],
+            queue=False, show_progress=False,
+        )
         # ===============================================================
 
         output_format.input(lambda x: gr.update(output_format=x), inputs=output_format)
 
         image_factory_checkbox.change(lambda x: gr.update(visible=x), image_factory_checkbox, advanced_column,
                                       queue=False, show_progress=False) \
-            .then(fn=lambda: None, js='refresh_grid_delayed', queue=False, show_progress=False)
+            .then(fn=lambda: None,
+              js='if (typeof refresh_grid_delayed === "function") refresh_grid_delayed();',
+              queue=False, show_progress=False)
 
 
         def img2img_mode_checked(x):
@@ -2631,37 +2776,52 @@ with gr.Blocks(
 
 
         img2img_mode.change(fn=img2img_mode_checked, inputs=[img2img_mode],
-                            outputs=[image_2_image_panel, input_gallery, revision_gallery], queue=False)
+                            outputs=[image_2_image_panel, img2img_gallery, image_prompt_gallery], queue=False)
 
         load_input_images_button.upload(fn=load_input_images_handler, inputs=[load_input_images_button],
-                                        outputs=[input_gallery, gallery_tabs, image_number])
-        load_revision_images_button.upload(fn=load_revision_images_handler, inputs=[load_revision_images_button],
-                                           outputs=[revision_mode, revision_gallery, gallery_tabs])
+                                        outputs=[img2img_gallery, gallery_tabs, image_number])
+        load_revision_images_button.upload(
+                    fn=load_revision_images_handler,
+                    inputs=[load_revision_images_button],
+                    outputs=[revision_mode, image_prompt_gallery, gallery_tabs],
+                ).then(
+                    fn=revision_changed,
+                    inputs=[revision_mode],
+                    outputs=[revision_strength_1, revision_strength_2,
+                            revision_strength_3, revision_strength_4],
+                )
         output_to_input_button.click(output_to_input_handler, inputs=output_gallery,
-                                     outputs=[input_gallery, gallery_tabs])
+                                     outputs=[img2img_gallery, gallery_tabs])
         output_to_revision_button.click(output_to_revision_handler, inputs=output_gallery,
-                                        outputs=[revision_mode, revision_gallery, gallery_tabs])
+                                        outputs=[revision_mode, image_prompt_gallery, gallery_tabs])
 
 
         def verify_enhance_image(enhance_image, img2img):
+            # Image-Factory 在本 fork 里只是 Image 2 Image 面板的开关，
+            # 与 img2img_mode 不是互斥关系 —— 不能再强制取消勾选，
+            # 否则只要勾了 Image-Factory，图生图永远被静默关掉。
             if enhance_image and img2img:
-                gr.Warning('Image-2-Image: disabled (Enhance Image priority)')
-                return gr.update(value=False)
-            else:
-                return gr.update()
+                gr.Info('Image-Factory + Image-2-Image both active')
+            return gr.update()
 
 
         def verify_input(img2img, canny, depth, gallery_in, gallery_rev, gallery_out):
+            gallery_in = gallery_in or []
+            gallery_rev = gallery_rev or []
+            gallery_out = gallery_out or []
             if (img2img or canny or depth) and len(gallery_in) == 0:
                 if len(gallery_rev) > 0:
                     gr.Info('Image-2-Image / CL: imported revision as input')
-                    return gr.update(), gr.update(), gr.update(), list(map(lambda x: x['name'], gallery_rev[:1]))
+                    return gr.update(), gr.update(), gr.update(), list(map(
+                        lambda x: x['name'] if isinstance(x, dict) else x, gallery_rev[:1]))
                 elif len(gallery_out) > 0:
                     gr.Info('Image-2-Image / CL: imported output as input')
-                    return gr.update(), gr.update(), gr.update(), list(map(lambda x: x['name'], gallery_out[:1]))
+                    return gr.update(), gr.update(), gr.update(), list(map(
+                        lambda x: x['name'] if isinstance(x, dict) else x, gallery_out[:1]))
                 else:
-                    gr.Warning('Image-2-Image / CL: disabled (no images available)')
-                    return gr.update(value=False), gr.update(value=False), gr.update(value=False), gr.update()
+                    # 保留勾选，仅警告；worker 端 input_gallery 为空会自动回退文生图
+                    gr.Warning('Image-2-Image / CL: no input images loaded - falling back to text-to-image')
+                    return gr.update(), gr.update(), gr.update(), gr.update()
             else:
                 return gr.update(), gr.update(), gr.update(), gr.update()
 
@@ -2835,12 +2995,12 @@ with gr.Blocks(
             .then(fn=refresh_seed, inputs=[seed_random, image_seed], outputs=image_seed) \
             .then(fn=verify_enhance_image, inputs=[image_factory_checkbox, img2img_mode], outputs=[img2img_mode]) \
             .then(fn=verify_input,
-                  inputs=[img2img_mode, control_lora_canny, control_lora_depth, input_gallery, revision_gallery,
+                  inputs=[img2img_mode, control_lora_canny, control_lora_depth, img2img_gallery, image_prompt_gallery,
                           output_gallery],
-                  outputs=[img2img_mode, control_lora_canny, control_lora_depth, input_gallery]) \
-            .then(fn=verify_revision, inputs=[revision_mode, input_gallery, revision_gallery, output_gallery],
-                  outputs=[revision_mode, revision_gallery]) \
-            .then(fn=get_task, inputs=ctrls + [input_gallery, revision_gallery, keep_input_names], outputs=currentTask) \
+                  outputs=[img2img_mode, control_lora_canny, control_lora_depth, img2img_gallery]) \
+            .then(fn=verify_revision, inputs=[revision_mode, img2img_gallery, image_prompt_gallery, output_gallery],
+                  outputs=[revision_mode, image_prompt_gallery]) \
+            .then(fn=get_task, inputs=ctrls + [img2img_gallery, image_prompt_gallery, keep_input_names], outputs=currentTask) \
             .then(fn=generate_clicked, inputs=currentTask,
                   outputs=[progress_html, progress_window, remain_images_progress, gallery_holder, output_gallery,
                            progress_gallery, finish_image_viewer,
@@ -2849,7 +3009,12 @@ with gr.Blocks(
                            gr.update(visible=False, interactive=False), False),
                   outputs=[generate_button, stop_button, skip_button, state_is_generating]) \
             .then(fn=update_history_link, outputs=history_link) \
-            .then(fn=lambda: None, js='playNotification').then(fn=lambda: None, js='refresh_grid_delayed')
+            .then(fn=lambda enabled: None,                    # ← 接收 input，避免 TypeError
+                  inputs=[play_notification_sound],
+                  # 通知音改由 head 里的 DOM 观察者统一负责（轮询 #generate_button 可见性），
+                  # 这里只做“生成结束后的界面刷新”，避免重复播放两声。
+                  js='if (typeof refresh_grid_delayed === "function") { try { refresh_grid_delayed(); } catch (e) {} }',
+                  queue=False, show_progress=False)
 
         # for notification_file in ['notification.ogg', 'notification.mp3']:
         #     if os.path.exists(notification_file):

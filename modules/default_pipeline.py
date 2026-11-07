@@ -437,6 +437,47 @@ def _get_aux_state_dicts(model_file_type, model_name=None, flux2_variant=None):
 
         paths = [vae_path, te_path]
 
+    elif model_file_type == constants.TYPE_Flux3:
+        # FLUX.3（f3-image-small）：FLUX.2 的 128ch packed VAE + Qwen3-VL 4B 文本编码器。
+        # 文本编码器按变体区分：
+        #   Klein Step_Distilled（蒸馏）→ qwen3vl_4b_int8_convrot（default_flux3_sd_text_encoder）
+        #   Klein Base（完整）        → qwen_3vl_4b_bf16   （default_flux3_base_text_encoder）
+        _f3_name = str(model_name or "").lower()
+        _f3_is_sd = any(k in _f3_name for k in
+                        ("distill", "step_distilled", "step-distill", "_sd_", "-sd-", "klein_sd"))
+        _f3_preferred = ("default_flux3_sd_text_encoder" if _f3_is_sd
+                         else "default_flux3_base_text_encoder")
+        _f3_fallback = ("default_flux3_base_text_encoder" if _f3_is_sd
+                        else "default_flux3_sd_text_encoder")
+
+        vae_path = _aux_path(getattr(cfg, "default_flux3_vae_name", None), cfg.path_vae)
+
+        te_path = _aux_path(getattr(cfg, _f3_preferred, None), cfg.path_text_encoder)
+        if te_path is None:
+            # 首选变体的文件没放进来时，用另一变体兜底（只是精度差异，形状一致）
+            te_path = _aux_path(getattr(cfg, _f3_fallback, None), cfg.path_text_encoder)
+            if te_path is not None:
+                printF(name=MasterName.get_master_name(),
+                       info="[Flux3] {} 缺失，回退使用 {}（variant={}）".format(
+                           _f3_preferred, _f3_fallback,
+                           "sd" if not _f3_is_sd else "base")).printf()
+
+        if vae_path is None:
+            missing.append(("FLUX.3 VAE (AutoencoderKLFlux2, 128ch)", "default_flux3_vae_name"))
+        if te_path is None:
+            missing.append((
+                "FLUX.3 text encoder (Qwen3-VL 4B, variant={})".format(
+                    "sd/distilled" if _f3_is_sd else "base"),
+                "{} / {}".format(_f3_preferred, _f3_fallback)))
+
+        printF(name=MasterName.get_master_name(),
+               info="[Flux3] variant={} ({}), te_config={}".format(
+                   "sd/distilled" if _f3_is_sd else "base",
+                   "Klein Step_Distilled" if _f3_is_sd else "Klein Base",
+                   _f3_preferred)).printf()
+
+        paths = [vae_path, te_path]
+
     elif model_file_type == constants.TYPE_ZImage:
         paths = [
             _p(getattr(cfg, "default_zimage_vae_name", None), cfg.path_vae),
@@ -533,7 +574,20 @@ def get_model_file_type(name):
         return _KREA2_TYPE
     
     # --- 模型族优先（顺序不可乱）---
+    # FLUX.3 的权重也可能就叫 f3-image-*.safetensors（名字里没有 "flux"），
+    # 必须单独拦一次，否则会落到 TYPE_NORMAL。
+    if "f3-image" in l_name or "f3_image" in l_name:
+        return constants.TYPE_Flux3
+
     if "flux" in l_name:
+        # FLUX.3（f3-image-small 系列）结构与 Flux1/Flux2 完全不同：
+        #   content_mode_blocks / txt_mode_blocks / single_blocks /
+        #   early_stream_modulations / emb_in.image / final_layer.image / ref_time_in
+        # 且多为 int8 + convrot 量化（权重旁带 *.weight_scale）。
+        # 必须在 flux2/flux1 之前判定，否则会被当成 Flux1 → 用错 TE/VAE。
+        if ("flux3" in l_name or "flux_3" in l_name or "flux-3" in l_name
+                or "flux.3" in l_name or "f3-image" in l_name):
+            return constants.TYPE_Flux3
         # FLUX.2 使用 Mistral-Small 文本编码器，与 FLUX.1 完全不同
         if "flux2" in l_name or "flux.2" in l_name or "flux-2" in l_name:
             return constants.TYPE_Flux2
@@ -822,6 +876,10 @@ def refresh_base_model(name, performance_selection=None):
                info="[Warning] Lightning mode, unload #sd_xl_base_1.0# base model!").printf()
         free_cuda_mem()
         return
+
+    # ===== FLUX.3（f3-image-small）=====
+    # 与 FLUX.2 共用 128ch packed VAE；文本编码器是 Qwen3-VL 4B（8 层 tap → 20480 维）。
+    # 对应的 aux 权重在 modules/config.py 的 default_flux3_vae_name / default_flux3_text_encoder。
 
     # vae_filename is in valid only when model is Flux or Kolors, other model type use old method
     model_file_type = get_model_file_type(name)
@@ -1299,7 +1357,7 @@ def _looks_like_prompt_expansion(texts):
 
 @torch.no_grad()
 @torch.inference_mode()
-def clip_encode(texts, pool_top_k=1, steps=30):
+def clip_encode(texts, pool_top_k=1, steps=30, is_negative_prompt=False):
     global final_clip, final_model_ori
 
     # ===== 探针：确认每次调用 clip_encode 收到的 texts =====
@@ -1317,7 +1375,7 @@ def clip_encode(texts, pool_top_k=1, steps=30):
         return None
 
     if isinstance(final_model_ori, ForgeDiffusionEngine):
-        result_ces = _encode_with_engine(final_model_ori, texts)
+        result_ces = _encode_with_engine(final_model_ori, texts, is_negative_prompt=is_negative_prompt)
 
         # 一次性诊断：引擎到底吐了哪些 key（value 是 list 还是 tensor）
         if isinstance(result_ces, dict) and not getattr(final_model_ori, "_cond_diag_done", False):
@@ -1823,6 +1881,228 @@ def refresh_everything(base_model_name, loras,
 
     return
 
+
+# =========================================================================
+# 参考图（图生图）能力：结构参考 + 语义参考
+#   - 结构参考 (img2img_gallery)  : 走通用 VAE 初始 latent（见 process_diffusion），
+#                                   任意引擎都能用；对支持原生参考的引擎，可额外写入 ini_latent。
+#   - 语义参考 (image_prompt_gallery): 写入引擎的 ref_latents（Flux-Kontext / Krea2 /
+#                                   Flux2-Klein / Anima / Qwen-Edit），SDXL 仍走 CLIP-Vision。
+#   纯 Flux / ZImage / MOSS 没有原生语义参考通道，只能退化到结构参考。
+# =========================================================================
+
+def is_flow_engine_model():
+    """当前基础模型是否为 Forge flow 引擎。"""
+    try:
+        return final_model_ori is not None and core.is_flow_engine(final_model_ori)
+    except Exception:
+        return False
+
+
+def engine_reference_kind():
+    """返回当前引擎可用的参考图通道类型：
+
+    'clip_vision' -> SDXL / SD1.5（CLIP-Vision revision，旧路径）
+    'ref_latents' -> Flux-Kontext / Krea2（参考格式已验证）
+    None          -> 引擎不支持原生参考（纯 Flux / ZImage / MOSS / Flux2-Klein 等 → img2img 回退）
+    """
+    try:
+        if final_model_ori is None:
+            return None
+        if not core.is_flow_engine(final_model_ori):
+            return 'clip_vision'
+        # 参考编辑型引擎：Flux-Kontext / Krea2 / Flux2-Klein。
+        # 对它们，图生图应走“图像作为参考条件 + 从噪声全量生成”，
+        # 而不是“部分去噪初值”（后者在 flow 模型上 denoise 高时会被噪声淹没 → 变文生图）。
+        if bool(getattr(dynamic_args, 'kontext', False)) \
+                or bool(getattr(dynamic_args, 'krea2', False)) \
+                or bool(getattr(dynamic_args, 'klein', False)):
+            return 'ref_latents'
+        if bool(getattr(dynamic_args, 'anima', False)):
+            # Anima 的“参考帧”是本项目补的（上游 Cosmos-Predict2 没有该机制），
+            # 关闭后必须回退到通用 img2img 初始 latent，否则结构图会静默失效。
+            try:
+                from backend.diffusion_engine.anima import anima_reference_enabled
+                if not anima_reference_enabled():
+                    return None
+            except Exception:
+                pass
+            return 'ref_latents'
+        return None
+    except Exception:
+        return None
+
+
+def _vae_needs_patch_align(vae):
+    """仅 MOSS-Image / Wan2.1 这类会在 encode 末尾做 2x2 patchify 的 VAE 需要尺寸对齐。
+    Flux2(Klein) / SDXL 等普通 VAE 不需要，强行改尺寸反而可能影响构图。"""
+    try:
+        if getattr(vae, "is_wan", False):
+            return True
+        fsm = getattr(vae, "first_stage_model", None)
+        if fsm is not None and getattr(fsm, "ps", None):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _align_img2img_pixels(pixels, vae):
+    """把 img2img 初始图对齐到 VAE 可编码的网格尺寸。
+
+    某些 VAE（MOSS-Image / Wan2.1 等）在 encode 末尾会做 2x2 patchify：
+        rearrange("... c (i pi)(j pj) -> ... (c pi pj) i j", pi=2, pj=2)
+    因此 latent 的 H/W 必须是偶数，等价于像素 H/W 必须是 (2 * downscale) 的整数倍，
+    否则会抛 einops: can't divide axis of length N in chunks of 2。
+    这里把像素尺寸就近缩放到该倍数，避免采样前 VAE encode 直接崩。
+    """
+    try:
+        ratio = getattr(vae, "downscale_ratio", 8)
+        if isinstance(ratio, (tuple, list)):
+            ratio = ratio[0]
+        if callable(ratio):
+            ratio = 8
+        ratio = int(ratio)
+        factor = max(8, ratio * 2)
+    except Exception:
+        factor = 16
+
+    x = pixels
+    h, w = int(x.shape[1]), int(x.shape[2])
+    ah = max(factor, int(round(h / factor)) * factor)
+    aw = max(factor, int(round(w / factor)) * factor)
+    if (ah, aw) == (h, w):
+        return x
+
+    x = x.permute(0, 3, 1, 2)
+    x = torch.nn.functional.interpolate(x, size=(ah, aw), mode="bilinear", align_corners=False)
+    x = x.permute(0, 2, 3, 1)
+    printF(name=MasterName.get_master_name(),
+           info="[img2img] align init image {}x{} -> {}x{} (factor={})".format(
+               h, w, ah, aw, factor)).printf()
+    return x
+
+
+def _image_nhwc_to_engine_input(image):
+    """把 worker.get_image 的 (1, H, W, 3) [0,1] 转成 encode_first_stage 需要的
+    (1, 3, H, W) [-1,1]。已经是 NCHW 的直接透传（只做数值归一化）。"""
+    x = image
+    if not isinstance(x, torch.Tensor):
+        x = torch.as_tensor(x)
+    if x.dim() == 4 and x.shape[-1] in (1, 3):
+        x = x[..., :3].permute(0, 3, 1, 2)
+    x = x.float()
+    x = x.mul(2.0).sub(1.0)
+    return x
+
+
+def set_engine_references(images, as_input=False):
+    """把图像写入当前 flow 引擎的参考缓存。
+
+    as_input=True  -> 写入 ini_latent（结构参考 / img2img 主体）
+    as_input=False -> 写入 ref_latents（语义参考 / image prompt）
+
+    返回实际写入的图片数量（0 表示该引擎不支持，需要上层退化处理）。
+    依赖引擎自身的 encode_first_stage：Krea2 存原始图像张量、
+    Flux-Kontext 存 latent，具体由引擎决定，这里不越俎代庖。
+    """
+    global final_model_ori
+    if final_model_ori is None or not core.is_flow_engine(final_model_ori):
+        return 0
+    if engine_reference_kind() != 'ref_latents':
+        return 0
+    if images is None:
+        return 0
+    if isinstance(images, torch.Tensor):
+        images = [images]
+    images = list(images)
+    if not images:
+        return 0
+
+    # Krea2 / Anima 的参考逻辑由 opts.*_do_reference 控制；用户给了参考图就临时打开。
+    try:
+        from modules.shared import opts as _opts
+        if getattr(dynamic_args, 'krea2', False):
+            _opts.krea2_do_reference = True
+        if getattr(dynamic_args, 'anima', False):
+            _opts.anima_do_reference = True
+        if getattr(dynamic_args, 'klein', False):
+            _opts.klein_do_reference = True
+    except Exception as _e:
+        printF(name=MasterName.get_master_name(),
+               info="[Reference] opts.*_do_reference 打开失败: {}".format(_e)).printf()
+
+    # 记录写入前的状态：引擎可能因为 *_do_reference 开关关闭而**静默不存储**，
+    # 必须按“实际变化”计数，否则上层会误以为参考已生效 → 变成纯文生图。
+    try:
+        _before_ref = len(getattr(final_model_ori, "ref_latents", []) or [])
+    except Exception:
+        _before_ref = 0
+
+    old_ref = bool(getattr(dynamic_args, 'is_referencing', False))
+    try:
+        dynamic_args.is_referencing = not as_input
+        for img in images:
+            try:
+                final_model_ori.encode_first_stage(_image_nhwc_to_engine_input(img))
+            except Exception as e:
+                printF(name=MasterName.get_master_name(),
+                       info="[Reference] encode {} failed: {}".format(
+                           'ini_latent' if as_input else 'ref_latent', e)).printf()
+    finally:
+        dynamic_args.is_referencing = old_ref
+
+    # 诊断：确认引擎侧开关真的生效（anima_do_reference=False 时 encode 静默丢弃）
+    try:
+        from modules.shared import opts as _opts
+        _sw = getattr(_opts, 'anima_do_reference', '<unset>')
+    except Exception:
+        _sw = '<opts unavailable>'
+    printF(name=MasterName.get_master_name(),
+           info="[Reference][DIAG] after encode: ini_latent={}, opts.anima_do_reference={}"
+                .format(getattr(final_model_ori, 'ini_latent', None) is not None, _sw)).printf()
+
+    # 按实际存储量计数
+    if as_input:
+        _after_ini = getattr(final_model_ori, "ini_latent", None) is not None
+        used = 1 if _after_ini else 0
+    else:
+        try:
+            _after_ref = len(getattr(final_model_ori, "ref_latents", []) or [])
+        except Exception:
+            _after_ref = _before_ref
+        used = max(0, _after_ref - _before_ref)
+
+    printF(name=MasterName.get_master_name(),
+           info="[Reference] engine={} kind={} wrote {} image(s) to {}".format(
+               type(final_model_ori).__name__, engine_reference_kind(), used,
+               'ini_latent' if as_input else 'ref_latents')).printf()
+    return used
+
+
+def clear_engine_references():
+    """清除 flow 引擎与 dynamic_args 中的参考缓存（换图 / 关闭参考时调用）。"""
+    global final_model_ori
+    try:
+        if final_model_ori is not None:
+            final_model_ori.ini_latent = None
+            if hasattr(final_model_ori, 'ref_latents'):
+                final_model_ori.ref_latents.clear()
+    except Exception:
+        pass
+    try:
+        dynamic_args.ref_latents.clear()
+        dynamic_args.is_referencing = False
+    except Exception:
+        pass
+
+
+def engine_reference_needs_full_denoise():
+    """原生参考（ini_latent）会把结构直接拼进 latent 序列，
+    此时应全量重绘（denoise=1），否则会与“结构初始 latent”重复约束。"""
+    return engine_reference_kind() == 'ref_latents'
+
+
 @torch.no_grad()
 @torch.inference_mode()
 def vae_parse(latent):
@@ -2003,7 +2283,27 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
     # 模型 x_embedder 需要 16 通道 + 5D 输入 → 采样第一步就崩。
     target_is_flow = core.is_flow_engine(target_model_ori)
 
-    if latent is None:
+    if latent is None and img2img and input_image is not None:
+        # ===== img2img：把输入图编码成初始 latent（之前这里直接丢弃 input_image，
+        # 永远从空 latent 起步 → 看起来像文生图） =====
+        _i2i_vae = target_vae if target_vae is not None else (
+            target_model_ori.forge_objects.vae if target_is_flow else None)
+        if _i2i_vae is None:
+            raise RuntimeError("[img2img] no VAE available to encode the input image.")
+        # 仅对会做 2x2 patchify 的 VAE（MOSS / Wan）对齐尺寸，避免 einops 崩；
+        # Flux2(Klein)/SDXL 保持原始尺寸，防止无谓的缩放影响构图。
+        if _vae_needs_patch_align(_i2i_vae):
+            input_image = _align_img2img_pixels(input_image, _i2i_vae)
+        # 注意：采样器 Sampler.inner_sample 会对初始 latent 自动做 process_latent_in，
+        # 因此这里必须传 **VAE 空间**（未 process_in）的 latent —— 即原始的 core.encode_vae。
+        initial_latent = core.encode_vae(vae=_i2i_vae, pixels=input_image)
+        _i2i_lat = initial_latent["samples"]
+        printF(name=MasterName.get_master_name(),
+               info="[Sampler] img2img latent encoded from input image, shape={} denoise={:.3f} "
+                    "(init weight = {:.0%}, mean={:+.4f}, std={:.4f})".format(
+                   tuple(_i2i_lat.shape), denoise, max(0.0, 1.0 - float(denoise)),
+                   float(_i2i_lat.float().mean()), float(_i2i_lat.float().std()))).printf()
+    elif latent is None:
         if target_is_flow:
             _flow_vae = target_model_ori.forge_objects.vae
             latent_channels = _flow_vae.latent_channels
@@ -2064,13 +2364,46 @@ def process_diffusion(positive_cond, negative_cond, steps, switch, width, height
     printF(name=MasterName.get_master_name(),
            info="[Sampler] refiner_swap_method = {}".format(refiner_swap_method)).printf()
 
+    # ===== 按模型族校正 flow shift（本 App 没有 UI 入口，也没有走 processing.py 的 set_shift）=====
+    # shift 残留在 predictor 上会导致 sigma_min 高达 0.5 → 低噪声精修段被跳过 → 糊 + 过饱和。
+    try:
+        if core.is_flow_engine(target_model_ori):
+            _sset = dict(getattr(getattr(target_model_ori, "model_config", None), "sampling_settings", {}) or {})
+            _want = _sset.get("shift", None)
+            _pred = getattr(getattr(target_model_ori.forge_objects.unet, "model", None), "predictor", None)
+            if _want is not None and _pred is not None:
+                _cur = float(getattr(_pred, "shift", _want))
+                if abs(_cur - float(_want)) > 1e-6:
+                    _pred.set_parameters(shift=float(_want))
+                    printF(name=MasterName.get_master_name(),
+                           info="[Sampler] shift {:.3f} -> {:.3f}（{}：按模型族 sampling_settings 校正）".format(
+                               _cur, float(_want), type(target_model_ori).__name__)).printf()
+    except Exception as _e:
+        printF(name=MasterName.get_master_name(),
+               info="[Sampler] shift 校正失败: {}".format(_e)).printf()
+
     minmax_sigmas = calculate_sigmas(sampler=sampler_name, scheduler=scheduler_name, model=final_unet.model,
                                      steps=steps, denoise=denoise)
     sigma_min, sigma_max = minmax_sigmas[minmax_sigmas > 0].min(), minmax_sigmas.max()
     sigma_min = float(sigma_min.cpu().numpy())
     sigma_max = float(sigma_max.cpu().numpy())
+    # shift（= UI 的 Shift / Distilled CFG Scale）直接决定 sigma 分布：
+    #   sigma = shift*t / (1 + (shift-1)*t)
+    # shift 过大时 sigma_min 会被抬得很高（例如 0.5），低噪声精修段几乎全被跳过
+    # → 出图“结构对但糊 + 过饱和”。这里把 shift / steps / 实际 sigma 序列一起打出来。
+    _shift_now = None
+    try:
+        _shift_now = float(getattr(getattr(final_unet.model, "predictor", None), "shift", None))
+    except Exception:
+        _shift_now = None
     printF(name=MasterName.get_master_name(),
-           info="[Sampler] sigma_min = {}, sigma_max = {}".format(sigma_min, sigma_max)).printf()
+           info="[Sampler] sigma_min = {}, sigma_max = {} | shift={} steps={} sampler={}/{} "
+                "| sigmas={} ... {}".format(
+                    sigma_min, sigma_max,
+                    _shift_now if _shift_now is not None else "?",
+                    steps, sampler_name, scheduler_name,
+                    [round(float(s), 4) for s in minmax_sigmas[:4]],
+                    [round(float(s), 4) for s in minmax_sigmas[-3:]])).printf()
 
     try:
         modules.patch.BrownianTreeNoiseSamplerPatched.global_sampler = None

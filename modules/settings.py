@@ -24,7 +24,7 @@ def load_settings():
     settings['custom_switch'] = 0.75
     settings['img2img_mode'] = False
     settings['img2img_start_step'] = 0.06
-    settings['img2img_denoise'] = 0.94
+    settings['img2img_denoise'] = 0.8
     settings['img2img_scale'] = 1.0
     settings['control_lora_canny'] = False
     settings['canny_edge_low'] = 0.2

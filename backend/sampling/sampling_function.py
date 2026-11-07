@@ -95,6 +95,9 @@ def cond_equal_size(c1, c2):
 def can_concat_cond(c1, c2):
     if not shared.batch_cond_uncond:
         return False
+    # FLUX.3：正/负向的 token 数不同（各自补齐到 80 的倍数），不能拼 batch
+    if getattr(dynamic_args, "flux3", False):
+        return False
     if c1.input_x.shape != c2.input_x.shape:
         return False
 

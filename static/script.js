@@ -1,4 +1,58 @@
 // script.js - Gradio 6 兼容版（基于 AUTOMATIC1111 的脚本，适配动态渲染）
+
+/* ===== 完成通知音：定义在 IIFE 之前 =====
+   原因：本文件末尾的 IIFE 里任何一处报错都会让后面的 window.playNotification 不存在，
+   导致 Gradio 的 js='playNotification' 抛 ReferenceError。
+   这里提前定义，并加两级兜底：
+     1) 页面上有 #audio_notification 的 <audio>（notification.mp3 存在时会出现）→ 直接播；
+     2) 否则用 WebAudio 生成两声提示音（不依赖任何音频文件）。 */
+(function () {
+    function _notifyAudioEl() {
+        try {
+            return document.querySelector('#audio_notification audio');
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function _beep() {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        const ctx = window.__mvNotifyCtx || (window.__mvNotifyCtx = new AC());
+        if (ctx.state === 'suspended' && ctx.resume) ctx.resume();
+        const t0 = ctx.currentTime;
+        [880.0, 1174.66].forEach(function (freq, i) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            const s = t0 + i * 0.18;
+            gain.gain.setValueAtTime(0.0001, s);
+            gain.gain.exponentialRampToValueAtTime(0.22, s + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, s + 0.16);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(s);
+            osc.stop(s + 0.18);
+        });
+    }
+
+    window.playNotification = function () {
+        const el = _notifyAudioEl();
+        if (el) {
+            try {
+                el.currentTime = 0;
+                const p = el.play();
+                if (p && p.catch) p.catch(function (e) { console.warn('playNotification:', e); _beep(); });
+                return;
+            } catch (e) {
+                console.warn('playNotification:', e);
+            }
+        }
+        _beep();
+    };
+})();
+
 (function() {
     // 确保 waitForElm 存在（如果 viewer.js 未加载，则自行定义）
     if (typeof waitForElm === 'undefined') {
@@ -229,10 +283,8 @@
         return isOnScreen;
     };
 
-    window.playNotification = function() {
-        const audio = gradioApp().querySelector('#audio_notification audio');
-        if (audio) audio.play().catch(e => console.warn("Notification play failed:", e));
-    };
+    // window.playNotification 已改在本文件顶部的独立 IIFE 中定义（带 WebAudio 兜底），
+    // 这里不再重复定义，避免覆盖掉兜底逻辑。
 
     window.set_theme = function(theme) {
         let gradioURL = window.location.href;

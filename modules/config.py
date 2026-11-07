@@ -432,6 +432,28 @@ default_mossimage_text_encoder = "qwen3.5_9b_int8_convrot.safetensors"
 default_anima_vae_name = "qwen_image_vae.safetensors"
 default_anima_text_encoder = "qwen_3_06b_base.safetensors"
 
+# FLUX.3（f3-image-small）：与 FLUX.2 共用 128ch packed VAE；TE 是 Qwen3-VL 4B
+default_flux3_vae_name = "flux2-vae.safetensors"
+default_flux3_sd_text_encoder = "qwen_3vl_4b_int8_convrot.safetensors"
+default_flux3_base_text_encoder = "qwen_3vl_4b_bf16.safetensors"
+
+# ===== Anima 的参考图（结构参考）行为 =====
+# Anima 的底座是 Cosmos-Predict2（MiniTrainDIT），上游没有“参考图”通道，
+# 本项目的做法是把参考 latent 当成额外一帧拼进时间轴。
+# 实测结论（Anima_Aesthetic-v1.1 + 结构图）：
+#   参考帧路径能让结构几乎完全正确，但模型会把“相邻的干净帧”当成未来帧去插值，
+#   于是细节被抹平 → 出图明显发糊/重影。
+# 因此默认关闭参考帧，图生图回退到**通用 img2img 初始 latent**（结构靠 denoise 控制）：
+#   default_anima_use_reference
+#       False -> 标准 img2img 初始 latent（默认，出图清晰；强度看 img2img_denoise，
+#                0.55~0.70 更贴结构，0.80~0.95 更锐利/更自由）
+#       True  -> 使用参考帧（结构最准，但细节偏软）
+#   default_anima_ref_frame_order
+#       "prepend" -> [参考帧, 生成帧]，取最后一帧（推荐，比旧行为清晰）
+#       "append"  -> [生成帧, 参考帧]，取第一帧（旧行为，最容易发糊/重影）
+default_anima_use_reference = False
+default_anima_ref_frame_order = "prepend"
+
 default_hunyuandit_vae_name = None
 default_hunyuandit_text_encoder_clip = None
 default_hunyuandit_text_encoder_mt5 = None
@@ -471,14 +493,16 @@ model_types = [
     # "SD3",
     # "StableAudio",
     # "AuraFlow",
-    # "QwenImage",
+    # "QwenImage3",
+    # "QwenImage2_1",
     # "HunyuanDiT",
     "Krea2",
-    # "Flux3",
     "Flux1_Schnell",
     "Flux1_DEV",
-    # "Flux2_DEV",
+    "Flux2_DEV",
     "Flux2_Klein",
+    "Flux3_Klein_Step_Distilled",
+    "Flux3_Klein_Base",
     # "Kolors",
     "ZImage_Turbo",
     "ZImage_Base",
@@ -489,6 +513,116 @@ model_types = [
     # ---- Anima ----
     "Anima",
 ]
+
+# ===== 图生图（img2img）denoise 的按模型族配置 =====
+# 不同模型族的“噪声语义”完全不同，同一个 denoise 数值效果差别巨大：
+#   * flow matching（Flux / ZImage / Anima / Moss / Krea2 / QwenImage …）
+#       起始 sigma ≈ denoise，初始 latent（结构图）权重 = 1 - denoise
+#       → denoise=1.00 权重 0%（等于纯文生图，看起来“图生图没生效”）
+#       → denoise=0.94 权重 6%（几乎看不出结构）
+#       → denoise=0.60~0.70 才是“像原图但更好看”
+#   * SD / SDXL（VP 噪声，A1111 语义）
+#       0.30~0.70 常见，0.94 同样几乎等于重画
+#   * 蒸馏模型（Flux-Schnell / ZImage-Turbo / Moss-SFT / 少步数模型）
+#       去噪预算少，denoise 过高会崩/糊 → 0.35~0.55
+# key 用小写子串匹配（model_type_selector 优先，其次 get_model_file_type 的返回值）；
+# 长 key 优先匹配（flux2_klein 先于 flux2，zimage_turbo 先于 zimage）。
+img2img_denoise_profiles = {
+    "sdxl":            dict(recommend=0.55, minimum=0.25, maximum=0.80, note="SDXL：A1111 语义，>0.8 基本重画"),
+    "sd15":            dict(recommend=0.55, minimum=0.25, maximum=0.80, note="SD1.5：A1111 语义"),
+    "kolors":          dict(recommend=0.55, minimum=0.25, maximum=0.80, note="Kolors：SD 系语义"),
+    "flux1_schnell":   dict(recommend=0.45, minimum=0.25, maximum=0.60, note="Flux-Schnell：蒸馏 4 步，denoise 过高会崩"),
+    "flux1_dev":       dict(recommend=0.60, minimum=0.35, maximum=0.72, note="Flux-dev：flow，sigma≈denoise"),
+    "flux2_klein":     dict(recommend=0.50, minimum=0.30, maximum=0.65, note="Flux2-Klein：蒸馏，denoise 过高会崩"),
+    "flux2":           dict(recommend=0.60, minimum=0.35, maximum=0.72, note="Flux2：flow，sigma≈denoise"),
+    "flux3_klein_base": dict(recommend=0.60, minimum=0.35, maximum=0.72, note="Flux3-Klein Base：flow，sigma≈denoise"),
+    "flux3_klein":     dict(recommend=0.50, minimum=0.30, maximum=0.65, note="Flux3-Klein：蒸馏，denoise 过高会崩"),
+    "flux3":           dict(recommend=0.55, minimum=0.30, maximum=0.70, note="Flux3：flow，sigma≈denoise"),
+    "zimage_turbo":    dict(recommend=0.45, minimum=0.25, maximum=0.60, note="ZImage-Turbo：蒸馏 8 步，denoise 过高会糊"),
+    "zimage":          dict(recommend=0.60, minimum=0.35, maximum=0.72, note="ZImage-Base：flow，sigma≈denoise"),
+    "anima":           dict(recommend=0.65, minimum=0.40, maximum=0.72, note="Anima：flow，sigma≈denoise，>0.72 结构基本丢失"),
+    "mossimage_sft":   dict(recommend=0.50, minimum=0.30, maximum=0.65, note="MOSS-Image SFT：denoise 过高会崩"),
+    "mossimage":       dict(recommend=0.55, minimum=0.30, maximum=0.70, note="MOSS-Image Base：flow"),
+    "krea2":           dict(recommend=0.60, minimum=0.35, maximum=0.72, note="Krea2：flow，sigma≈denoise"),
+    "qwenimage":       dict(recommend=0.60, minimum=0.35, maximum=0.72, note="Qwen-Image：flow，sigma≈denoise"),
+    "hunyuan":         dict(recommend=0.55, minimum=0.30, maximum=0.70, note="HunyuanDiT：denoise 过高会糊"),
+}
+
+# 未匹配到模型族时的保守默认（相当于 SDXL 语义）
+img2img_denoise_default_profile = dict(recommend=0.60, minimum=0.25, maximum=0.80,
+                                       note="通用默认：flow/SD 都能用的中间值")
+
+
+# ===== 模型类型 → (sampler, scheduler) 预设 =====
+# 与 webui_server.MODEL_TYPE_PRESETS 的 sampler_pairs 对齐，但放在 config 里，
+# 让后端（procedure/worker）也能在 switch_sampler=True 时按模型族强制套用——
+# 不依赖 Gradio 事件是否把下拉框改成功。
+# 解析顺序：长 key 优先（flux3_klein_base 先于 flux3），取第一个“两项都合法”的组合。
+model_type_sampler_pairs = {
+    "flux3_klein_base": [("euler", "simple"), ("dpmpp_2m", "normal")],
+    "flux3":            [("euler", "simple"), ("dpmpp_2m", "normal")],
+    "flux2_klein":      [("euler", "simple")],
+    "flux2":            [("euler", "simple"), ("euler", "beta")],
+    "flux1_schnell":    [("euler", "simple")],
+    "flux1_dev":        [("euler", "beta"), ("euler", "karras")],
+    "flux1":            [("euler", "simple")],
+    "zimage_turbo":     [("euler_ancestral", "beta"), ("dpmpp_sde", "beta")],
+    "zimage":           [("dpmpp_2m", "karras"), ("euler", "simple")],
+    "anima":            [("res_multistep", "beta"), ("er_sde", "beta"), ("euler", "simple")],
+    "mossimage_sft":    [("euler", "sgm_uniform")],
+    "mossimage":        [("euler", "sgm_uniform"), ("er_sde", "simple")],
+    "krea2":            [("euler", "simple")],
+    "qwenimage":        [("euler", "simple")],
+    "hunyuan":          [("dpmpp_2m", "karras")],
+    "sdxl":             [("dpmpp_2m", "karras"), ("dpmpp_sde", "karras")],
+}
+
+model_type_sampler_pairs_default = [("euler", "simple")]
+
+
+def get_model_type_sampler_pairs(model_type_name):
+    """返回该模型族的 (sampler, scheduler) 候选列表（长 key 优先匹配）。"""
+    key = _norm_model_key(model_type_name)
+    if key:
+        for raw in sorted(model_type_sampler_pairs, key=len, reverse=True):
+            if _norm_model_key(raw) in key:
+                return list(model_type_sampler_pairs[raw])
+    return list(model_type_sampler_pairs_default)
+
+
+def _norm_model_key(text):
+    """'FLUX.1 [dev]' -> 'flux1dev'；'ZImage-Turbo' -> 'zimageturbo'。"""
+    return "".join(ch for ch in str(text or "").lower() if ch.isalnum())
+
+
+def get_img2img_denoise_profile(*names):
+    """按模型族返回 img2img denoise 的推荐值/可用区间。
+
+    参数按优先级给出候选名字（如 UI 的 model_type_selector、preset 标签、
+    以及 get_model_file_type() 的返回值），第一个命中的生效。
+
+    名字会去掉标点后再做子串匹配（'FLUX.1 [dev]' / 'flux1_dev' / 'Flux1_DEV'
+    都能命中 'flux1dev'），长 key 优先，避免 flux2_klein 被 flux2 抢走。
+
+    返回 dict(recommend, minimum, maximum, note, matched)。
+    """
+    keys = sorted(img2img_denoise_profiles.keys(), key=len, reverse=True)
+    norm_keys = [(k, _norm_model_key(k)) for k in keys]
+
+    for name in names:
+        key = _norm_model_key(name)
+        if not key:
+            continue
+        for raw, norm in norm_keys:
+            if norm and norm in key:
+                prof = dict(img2img_denoise_default_profile)
+                prof.update(img2img_denoise_profiles[raw])
+                prof["matched"] = raw
+                return prof
+
+    prof = dict(img2img_denoise_default_profile)
+    prof["matched"] = "default"
+    return prof
 
 # ---- ZImage 分支拆分：Turbo（蒸馏快速版）/ Base（基础版） ----
 # 公共默认（两分支共用，可在各自 dict 里覆盖）

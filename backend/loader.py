@@ -1,4 +1,5 @@
-import importlib
+﻿import importlib
+import json
 import logging
 import os.path
 from functools import partial
@@ -49,6 +50,7 @@ from backend.diffusion_engine.chroma import Chroma
 from backend.diffusion_engine.ernie import ErnieImage
 from backend.diffusion_engine.flux import Flux
 from backend.diffusion_engine.flux2 import Flux2
+from backend.diffusion_engine.flux3_image import Flux3Image
 from backend.diffusion_engine.krea import Krea2
 from backend.diffusion_engine.lumina import Lumina2
 from backend.diffusion_engine.moss_image import MOSSImage
@@ -76,7 +78,7 @@ from backend.utils import (
 )
 from modules_forge.packages.comfy.utils import convert_diffusers_mmdit
 
-possible_models: tuple["ForgeDiffusionEngine"] = (StableDiffusion, StableDiffusionXLRefiner, StableDiffusionXL, Mugen, Chroma, Flux, Flux2, Wan, QwenImage, QwenImage21, Krea2, Lumina2, ZImage, Anima, ErnieImage, PiD, MOSSImage)
+possible_models: tuple["ForgeDiffusionEngine"] = (StableDiffusion, StableDiffusionXLRefiner, StableDiffusionXL, Mugen, Chroma, Flux, Flux2, Flux3Image, Wan, QwenImage, QwenImage21, Krea2, Lumina2, ZImage, Anima, ErnieImage, PiD, MOSSImage)
 
 
 HF = os.path.join(os.path.dirname(__file__), "huggingface")
@@ -423,7 +425,7 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
 
         # region UNet / DiT
 
-        if cls_name in ["UNet2DConditionModel", "FluxTransformer2DModel", "Flux2Transformer2DModel", "ChromaTransformer2DModel", "WanTransformer3DModel", "QwenImageTransformer2DModel", "QwenImage21Transformer2DModel", "Lumina2Transformer2DModel", "ZImageTransformer2DModel", "CosmosTransformer3DModel", "ErnieImageTransformer2DModel", "PiDTransformer2DModel", "Krea2Transformer2DModel", "MOSSImageTransformer"]:
+        if cls_name in ["UNet2DConditionModel", "FluxTransformer2DModel", "Flux2Transformer2DModel", "Flux3Transformer2DModel", "ChromaTransformer2DModel", "WanTransformer3DModel", "QwenImageTransformer2DModel", "QwenImage21Transformer2DModel", "Lumina2Transformer2DModel", "ZImageTransformer2DModel", "CosmosTransformer3DModel", "ErnieImageTransformer2DModel", "PiDTransformer2DModel", "Krea2Transformer2DModel", "MOSSImageTransformer"]:
             assert isinstance(state_dict, dict) and len(state_dict) > 16, "You do not have model state dict!"
             pre_func: Callable[[torch.nn.Module], torch.nn.Module] = lambda mdl: mdl
             model_loader = None
@@ -497,6 +499,11 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
                 from backend.nn.moss_image import MOSSImage as MOSSImageDiT
 
                 model_loader = lambda c: MOSSImageDiT(**c)
+            elif cls_name.startswith("Flux3"):
+                # FLUX.3 Image DiT（content/txt 双流 + 早期调制 + 28 single block）
+                from backend.nn.flux3 import Flux3
+
+                model_loader = lambda c: Flux3(**c)
 
             load_device = memory_management.get_torch_device()
             offload_device = memory_management.unet_offload_device()
@@ -908,11 +915,107 @@ def _normalize_flux2_vae_keys(state_dict: dict) -> dict:
         return state_dict
 
 
+def _synthesize_quant_metadata(sd: dict, metadata: dict) -> dict:
+    """给“没有 comfy_quant 的 int8 + weight_scale”权重复原量化元数据。
+
+    例如 FLUX.3 的 f3-image-small int8_convrot 权重：`<layer>.weight` 是 int8，
+    旁边只有 `<layer>.weight_scale`（F32 [N,1]），没有 `.comfy_quant`。
+    不合成元数据的话，detect_quantization 返回 None → int8 权重会被当成 bf16
+    直接 cast，数值完全错误（出图必然是噪声）。
+    """
+    if not isinstance(sd, dict):
+        return metadata
+    if metadata and metadata.get("_quantization_metadata"):
+        return metadata
+    if any(str(k).endswith(".comfy_quant") for k in sd):
+        return metadata
+
+    layers = {}
+    for k, v in sd.items():
+        if not str(k).endswith(".weight") or not torch.is_tensor(v) or v.dtype != torch.int8:
+            continue
+        layer = k[: -len(".weight")]
+        if "{}.weight_scale".format(layer) in sd:
+            layers[layer] = {"format": "int8_tensorwise"}
+
+    if len(layers) < 8:
+        return metadata
+
+    metadata = dict(metadata or {})
+    metadata["_quantization_metadata"] = json.dumps({"layers": layers})
+    logger.info("[quant] 合成 int8_tensorwise 元数据：%d 层（int8 + weight_scale，无 comfy_quant）", len(layers))
+    return metadata
+
+
+from backend.quant_convrot import (
+    detect_convrot as _detect_convrot,
+    unrotate_convrot_weights as _unrotate_convrot_weights,
+)
+
+
+def _ck_supports_convrot() -> bool:
+    """探测 comfy_kitchen.int8_linear 是否支持 convrot（CUDA 内核可用性）。
+
+    用 1×256 的最小张量试一次：不支持时内核会抛异常或返回错误形状。
+    """
+    try:
+        import comfy_kitchen as ck
+
+        dev = "cuda" if torch.cuda.is_available() else "cpu"
+        x = torch.zeros(1, 256, device=dev, dtype=torch.bfloat16)
+        w = torch.zeros(8, 256, device=dev, dtype=torch.int8)
+        s = torch.ones(8, 1, device=dev, dtype=torch.float32)
+        out = ck.int8_linear(x, w, s, None, torch.bfloat16,
+                             convrot=True, convrot_groupsize=256)
+        ok = tuple(out.shape) == (1, 8)
+        logger.info("[quant] comfy_kitchen.int8_linear(convrot=True) 可用: %s", ok)
+        return ok
+    except Exception as e:
+        logger.warning("[quant] comfy_kitchen.int8_linear(convrot=True) 不可用: %s", e)
+        return False
+
+
+def _enable_convrot_activation_rotation(sd: dict) -> None:
+    """int8+convrot 权重：优先**保持文件里的旋转态**，交给 comfy_kitchen 原生内核。
+
+    原因：`backend.quant_ops` 里的 TensorWiseINT8Layout 直接从 comfy_kitchen 导入，
+    它的 mm 分支会调用 `comfy_kitchen.int8_linear(..., convrot=True, groupsize)`，
+    **内部已经完成“旋转激活 + int8 GEMM”**。我们自己再转一次就是双旋转 → 马赛克。
+
+    若该内核在当前离线环境不可用（例如只有 eager/no-triton），则回退到
+    “反旋转权重 + 重算 scale”的兼容路径（已验证可出图，代价是多一层 quant 误差）。
+    """
+    enabled, gs = _detect_convrot(sd)
+
+    try:
+        from backend.nn.flux3 import set_convrot
+
+        set_convrot(False, gs)     # 任何情况下都不让 DiT 自己旋转
+    except Exception as e:  # pragma: no cover
+        logger.warning("[quant] set_convrot failed: %s", e)
+
+    if not enabled:
+        _unrotate_convrot_weights(sd)   # 非 convrot 的 int8 权重：保持旧兼容路径
+        return
+
+    if _ck_supports_convrot():
+        logger.info("[quant] 检测到 convrot(gs=%d)：权重保持旋转态，"
+                    "由 comfy_kitchen.int8_linear(convrot=True) 处理（零重现误差）", gs)
+        return
+
+    logger.warning("[quant] convrot 内核不可用 → 回退“反旋转+重算 scale”路径"
+                   "（可出图，但有约 1%% 额外量化误差）")
+    _unrotate_convrot_weights(sd)
+
+
 def _load_unet(path: os.PathLike):
     from modules_forge.packages import huggingface_guess  # ← 新，用 Forge 自带版
     import traceback
 
     sd, metadata = load_torch_file(path, return_metadata=True)
+    metadata = _synthesize_quant_metadata(sd, metadata)
+    # int8 + convrot（Comfy-Kitchen）：保留旋转权重，由 DiT 在前向旋转激活
+    _enable_convrot_activation_rotation(sd)
     sd, metadata = convert_quantization(sd, metadata)
     sd = preprocess_state_dict(sd)
 
@@ -941,6 +1044,8 @@ def _load_diffuser(path: os.PathLike):
     import traceback
 
     sd, metadata = load_torch_file(path, return_metadata=True)
+    metadata = _synthesize_quant_metadata(sd, metadata)
+    _enable_convrot_activation_rotation(sd)
     sd, metadata = convert_quantization(sd, metadata)
     if (sd := convert_diffusers_mmdit(sd, "")) is None:
         raise ModuleNotFoundError("Failed to recognize model...")

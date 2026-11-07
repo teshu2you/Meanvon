@@ -367,6 +367,75 @@ class Flux2K9B(Flux):
         return {"qwen3_8b.transformer": "text_encoder"}
 
 
+class Flux3Image(BASE):
+    # FLUX.3 Image（f3-image-small 系列）：content/txt 双流 block + 28 个 single block。
+    # 与 FLUX.2 共用 128 通道 packed VAE（AutoencoderKLFlux2，16x 下采样），
+    # 文本编码器是 Qwen3-VL 4B（8 层 tap 拼接成 20480 维）。
+    huggingface_repo = "Flux3"
+
+    unet_config = {
+        "image_model": "flux3",
+        "hidden_size": 3072,
+        "num_heads": 24,
+        # 蒸馏版（Klein Step_Distilled）权重带 ref_time_in → flow_map=True。
+        # 完整版没有这个分支，由下面的 Flux3Base（flow_map=False）接住。
+        "flow_map": True,
+    }
+
+    sampling_settings = {
+        # FLUX 家族的 timestep 走 sigma(0..1)：flux3 的 time_in 用
+        # timestep_embedding(t, 256)（内部 time_factor=1000），所以 multiplier 必须 1.0，
+        # 否则 t 被放大约 1000 倍 → 时间嵌入失效 → 出图纯噪声。
+        "multiplier": 1.0,
+        # shift：实测（1024², euler+simple, 16 步, cfg1.0）
+        #   shift=1.00 → decoder out std 0.809，33% 像素压成纯黑（对比过大）
+        #   shift=2.02 → decoder out std 0.453，影调温和（当前基线）
+        # 结论：shift↑ ⇒ 对比度↓。嫌过曝/对比过大就继续上调（2.5 / 3.0）。
+        "shift": 2.02,
+    }
+
+    unet_extra_config = {}
+    # 必须用 Flux2Image（恒等缩放）：FLUX.3 与 FLUX.2/MOSS 共用 AutoencoderKLFlux2
+    # （packed 128ch VAE，BN 归一化 latent）。latent.Flux2 的 0.3611 缩放会把
+    # 采样器出口/VAE 入口的 latent 再乘 2.77 倍，实测 = 发糊 + 过曝 + 彩色噪。
+    latent_format = latent.Flux2Image
+
+    memory_usage_factor = 14.6
+
+    supported_inference_dtypes = [torch.bfloat16, torch.float16, torch.float32]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {"qwen3vl_4b.transformer": "text_encoder"}
+
+
+class Flux3Base(Flux3Image):
+    """FLUX.3 Klein **Base（完整/非蒸馏版）**：权重里没有 ref_time_in（flow_map=False）。
+
+    与蒸馏版只有 sampling_settings 的差异（步数 / CFG 由 UI preset 管）：
+      * 完整版引导未内化 → CFG 必须 >1（UI preset：50 步 / cfg 3.5 / euler+simple）
+      * shift 用 1.15（FLUX.1 dev 一类的 flow 基准），比蒸馏版的 2.02 更“实”
+    文本编码器在 modules/config.py 里分开：default_flux3_base_text_encoder。
+    """
+
+    unet_config = {
+        "image_model": "flux3",
+        "hidden_size": 3072,
+        "num_heads": 24,
+        "flow_map": False,
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 1.15,
+    }
+
+
+
 class Chroma(FluxSchnell):
     huggingface_repo = "Chroma"
 
@@ -727,6 +796,8 @@ models = [
     FluxSchnell,
     Flux2K4B,
     Flux2K9B,
+    Flux3Image,
+    Flux3Base,
     Chroma,
     Lumina2,
     ZImage,

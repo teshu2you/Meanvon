@@ -40,6 +40,32 @@ def calculate_transformer_depth(prefix, state_dict_keys, state_dict):
 def detect_unet_config(state_dict: dict, key_prefix: str) -> dict:
     state_dict_keys = list(state_dict.keys())
 
+    # FLUX.3 Image（f3-image-small）：content/txt 双流 block + joint single block。
+    # 键布局：emb_in.image / content_mode_blocks.image.N.* / txt_mode_blocks.N.* /
+    #         single_blocks.N.* / early_stream_modulations.* / final_layer.image.*
+    # 量化版（int8 convrot）同级还有 *.weight_scale。
+    _f3_emb = "{}emb_in.image.weight".format(key_prefix)
+    _f3_single = "{}single_blocks.0.".format(key_prefix)
+    if _f3_emb in state_dict_keys and (
+            _f3_single + "qkv.weight" in state_dict_keys
+            or _f3_single + "qkv.weight_scale" in state_dict_keys
+            or _f3_single + "q_proj.weight" in state_dict_keys
+            or _f3_single + "q_proj.weight_scale" in state_dict_keys):
+
+        dit_config = {"image_model": "flux3"}
+        w = state_dict[_f3_emb]
+        dit_config["in_channels"] = int(w.shape[1])
+        dit_config["hidden_size"] = int(w.shape[0])
+        dit_config["num_heads"] = max(1, int(w.shape[0]) // 128)
+        dit_config["depth"] = count_blocks(
+            state_dict_keys, "{}content_mode_blocks.image.".format(key_prefix) + "{}.")
+        dit_config["depth_single_blocks"] = count_blocks(
+            state_dict_keys, "{}single_blocks.".format(key_prefix) + "{}.")
+        dit_config["fused_qkv"] = (_f3_single + "qkv.weight" in state_dict_keys
+                                   or _f3_single + "qkv.weight_scale" in state_dict_keys)
+        dit_config["flow_map"] = "{}ref_time_in.in_layer.weight".format(key_prefix) in state_dict_keys
+        return dit_config
+
     if "{}cap_embedder.1.weight".format(key_prefix) in state_dict_keys and ("{}noise_refiner.0.attention.k_norm.weight".format(key_prefix) in state_dict_keys or "{}layers.0.attention.to_out.0.qweight".format(key_prefix) in state_dict_keys):  # Lumina 2
         dit_config = {}
         dit_config["image_model"] = "lumina2"
@@ -442,6 +468,10 @@ def top_candidate(state_dict, candidates):
 
 
 def unet_prefix_from_state_dict(state_dict: dict) -> str:
+    # FLUX.3 的权重是“无前缀”布局（content_mode_blocks.* / single_blocks.* 直接在最外层）
+    if sum(1 for k in state_dict if k.startswith(("single_blocks.", "content_mode_blocks."))) > 5:
+        return ""
+
     candidates = (
         "model.diffusion_model.",  # ldm/sgm models
         "net.",  # cosmos

@@ -16,6 +16,27 @@ from backend.text_processing.anima_engine import Qwen06Engine
 from modules.shared import opts
 
 
+# ===== 参考图（ref_latents）总开关 =====
+# Anima 的底座是 Cosmos-Predict2（MiniTrainDIT），上游没有“参考图”机制：
+# 这里只能把参考 latent 当成额外一帧拼进时间轴。这个补丁能很好地把结构带过来，
+# 但也会让模型倾向于“向参考帧插值” → 出图结构对、细节发糊。
+#   False → 不使用参考帧，结构图回退到通用 img2img 初始 latent（默认，清晰）
+#   True  → 使用参考帧（结构最准，细节偏软）
+# 可用 config.default_anima_use_reference 覆盖。
+ANIMA_USE_NATIVE_REFERENCE = False
+
+
+def anima_reference_enabled() -> bool:
+    try:
+        import modules.config as _cfg
+        v = getattr(_cfg, "default_anima_use_reference", None)
+        if isinstance(v, bool):
+            return v
+    except Exception:
+        pass
+    return ANIMA_USE_NATIVE_REFERENCE
+
+
 class Anima(ForgeDiffusionEngine):
     matched_guesses = [model_list.Anima]
 
@@ -48,7 +69,7 @@ class Anima(ForgeDiffusionEngine):
         memory_management.load_model_gpu(self.forge_objects.clip.patcher)
 
         if not prompt.is_negative_prompt:
-            if not opts.anima_do_reference:
+            if not opts.anima_do_reference or not anima_reference_enabled():
                 dynamic_args.ref_latents.clear()
             else:
                 _references = [*self.ref_latents]
@@ -68,7 +89,7 @@ class Anima(ForgeDiffusionEngine):
     def encode_first_stage(self, x: torch.Tensor):
         samples: torch.Tensor = super().encode_first_stage(x)
 
-        if opts.anima_do_reference:
+        if opts.anima_do_reference and anima_reference_enabled():
             sample = samples[0].detach().clone().unsqueeze(0).cpu()
             if dynamic_args.is_referencing:
                 self.ref_latents.append(sample)

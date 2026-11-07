@@ -1,0 +1,12 @@
+{
+  "_class_name": "Flux3Transformer2DModel",
+  "_diffusers_version": "0.38.0.dev0",
+  "in_channels": 128,
+  "hidden_size": 3072,
+  "num_attention_heads": 24,
+  "num_layers": 5,
+  "num_single_layers": 28,
+  "fused_qkv": true,
+  "flow_map": true,
+  "axes_dims_rope": [32, 32, 32, 32]
+}

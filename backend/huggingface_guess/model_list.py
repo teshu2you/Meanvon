@@ -939,6 +939,78 @@ class Flux2K9B(Flux):
             "qwen3_8b.transformer": "text_encoder",
         }
 
+class Flux3Image(BASE):
+    # FLUX.3 Image（f3-image-small）：content/txt 双流 block + 28 个 joint single block。
+    # 与 FLUX.2 共用 128 通道 packed VAE（AutoencoderKLFlux2，16x 下采样），
+    # 文本编码器是 Qwen3-VL 4B（8 层 tap 拼接成 20480 维）。
+    huggingface_repo = "Flux3"
+
+    unet_config = {
+        "image_model": "flux3",
+        "hidden_size": 3072,
+        "num_heads": 24,
+        "in_channels": 128,
+        # 蒸馏版（Klein Step_Distilled）带 ref_time_in → flow_map=True；
+        # 完整版由 Flux3Base（flow_map=False）接住。
+        "flow_map": True,
+    }
+
+    unet_extra_config = {}
+
+    sampling_settings = {
+        # FLUX 家族的 timestep 走 sigma(0..1)：flux3 的 time_in 用
+        # timestep_embedding(t, 256)（内部 time_factor=1000），multiplier 必须是 1.0，
+        # 否则 t 被放大约 1000 倍 → 时间嵌入失效 → 出图纯噪声。
+        "multiplier": 1.0,
+        # shift↑ ⇒ 对比度↓（实测 1.0 会压死 33% 暗部；2.02 是温和基线，可再试 2.5/3.0）
+        "shift": 2.02,
+    }
+
+    # 必须用 Flux2Image（恒等缩放）：FLUX.3 与 FLUX.2/MOSS 共用 AutoencoderKLFlux2
+    # （packed 128ch VAE，BN 归一化 latent），latent.Flux2 的 0.3611 缩放会把
+    # decode 入口的 latent 再乘一次，实测表现 = 画面发糊 + 过曝 + 彩色噪。
+    latent_format = latent.Flux2Image
+    memory_usage_factor = 14.6
+
+    supported_inference_dtypes = [
+        torch.bfloat16,
+        torch.float16,
+        torch.float32,
+    ]
+
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
+    unet_target = "transformer"
+
+    def clip_target(self, state_dict={}):
+        return {
+            "qwen3vl_4b.transformer": "text_encoder",
+        }
+
+class Flux3Base(Flux3Image):
+    """FLUX.3 Klein **Base（完整/非蒸馏版）**：权重里没有 ref_time_in（flow_map=False）。
+
+    与蒸馏版只有 sampling_settings 的差异（步数 / CFG 由 UI preset 管）：
+      * 完整版引导未内化 → CFG 必须 >1（UI preset：50 步 / cfg 3.5 / euler+simple）
+      * shift 用 1.15（FLUX.1 dev 一类的 flow 基准），比蒸馏版的 2.02 更“实”
+    文本编码器在 modules/config.py 里分开：default_flux3_base_text_encoder。
+    """
+
+    unet_config = {
+        "image_model": "flux3",
+        "hidden_size": 3072,
+        "num_heads": 24,
+        "in_channels": 128,
+        "flow_map": False,
+    }
+
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 1.15,
+    }
+
+
+
 class Krea2(BASE):
     huggingface_repo = "krea/Krea-2-Raw"
 
@@ -1240,6 +1312,8 @@ models = [
     Krea2,
     Flux2K4B,
     Flux2K9B,
+    Flux3Image,
+    Flux3Base,
     Kolors,
     Chroma,
     Anima,

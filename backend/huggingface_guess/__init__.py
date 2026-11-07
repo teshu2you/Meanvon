@@ -1,5 +1,23 @@
 from backend.huggingface_guess.detection import model_config_from_unet, unet_prefix_from_state_dict, model_config_from_diffusers_unet
 
+_FLUX3_KEY_PREFIXES = (
+    "content_mode_blocks.",
+    "txt_mode_blocks.",
+    "early_stream_modulations.",
+    "emb_in.image",
+)
+
+
+def looks_like_flux3(state_dict) -> bool:
+    try:
+        keys = state_dict.keys()
+    except AttributeError:
+        return False
+    for k in keys:
+        if isinstance(k, str) and k.startswith(_FLUX3_KEY_PREFIXES):
+            return True
+    return False
+
 
 def guess(state_dict):
     unet_key_prefix = unet_prefix_from_state_dict(state_dict)

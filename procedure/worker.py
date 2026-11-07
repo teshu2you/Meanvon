@@ -57,6 +57,103 @@ queue_task: QueueTask = None
 last_model_name = None
 
 
+def _gallery_entry_path(entry):
+    """Gallery 项兼容三种形态：
+    Gradio 5 返回 (path_or_dict, caption) 元组；老版本返回 dict({'name': path})
+    或纯路径 str。统一提取出本地路径。"""
+    if isinstance(entry, (tuple, list)) and len(entry) > 0:
+        entry = entry[0]
+    if isinstance(entry, dict):
+        return entry.get('name') or entry.get('image') or entry.get('path')
+    if isinstance(entry, str):
+        return entry
+    if isinstance(entry, (tuple, list)) and len(entry) > 1:
+        return entry[1]
+    return None
+
+
+def _blend_init_images(structure_image, semantic_image, semantic_weight=0.5):
+    """把“结构参考图”和“语义参考图”融合成一张 img2img 初始图。
+
+    两侧都是 (1, H, W, 3)、取值 [0,1] 的张量。语义图会先缩放到结构图尺寸，
+    再按 semantic_weight 加权平均，从而在无原生语义参考通道的模型上，
+    让 image_prompt_gallery 也真正影响图生图结果。
+    """
+    try:
+        w = float(semantic_weight)
+        w = max(0.0, min(1.0, w))
+        sem = semantic_image
+        if sem.shape[1:3] != structure_image.shape[1:3]:
+            sem = sem.permute(0, 3, 1, 2)
+            sem = torch.nn.functional.interpolate(
+                sem, size=(structure_image.shape[1], structure_image.shape[2]),
+                mode="bilinear", align_corners=False)
+            sem = sem.permute(0, 2, 3, 1)
+        blended = structure_image.to(torch.float32) * (1.0 - w) + sem.to(torch.float32) * w
+        return blended.clamp(0.0, 1.0)
+    except Exception as e:
+        printF(name=MasterName.get_master_name(),
+               info="[Reference] blend init failed: {}".format(e)).printf()
+        return structure_image
+
+
+def resolve_img2img_denoise(model_type_selector, model_name, user_denoise):
+    """按模型族把 img2img denoise 校到该模型能用的区间。
+
+    为什么必须动态调：不同模型族的噪声语义完全不同
+      * flow matching（Flux / ZImage / Anima / Moss / Krea2 / QwenImage …）
+        起始 sigma ≈ denoise，初始 latent（结构图）权重 = 1 - denoise
+        → 1.00 权重 0%（等于纯文生图，“图生图没生效”就是这个）
+        → 0.94 权重 6%（几乎看不出结构）
+      * SD / SDXL（VP 噪声，A1111 语义）：0.30~0.70 常见，0.94 也几乎等于重画
+      * 蒸馏模型（Flux-Schnell / ZImage-Turbo / Moss-SFT）：去噪预算少，
+        denoise 太高会崩/糊
+    具体数值见 modules/config.py::img2img_denoise_profiles。
+
+    规则（可预测优先）：
+      * 用户值 >= 0.999（滑块最大值 = “完全重画”，通常只是默认值）→ 用推荐值
+      * 超出该模型族的 [minimum, maximum] → 夹到区间边界
+      * 其余情况尊重用户值
+
+    返回 (最终 denoise, 日志文本)。
+    """
+    prof = config.get_img2img_denoise_profile(model_type_selector)
+    if prof.get("matched") == "default" and model_name:
+        # UI 选择器和实际权重文件不一致时，按权重文件名兜底判定
+        try:
+            prof = config.get_img2img_denoise_profile(
+                pipeline.get_model_file_type(model_name))
+        except Exception:
+            pass
+
+    lo = float(prof["minimum"])
+    hi = float(prof["maximum"])
+    rec = float(prof["recommend"])
+    try:
+        val = float(user_denoise)
+    except (TypeError, ValueError):
+        val = 1.0
+
+    if val >= 0.999:
+        final = rec
+        reason = "denoise=1.0 会完全丢弃初始 latent，改用推荐值"
+    elif val > hi:
+        final = hi
+        reason = "超过该模型族上限，已夹到 {}".format(hi)
+    elif val < lo:
+        final = lo
+        reason = "低于该模型族下限，已抬到 {}".format(lo)
+    else:
+        final = val
+        reason = "在推荐区间内，保持不变"
+
+    msg = ("[img2img] model_type={} (family={}) denoise {:.2f} -> {:.2f} | "
+           "推荐 {:.2f}，可用 {:.2f}~{:.2f} | {} | {}").format(
+        model_type_selector, prof["matched"], val, final, rec, lo, hi,
+        prof["note"], reason)
+    return final, msg
+
+
 class taskManager:
     from modules.patch import PatchSettings, patch_settings, patch_all
     patch_all()
@@ -200,6 +297,20 @@ class taskManager:
         self.revision_gallery_size = 0
         self.input_image_path = ""
 
+        # 参考图（图生图）能力状态：
+        #   _ref_kind               : 'clip_vision' / 'ref_latents' / None（由当前模型决定）
+        #   _engine_revision_used   : 本次实际写入引擎 ref_latents 的语义参考图数量
+        #   _semantic_fallback_path : 引擎无原生语义参考时，退化用该图做 img2img 初始图
+        #   _semantic_fallback_active: 本轮是否处于语义回退 img2img
+        self._ref_kind = None
+        self._engine_revision_used = 0
+        self._semantic_fallback_path = None
+        self._semantic_fallback_active = False
+        self._semantic_denoise = 0.6
+        # 参考编辑型引擎（Kontext/Krea2/Klein）：结构图已作为 ini_latent 注入，
+        # 采样从噪声全量生成（denoise=1），不再使用通用 img2img 初值。
+        self._native_structure_ref = False
+
         self.prompt = "1girl"
         self.negative_prompt = "nsfw"
         self.style_selections = []
@@ -222,6 +333,7 @@ class taskManager:
         self.img2img_start_step = 0.06
         self.img2img_denoise = 0.94
         self.img2img_scale = 1.0
+        self._effective_img2img = False
         self.revision_mode = False
         self.positive_prompt_strength = 1
         self.negative_prompt_strength = 1
@@ -531,9 +643,17 @@ class taskManager:
             self.save_metadata_to_images = args.pop()
             self.metadata_scheme = flags.MetadataScheme(args.pop())
 
-            self.input_gallery = args.pop() or []             # 关键修复
-            self.revision_gallery = args.pop() or []          # 关键修复
+            # 归一化：不管 Gradio 返回 str / dict / (file, caption) 元组，
+            # 统一提取成本地路径列表，后续 len() / 索引永远正确。
+            self.input_gallery = [p for p in map(_gallery_entry_path, (args.pop() or [])) if p]
+            self.revision_gallery = [p for p in map(_gallery_entry_path, (args.pop() or [])) if p]
             self.keep_input_names = args.pop()
+
+            printF(name=MasterName.get_master_name(),
+                   info="[Gallery] input_gallery: type=list len={} paths={}".format(
+                       len(self.input_gallery), self.input_gallery[:2])).printf()
+            printF(name=MasterName.get_master_name(),
+                   info="[Gallery] revision_gallery: len={}".format(len(self.revision_gallery))).printf()
             
             
             self.input_gallery_size = len(self.input_gallery) # 立即计算
@@ -1387,40 +1507,142 @@ class taskManager:
             printF(name=MasterName.get_master_name(), info="[Parameters] loras = {}".format(self.loras)).printf()
 
             is_sdxl = pipeline.is_base_sdxl()
+
+            # ===== 参考图能力判定（结构 / 语义） =====
+            # 结构参考(img2img_gallery)：所有模型统一走 process_diffusion 的通用 VAE 初始
+            #   latent，无需区分模型类型。
+            # 语义参考(image_prompt_gallery)：
+            #   - SDXL / SD1.5      -> CLIP-Vision（同时保留结构 img2img 回退）
+            #   - Flux-Kontext / Krea2 / Flux2-Klein / Anima / Qwen-Edit
+            #                       -> 引擎原生 ref_latents
+            #   - 纯 Flux / ZImage / MOSS -> 无原生通道，退化为“用参考图做 img2img 初始图”
+            try:
+                pipeline.clear_engine_references()
+            except Exception:
+                pass
+            self._ref_kind = 'clip_vision' if is_sdxl else pipeline.engine_reference_kind()
+            self._engine_revision_used = 0
+            self._semantic_fallback_path = None
+            self._semantic_fallback_active = False
+            self._semantic_denoise = 0.6
+
             if not is_sdxl:
-                printF(name=MasterName.get_master_name(), info="WARNING: using non-SDXL base model (supported in limited scope).").printf()
+                printF(name=MasterName.get_master_name(),
+                       info="[Reference] non-SDXL model: ref_kind={}, control-lora(canny/depth) "
+                            "仍仅限 SDXL，已自动关闭。".format(self._ref_kind)).printf()
+                # Control-LoRA (canny/depth) 只对 SDXL 有意义，其它模型保持关闭，避免误报错。
                 self.control_lora_canny = False
                 self.control_lora_depth = False
-                self.revision_mode = False
+
             pipeline.set_clip_skips(self.base_clip_skip)
-            if self.revision_mode:
-                pipeline.refresh_clip_vision()
+            if is_sdxl and self.revision_mode:
+                try:
+                    pipeline.refresh_clip_vision()
+                except Exception as _e:
+                    printF(name=MasterName.get_master_name(),
+                           info="[Reference] refresh_clip_vision failed, 将只用 img2img 语义回退：{}".format(
+                               _e)).printf()
             if self.control_lora_canny:
                 pipeline.refresh_controlnet_canny(self.canny_model)
             if self.control_lora_depth:
                 pipeline.refresh_controlnet_depth(self.depth_model)
 
             clip_vision_outputs = []
-            if self.revision_mode:
-                revision_images_paths = list(map(lambda x: x['name'], self.revision_gallery))
+            revision_images_paths = []
+            revision_strengths = []
+
+            # ===== 结构参考（img2img_gallery）=====
+            # 参考编辑型引擎（Kontext/Krea2/Klein）：把结构图写成引擎 ini_latent，
+            # 采样时从噪声全量生成并由该图条件引导 —— 这是这类模型正确的“图生图”方式。
+            # 其它模型仍走通用部分去噪初值（见 process_diffusion）。
+            self._native_structure_ref = False
+            _input_gallery = self.input_gallery or []
+            if self.img2img_mode and len(_input_gallery) > 0 and self._ref_kind == 'ref_latents':
+                _first_input_path = _gallery_entry_path(_input_gallery[0])
+                if _first_input_path:
+                    try:
+                        _ini_used = pipeline.set_engine_references(
+                            [self.get_image(_first_input_path)], as_input=True)
+                    except Exception as _e:
+                        _ini_used = 0
+                        printF(name=MasterName.get_master_name(),
+                               info="[Reference] 结构参考(ini_latent) 注入失败: {}".format(_e)).printf()
+                    if _ini_used > 0:
+                        self._native_structure_ref = True
+                    printF(name=MasterName.get_master_name(),
+                           info="[Reference] 结构图作为引擎 ini_latent 参考：{}".format(
+                               self._native_structure_ref)).printf()
+
+            # encode_prompts 在 manage_cns 之前执行，这里直接用真实 gallery 重新计算，
+            # 避免 config 里的 revision_gallery_size 缺失/过期（可能为 None）。
+            _revision_gallery = self.revision_gallery or []
+            self.revision_gallery_size = len(_revision_gallery)
+            if self.revision_gallery_size > 0:
+                revision_images_paths = [p for p in map(_gallery_entry_path, _revision_gallery) if p]
                 self.revision_images_filenames = list(
-                    map(lambda path: os.path.basename(path), revision_images_paths))
+                    map(lambda path: os.path.basename(path) if path else path, revision_images_paths))
                 revision_strengths = [self.revision_strength_1, self.revision_strength_2,
                                       self.revision_strength_3,
                                       self.revision_strength_4]
-                for i in range(self.revision_gallery_size):
-                    print(f'Revision for image {i + 1} ...')
-                    print(f'Revision for image {i + 1} started')
-                    if revision_strengths[i % 4] != 0:
-                        revision_image = self.get_image(revision_images_paths[i])
-                        clip_vision_output = modules.core.encode_clip_vision(pipeline.clip_vision,
-                                                                             revision_image)
-                        clip_vision_outputs.append(clip_vision_output)
-                    print(f'Revision for image {i + 1} finished')
             else:
-                revision_images_paths = []
                 self.revision_images_filenames = []
-                revision_strengths = []
+
+            if self.revision_mode and len(revision_images_paths) > 0:
+                if is_sdxl:
+                    # 旧路径：CLIP-Vision 语义嵌入（保留原有行为；本分支历史上未接入采样，
+                    # 因此这里再补一条通用的 img2img 语义回退，确保 SDXL 的 image_prompt 真正生效）
+                    for i in range(min(len(revision_images_paths), self.revision_gallery_size)):
+                        print(f'Revision for image {i + 1} ...')
+                        if revision_strengths[i % 4] != 0:
+                            try:
+                                revision_image = self.get_image(revision_images_paths[i])
+                                clip_vision_output = modules.core.encode_clip_vision(pipeline.clip_vision,
+                                                                                     revision_image)
+                                clip_vision_outputs.append(clip_vision_output)
+                            except Exception as _e:
+                                printF(name=MasterName.get_master_name(),
+                                       info="[Reference] CLIP-Vision encode failed for image {}: {}".format(
+                                           i + 1, _e)).printf()
+                        print(f'Revision for image {i + 1} finished')
+                    self._semantic_fallback_path = revision_images_paths[0]
+                    try:
+                        _s = float(revision_strengths[0]) if revision_strengths else 1.0
+                    except (TypeError, ValueError):
+                        _s = 1.0
+                    self._semantic_denoise = max(0.30, min(0.90, 0.45 + 0.20 * abs(_s)))
+                elif self._ref_kind == 'ref_latents':
+                    # 引擎原生语义参考：写入 ref_latents（Krea2 / Kontext / Klein / Anima / Qwen-Edit）
+                    _ref_imgs = []
+                    for i in range(min(len(revision_images_paths), self.revision_gallery_size)):
+                        if revision_strengths[i % 4] != 0:
+                            _ref_imgs.append(self.get_image(revision_images_paths[i]))
+                    self._engine_revision_used = pipeline.set_engine_references(_ref_imgs, as_input=False)
+                    printF(name=MasterName.get_master_name(),
+                           info="[Reference] 语义参考已写入引擎 ref_latents：{} 张".format(
+                               self._engine_revision_used)).printf()
+                    if self._engine_revision_used == 0:
+                        # 引擎路径失败 -> 退化为 img2img 语义回退，保证 image_prompt 不空转
+                        self._semantic_fallback_path = revision_images_paths[0]
+                        try:
+                            _s = float(revision_strengths[0]) if revision_strengths else 1.0
+                        except (TypeError, ValueError):
+                            _s = 1.0
+                        self._semantic_denoise = max(0.30, min(0.90, 0.45 + 0.20 * abs(_s)))
+                        printF(name=MasterName.get_master_name(),
+                               info="[Reference] 原生语义参考写入失败，退化为 img2img 语义回退"
+                                    "（denoise={:.2f}）".format(self._semantic_denoise)).printf()
+                else:
+                    # 无原生语义参考通道：退化为“用参考图做 img2img 初始图”
+                    self._semantic_fallback_path = revision_images_paths[0]
+                    try:
+                        _s = float(revision_strengths[0]) if revision_strengths else 1.0
+                    except (TypeError, ValueError):
+                        _s = 1.0
+                    self._semantic_denoise = max(0.30, min(0.90, 0.45 + 0.20 * abs(_s)))
+                    printF(name=MasterName.get_master_name(),
+                           info="[Reference] 当前引擎无原生语义参考，语义图将作为 img2img 初始图"
+                                "（denoise={:.2f}）。如需真正的语义参考，请使用 Krea2/Kontext/Edit 模型。".format(
+                                    self._semantic_denoise)).printf()
 
             for i in range(self.image_number):
                 if self.disable_seed_increment:
@@ -1491,8 +1713,24 @@ class taskManager:
                     t['uc'] = pipeline.clone_cond(t['c'])
                 else:
                     self.progressbar(async_task, 10, f'Encoding negative #{i + 1} ...')
-                    t['uc'] = pipeline.clip_encode(texts=t['negative'], pool_top_k=t['negative_top_k'], steps=self.steps)
-            # printF(name=MasterName.get_master_name(), info="[Parameters] tasks = {}".format(self.tasks)).printf()
+                    t['uc'] = pipeline.clip_encode(texts=t['negative'], pool_top_k=t['negative_top_k'],
+                                                   steps=self.steps, is_negative_prompt=True)
+
+            # 诊断：prompt 编码后参考通道最终状态。
+            # anima.py 只在正 prompt 编码时把 ini_latent 转入 dynamic_args.ref_latents；
+            # 若这里 ref_latents 为空，说明转移没发生（开关丢失/负 prompt 后被清空等）。
+            try:
+                from backend import args as _dargs
+                _n_ref = len(getattr(_dargs.dynamic_args, 'ref_latents', []) or [])
+                _ini = getattr(pipeline.final_model_ori, 'ini_latent', None) is not None if \
+                    getattr(pipeline, 'final_model_ori', None) is not None else False
+                printF(name=MasterName.get_master_name(),
+                       info="[Reference][DIAG] after encode_prompts: dynamic_args.ref_latents={}, "
+                            "engine.ini_latent={}, img2img_mode={}".format(
+                                _n_ref, _ini, getattr(self, 'img2img_mode', None))).printf()
+            except Exception as _e:
+                printF(name=MasterName.get_master_name(),
+                       info="[Reference][DIAG] failed: {}".format(_e)).printf()
 
     def check_vary_in_goals(self, async_task):
         printF(name=MasterName.get_master_name(), info="[Function] Enter-> check_vary_in_goals").printf()
@@ -1825,6 +2063,29 @@ class taskManager:
         final_sampler_name = self.sampler_name
         final_scheduler_name = self.scheduler_name
 
+        # ===== 按模型族强制套用预设 sampler/scheduler =====
+        # UI 的“Model Type Selector”切换时靠 Gradio 事件改下拉框，不一定生效；
+        # switch_sampler 打开（默认由预设链设为 True）时这里以后端预设为准。
+        if self.switch_sampler:
+            try:
+                _pairs = config.get_model_type_sampler_pairs(getattr(self, "default_model_type", None))
+                _samp_ok = {str(s) for s in (flags.sampler_list or [])}
+                _sched_ok = {str(s) for s in (flags.scheduler_list or [])}
+                for _s, _d in _pairs:
+                    if _s in _samp_ok and _d in _sched_ok:
+                        if (_s, _d) != (final_sampler_name, final_scheduler_name):
+                            printF(name=MasterName.get_master_name(),
+                                   info="[Sampler] model_type={} 套用预设：sampler {} -> {} | "
+                                        "scheduler {} -> {}".format(
+                                            getattr(self, "default_model_type", None),
+                                            final_sampler_name, _s,
+                                            final_scheduler_name, _d)).printf()
+                        final_sampler_name, final_scheduler_name = _s, _d
+                        break
+            except Exception as _e:
+                printF(name=MasterName.get_master_name(),
+                       info="[Sampler] 预设 sampler/scheduler 套用失败: {}".format(_e)).printf()
+
         if self.scheduler_name in ['lcm', 'tcd', 'Lightning']:
             final_scheduler_name = 'sgm_uniform'
             if pipeline.final_unet is not None:
@@ -1867,30 +2128,122 @@ class taskManager:
                 f'Step {step}/{total_steps} in the {current_task_id + 1}{ordinal_suffix(current_task_id + 1)} Sampling',
                 y, img_p, img_r)])
 
-        print(f"self.tasks: {self.tasks}")
+        # print(f"self.tasks: {self.tasks}")
         for current_task_id, task in enumerate(self.tasks):
             execution_start_time = time.perf_counter()
 
-            if (self.img2img_mode or self.control_lora_canny or self.control_lora_depth) \
-                    and self.input_gallery_size > 0:
-                input_gallery_entry = self.input_gallery[current_task_id % self.input_gallery_size]
-                self.input_image_path = input_gallery_entry['name']
-                self.input_image_filename = None if self.input_image_path is None else os.path.basename(
-                    self.input_image_path)
-            else:
+            _structure_selected = (self.img2img_mode or self.control_lora_canny or self.control_lora_depth) \
+                and self.input_gallery_size > 0
+            self._semantic_fallback_active = False
+
+            if self._native_structure_ref:
+                # 参考编辑型引擎：结构图已在 encode_prompts 写成 ini_latent，
+                # 这里从噪声全量生成（denoise=1），不再需要 img2img 初值。
                 self.input_image_path = None
                 self.input_image_filename = None
-                self.keep_input_names = None
-                
-            if self.img2img_mode:
-                self.start_step = round(self.steps * self.img2img_start_step)
-                self.denoise = self.img2img_denoise
-            else:
                 self.start_step = 0
-                self.denoise = self.denoising_strength
+                self.denoise = 1.0
+                self._effective_img2img = False
+
+                # ===== 分辨率对齐：输出比例跟随结构参考图 =====
+                # 否则参考图（如横向）被 interpolate 拉到 UI 比例（如竖向 832x1216），
+                # 人物会被压扁/拉长 → 畸形。这里保持总像素不变，只改宽高比。
+                try:
+                    _ref_path = _gallery_entry_path((self.input_gallery or [])[0]) if \
+                        (self.input_gallery or []) else None
+                    if _ref_path and os.path.isfile(_ref_path):
+                        with Image.open(_ref_path) as _pil:
+                            _iw, _ih = ImageOps.exif_transpose(_pil).size
+                        _target_mp = float(self.width) * float(self.height)
+                        _ratio = float(_iw) / max(1, float(_ih))
+                        _new_h = int(round((_target_mp / _ratio) ** 0.5 / 16.0) * 16)
+                        _new_w = int(round((_target_mp * _ratio) ** 0.5 / 16.0) * 16)
+                        _new_h = max(256, _new_h)
+                        _new_w = max(256, _new_w)
+                        if (_new_w, _new_h) != (int(self.width), int(self.height)):
+                            printF(name=MasterName.get_master_name(),
+                                   info="[Reference] 分辨率对齐参考图比例：{}x{} -> {}x{} "
+                                        "（避免参考图被拉伸 → 畸形）".format(
+                                            self.width, self.height, _new_w, _new_h)).printf()
+                            self.width, self.height = _new_w, _new_h
+                except Exception as _e:
+                    printF(name=MasterName.get_master_name(),
+                           info="[Reference] 分辨率对齐失败，沿用 UI 比例：{}".format(_e)).printf()
+            else:
+                if _structure_selected:
+                    input_gallery_entry = self.input_gallery[current_task_id % self.input_gallery_size]
+                    self.input_image_path = _gallery_entry_path(input_gallery_entry)
+                    self.input_image_filename = None if self.input_image_path is None else os.path.basename(
+                        self.input_image_path)
+                elif self.revision_mode and self._semantic_fallback_path is not None:
+                    # 引擎无原生语义参考：把 image_prompt_gallery 的参考图当作 img2img 初始图，
+                    # 用中等 denoise 实现“参考图语义”图生图（对纯 Flux / ZImage / MOSS / SDXL 通用）。
+                    self.input_image_path = self._semantic_fallback_path
+                    self.input_image_filename = os.path.basename(self.input_image_path)
+                    self._semantic_fallback_active = True
+                else:
+                    self.input_image_path = None
+                    self.input_image_filename = None
+                    self.keep_input_names = None
+
+                if self.img2img_mode:
+                    self.start_step = round(self.steps * self.img2img_start_step)
+                    self.denoise = self.img2img_denoise
+                    # ===== 按模型族动态校正 img2img denoise =====
+                    # flow（Flux/ZImage/Anima/Moss…）的起始 sigma ≈ denoise、
+                    # 初始 latent 权重 = 1 - denoise；SD/SDXL 是 A1111 语义；
+                    # 蒸馏模型预算更少。同一个数值在不同模型上效果完全不同，
+                    # 所以这里统一按 model_type_selector 校正（表见 modules/config.py）。
+                    if self.input_image_path is not None:
+                        self.denoise, _i2i_msg = resolve_img2img_denoise(
+                            getattr(self, 'default_model_type', None),
+                            self.base_model_name,
+                            self.denoise)
+                        printF(name=MasterName.get_master_name(),
+                               info=_i2i_msg).printf()
+                elif self._semantic_fallback_active:
+                    self.start_step = 0
+                    self.denoise = self._semantic_denoise
+                else:
+                    self.start_step = 0
+                    self.denoise = self.denoising_strength
+
+                # 传给 process_diffusion 的 img2img 开关：结构 img2img 或语义回退时都启用
+                self._effective_img2img = bool(self.img2img_mode or self._semantic_fallback_active)
 
             input_image = None
             is_sdxl = pipeline.is_base_sdxl()
+
+            # ===== 蒸馏模型 CFG 钐制（识别模型真实结构） =====
+            # Klein / Schnell 是 guidance-embed 蒸馏模型，引导已内化在权重里：
+            # 任何 >1.0 的外部 CFG 都是双重引导 → 过曝、色彩失真。
+            # Base 模型不在名单内，保留用户的 CFG 设置。
+            _bm_name = str(getattr(self, 'base_model_name', '') or '').lower()
+            # klein_9b_base / klein_4b_base 等非蒸馏 Klein 变体归为 Base
+            _is_klein_base = ('klein' in _bm_name) and not any(
+                k in _bm_name for k in ('distill', 'schnell', 'turbo', 'dmd', 'lightning', 'base'))
+            # 蒸馏判定必须在 Klein Base 排除之后：'klein_base' 不能命中 distilled
+            _is_distilled = ('schnell' in _bm_name) or (
+                ('klein' in _bm_name) and not _is_klein_base)
+
+            if _is_distilled and float(self.guidance_scale) > 1.0:
+                printF(name=MasterName.get_master_name(),
+                       info="[CFG-Guard] 蒸馏模型 {} 检测到 guidance_scale={:.2f} > 1.0，"
+                            "强制钳制为 1.0（防止双重引导 → 过曝）".format(
+                                self.base_model_name, self.guidance_scale)).printf()
+                self.guidance_scale = 1.0
+
+            # ===== img2img 步数保障（Base 模型） =====
+            # Base 模型引导未内化，img2img 需要 ≥20 步的去噪预算来重建结构；
+            # 蒸馏版 4-10 步就够，不在此名单。用户手动设了更高步数则尊重用户。
+            if (getattr(self, 'img2img_mode', False) and not _is_distilled
+                    and int(self.steps) < 20):
+                printF(name=MasterName.get_master_name(),
+                       info="[Steps-Guard] Base 模型 {} img2img 检测到 steps={} < 20，"
+                            "自动提升为 24（去噪预算不足 → 结构重建失败/形体崩坏）".format(
+                                self.base_model_name, self.steps)).printf()
+                self.steps = 24
+
             if self.input_image_path is not None:
                 img2img_megapixels = self.width * self.height * self.img2img_scale ** 2 / 2 ** 20
                 min_mp = constants.MIN_MEGAPIXELS if is_sdxl else constants.MIN_MEGAPIXELS_SD
@@ -1900,7 +2253,26 @@ class taskManager:
                 elif img2img_megapixels > max_mp:
                     img2img_megapixels = max_mp
                 input_image = self.get_image(path=self.input_image_path, megapixels=img2img_megapixels)
-                
+
+                # 结构参考 + 语义参考同时提供、且引擎没有原生语义通道时：
+                # 把语义参考图融合进初始图，让 image_prompt_gallery 也生效。
+                if (self.img2img_mode and self.revision_mode
+                        and self._engine_revision_used == 0
+                        and self._semantic_fallback_path is not None
+                        and self.input_image_path != self._semantic_fallback_path):
+                    try:
+                        _sem_img = self.get_image(path=self._semantic_fallback_path,
+                                                  megapixels=img2img_megapixels)
+                        _s = float(self.revision_strength_1)
+                        _w = max(0.15, min(0.85, 0.5 + 0.15 * _s))
+                        input_image = _blend_init_images(input_image, _sem_img, semantic_weight=_w)
+                        printF(name=MasterName.get_master_name(),
+                               info="[Reference] 结构图与语义图已融合作为初始图（semantic_weight={:.2f}）".format(
+                                   _w)).printf()
+                    except Exception as e:
+                        printF(name=MasterName.get_master_name(),
+                               info="[Reference] 融合语义图失败，忽略：{}".format(e)).printf()
+
             if "kolors" in self.base_model_name_prefix.lower():
                 self.task_class = "Kolors+"
             elif "flux" in self.base_model_name_prefix.lower():
@@ -2055,10 +2427,10 @@ class taskManager:
                                     pipeline.loaded_ControlNets[cn_path], cn_img, cn_weight, 0, cn_stop)
                     self.execution_end_time = time.perf_counter()
 
-                    printF(name=MasterName.get_master_name(),
-                        info="[Parameters] positive_cond = {}".format(positive_cond)).printf()
-                    printF(name=MasterName.get_master_name(),
-                        info="[Parameters] negative_cond = {}".format(negative_cond)).printf()
+                    # printF(name=MasterName.get_master_name(),
+                    #     info="[Parameters] positive_cond = {}".format(positive_cond)).printf()
+                    # printF(name=MasterName.get_master_name(),
+                    #     info="[Parameters] negative_cond = {}".format(negative_cond)).printf()
 
 
                     self.imgs = pipeline.process_diffusion(
@@ -2067,7 +2439,7 @@ class taskManager:
                         steps=self.steps,
                         switch=self.switch,
                         width=self.width,
-                        img2img=self.img2img_mode,  # ? -> latent
+                        img2img=self._effective_img2img,  # 结构 img2img 或语义回退
                         input_image=input_image,  # ? -> latent
                         start_step=self.start_step,
                         control_lora_canny=self.control_lora_canny,

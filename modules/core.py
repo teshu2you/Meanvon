@@ -43,6 +43,7 @@ from ldm_patched.contrib.external_post_processing import ImageScaleToTotalPixels
 from ldm_patched.contrib.external_model_advanced import ModelSamplingDiscrete, ModelSamplingContinuousEDM
 from backend.diffusion_engine.flux import Flux
 from backend.diffusion_engine.flux2 import Flux2
+from backend.diffusion_engine.flux3_image import Flux3Image
 from backend.diffusion_engine.zimage import ZImage
 from backend.diffusion_engine.qwen import QwenImage
 from backend.diffusion_engine.kolors import Kolors
@@ -64,7 +65,7 @@ opFreeU = FreeU_V2()
 opModelSamplingContinuousEDM = ModelSamplingContinuousEDM()
 
 # 需要按潜在通道数 + 8 倍缩放自行构造噪声的 flow-matching 引擎
-FORGE_FLOW_ENGINES = (Flux, Flux2, ZImage, QwenImage, Kolors, Krea2, Anima, MOSSImage)
+FORGE_FLOW_ENGINES = (Flux, Flux2, Flux3Image, ZImage, QwenImage, Kolors, Krea2, Anima, MOSSImage)
 
 # ===== HunyuanDiT 1.2 灰度修复开关 =====
 HUNYUAN_DEC_DIAG       = True    # 只读诊断
@@ -843,6 +844,44 @@ def decode_vae(vae, latent_image, tiled=False):
                                 _old_mean, float(_s_dec.float().mean()),
                                 tuple(_s_dec.shape),
                                 WAN21_LATENT_NORM_MODE)).printf()
+                # ===== per-channel 诊断 =====
+                # 关键判据：decode 入口到底是不是「VAE 空间」。
+                #   Wan21 的 latents_mean/latents_std 是 per-channel 的（-0.95 ~ +1.55 / 1.1 ~ 3.3），
+                #   所以真正做过 process_out 的 latent，per-channel mean 必然带有这些偏移
+                #   （|mean| 大致 0.1 ~ 1.6），per-channel std 也会落在 0.5 ~ 4 的量级；
+                #   如果 per-channel mean ≈ 0 且 std ≈ 1，说明拿到的是「模型空间」（漏了 process_out）。
+                try:
+                    _pc = _s_dec.float()
+                    _pc_flat = _pc.reshape(_pc.shape[0], _pc.shape[1], -1)
+                    _pc_mean = _pc_flat.mean(dim=2)
+                    _pc_std = _pc_flat.std(dim=2)
+                    _exp_mean = None
+                    _exp_std = None
+                    try:
+                        _lm = getattr(_lf, "latents_mean", None)
+                        _ls = getattr(_lf, "latents_std", None)
+                        if _lm is not None:
+                            _exp_mean = float(_lm.float().view(-1).abs().mean())
+                        if _ls is not None:
+                            _exp_std = float(_ls.float().view(-1).mean())
+                    except Exception:
+                        pass
+                    _verdict = ("looks like VAE space" if float(_pc_mean.abs().mean()) > 0.05
+                                else "looks like MODEL space (process_out missing!)")
+                    printF(name=MasterName.get_master_name(),
+                           info="[VAE-DEC/per-ch] |mean| avg={:.4f} max={:.4f} "
+                                "std avg={:.4f} min={:.4f} max={:.4f} | "
+                                "expect(VAE space) |mean|~{:.3f} std~{:.3f} | "
+                                "{}".format(
+                                    float(_pc_mean.abs().mean()), float(_pc_mean.abs().max()),
+                                    float(_pc_std.mean()), float(_pc_std.min()), float(_pc_std.max()),
+                                    -1.0 if _exp_mean is None else _exp_mean,
+                                    -1.0 if _exp_std is None else _exp_std,
+                                    _verdict
+                                )).printf()
+                except Exception as _e:
+                    printF(name=MasterName.get_master_name(),
+                           info="[VAE-DEC/per-ch] failed: {}".format(_e)).printf()
             else:
                 # 其他视频 VAE：5D 上调用 lf.process_out（5D 广播是正确方向）
                 _s_dec = _s_dec_4d.unsqueeze(2)
@@ -1525,6 +1564,50 @@ def ksampler(model, positive, negative, latent, seed=None, steps=30, cfg=7.0, sa
     # 后者本身已经是 ModelPatcher，可直接给 sample()。
     if is_flow_engine(model) and hasattr(model, "forge_objects"):
         sampler_model = model.forge_objects.unet
+
+        # ===== 按模型族校正 flow shift =====
+        # 本 App 的采样走 core.ksampler（不进 processing.py 的 set_shift），
+        # 而 MMDiT/Flux 的 shift 会残留在 predictor 上（换模型后仍是上次的值），
+        # shift 过大会把 sigma_min 抬到 0.5 左右 → 低噪声精修段被跳过 → 糊 + 过饱和。
+        # 这里以模型族自身的 sampling_settings["shift"] 为准。
+        try:
+            _settings = dict(getattr(getattr(model, "model_config", None), "sampling_settings", {}) or {})
+            _want_shift = _settings.get("shift", None)
+            _pred = getattr(getattr(sampler_model, "model", None), "predictor", None)
+            if _want_shift is not None and _pred is not None:
+                _cur_shift = float(getattr(_pred, "shift", _want_shift))
+                if abs(_cur_shift - float(_want_shift)) > 1e-6:
+                    _pred.set_parameters(shift=float(_want_shift))
+                    printF(name=MasterName.get_master_name(),
+                           info="[Sampler] shift {:.3f} -> {:.3f}（{}：按模型族 sampling_settings 校正）".format(
+                               _cur_shift, float(_want_shift), type(model).__name__)).printf()
+        except Exception as _e:
+            printF(name=MasterName.get_master_name(),
+                   info="[Sampler] shift 校正失败: {}".format(_e)).printf()
+
+
+        # step-distilled flow-map 模型（FLUX.3 的 ref_time_in）需要知道“每一步跳到哪个 sigma”。
+        # ComfyUI 在 sd_samplers_kdiffusion 里写 transformer_options["sampling_sigmas"]，
+        # 而 Forge 的 flow 路径走 ldm_patched 的 KSampler，默认没有这份数据 →
+        # FLUX.3 的 target sigma 会恒为 0，蒸馏模型退化成噪声。
+        if getattr(model, "is_flux3", False) or getattr(
+                getattr(model.forge_objects.unet, "model", None), "flow_map", False):
+            try:
+                from ldm_patched.modules.samplers import KSampler as _KSampler
+
+                _sig = _KSampler(sampler_model, steps=steps,
+                                 device=sampler_model.load_device,
+                                 sampler=sampler_name, scheduler=scheduler,
+                                 denoise=denoise,
+                                 model_options=dict(sampler_model.model_options)).sigmas
+                sampler_model.model_options.setdefault("transformer_options", {})[
+                    "sampling_sigmas"] = _sig
+                printF(name=MasterName.get_master_name(),
+                       info="[FLUX3] sampling_sigmas injected: {}".format(
+                           [round(float(s), 4) for s in _sig[:6]]) + " ...").printf()
+            except Exception as _e:
+                printF(name=MasterName.get_master_name(),
+                       info="[FLUX3] sampling_sigmas inject failed: {}".format(_e)).printf()
     else:
         sampler_model = model
         

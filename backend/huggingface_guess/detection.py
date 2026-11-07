@@ -38,6 +38,29 @@ def calculate_transformer_depth(prefix, state_dict_keys, state_dict):
 def detect_unet_config(state_dict, key_prefix):
     state_dict_keys = list(state_dict.keys())
 
+    # FLUX.3 Image（f3-image-small）：content/txt 双流 block + joint single block
+    _f3_emb = "{}emb_in.image.weight".format(key_prefix)
+    _f3_single = "{}single_blocks.0.".format(key_prefix)
+    if _f3_emb in state_dict_keys and (
+            _f3_single + "qkv.weight" in state_dict_keys
+            or _f3_single + "qkv.weight_scale" in state_dict_keys
+            or _f3_single + "q_proj.weight" in state_dict_keys
+            or _f3_single + "q_proj.weight_scale" in state_dict_keys):
+
+        dit_config = {"image_model": "flux3"}
+        w = state_dict[_f3_emb]
+        dit_config["in_channels"] = int(w.shape[1])
+        dit_config["hidden_size"] = int(w.shape[0])
+        dit_config["num_heads"] = max(1, int(w.shape[0]) // 128)
+        dit_config["depth"] = count_blocks(
+            state_dict_keys, "{}content_mode_blocks.image.".format(key_prefix) + "{}.")
+        dit_config["depth_single_blocks"] = count_blocks(
+            state_dict_keys, "{}single_blocks.".format(key_prefix) + "{}.")
+        dit_config["fused_qkv"] = (_f3_single + "qkv.weight" in state_dict_keys
+                                   or _f3_single + "qkv.weight_scale" in state_dict_keys)
+        dit_config["flow_map"] = "{}ref_time_in.in_layer.weight".format(key_prefix) in state_dict_keys
+        return dit_config
+
     if '{}joint_blocks.0.context_block.attn.qkv.weight'.format(key_prefix) in state_dict_keys:  # mmdit model
         unet_config = {}
         unet_config["in_channels"] = state_dict['{}x_embedder.proj.weight'.format(key_prefix)].shape[1]
@@ -305,6 +328,11 @@ def model_config_from_unet(state_dict, unet_key_prefix, use_base_if_no_match=Fal
 
 
 def unet_prefix_from_state_dict(state_dict):
+    # FLUX.3（f3-image-small）是无前缀布局：single_blocks.* / content_mode_blocks.* 在最外层
+    if sum(1 for k in state_dict
+           if isinstance(k, str) and k.startswith(("single_blocks.", "content_mode_blocks."))) > 5:
+        return ""
+
     candidates = [
         "model.diffusion_model.",  # ldm/sgm models
         "model.model.",  # audio models

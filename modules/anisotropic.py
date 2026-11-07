@@ -126,19 +126,37 @@ def bilateral_blur(
     return _bilateral_blur(input, None, kernel_size, sigma_color, sigma_space, border_type, color_distance_type)
 
 
+def _flatten_time(t: Tensor) -> tuple[Tensor, tuple]:
+    """5D (B,C,T,H,W) → 4D (B*T,C,H,W)，返回 (张量, 原形状)。
+    4D 直接原样返回。双边滤波的 unfold/pad 只支持 4D。"""
+    if t.dim() == 5:
+        shape = t.shape
+        return t.reshape(shape[0] * shape[2], shape[1], shape[3], shape[4]), shape
+    return t, None
+
+
+def _unflatten_time(t: Tensor, shape: tuple | None) -> Tensor:
+    if shape is None:
+        return t
+    return t.reshape(shape)
+
+
 def adaptive_anisotropic_filter(x, g=None):
     if g is None:
         g = x
-    s, m = torch.std_mean(g, dim=(1, 2, 3), keepdim=True)
+    _dims = (1, 2, 3) if g.dim() == 4 else (1, 2, 3, 4)
+    s, m = torch.std_mean(g, dim=_dims, keepdim=True)
     s = s + 1e-5
     guidance = (g - m) / s
-    y = _bilateral_blur(x, guidance,
+    x4, x_shape = _flatten_time(x)
+    g4, _ = _flatten_time(guidance)
+    y = _bilateral_blur(x4, g4,
                         kernel_size=(13, 13),
                         sigma_color=3.0,
                         sigma_space=3.0,
                         border_type='reflect',
                         color_distance_type='l1')
-    return y
+    return _unflatten_time(y, x_shape)
 
 
 def joint_bilateral_blur(

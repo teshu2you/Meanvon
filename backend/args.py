@@ -173,6 +173,8 @@ class dynamic_args(metaclass=_DynamicArgsMeta):
     """Krea 2"""
     moss: bool = False
     """Moss-Image"""
+    flux3: bool = False
+    """FLUX.3 (f3-image-small)：cond/uncond token 数不同，采样时不能 batch 拼接"""
     ref_latents: list["torch.Tensor"] = []
     """Reference Latent(s) for Flux Kontext / Qwen-Image-Edit / Flux.2 Klein"""
     concat_latent: "torch.Tensor" = None

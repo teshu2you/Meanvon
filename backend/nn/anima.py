@@ -25,6 +25,35 @@ from backend.operations import (
 from backend.quant_ops import ck
 from backend.utils import pad_to_patch_size
 
+# ===== 参考图（ref_latents）注入顺序 =====
+# 注意：上游 ComfyUI 的 Anima / Cosmos-Predict2（MiniTrainDIT.forward）**没有**参考帧
+# 机制，它只接受 (B, C, T, H, W) 的“视频” latent，并且 T 帧之间是相邻关系。
+# 本项目的“结构参考”是把参考图当成额外一帧拼进序列，所以帧的顺序/取哪一帧
+# 会直接决定出图质量：
+#   "append"  : [生成帧, 参考帧] → 取第 0 帧（旧行为）
+#       → 模型看到“后面有一帧干净画面”，行为退化成“两帧之间插值”，
+#         生成帧会向参考帧靠拢 ⇒ 结构完全正确，但细节被抹平（发糊/重影）。
+#   "prepend" : [参考帧, 生成帧] → 取最后一帧（I2V 的常规形态）
+#       → 模型把前帧当条件、继续往后画，细节保留明显更好。
+# 可以用 config.default_anima_ref_frame_order = "append"/"prepend" 覆盖。
+ANIMA_REF_FRAME_ORDER = "prepend"
+
+
+def _anima_ref_frame_order() -> str:
+    """读取参考帧顺序（config 可覆盖，缺省用模块常量）。"""
+    try:
+        import modules.config as _cfg
+        v = getattr(_cfg, "default_anima_ref_frame_order", None)
+        if isinstance(v, str) and v.strip().lower() in ("append", "prepend"):
+            return v.strip().lower()
+    except Exception:
+        pass
+    return ANIMA_REF_FRAME_ORDER
+
+
+_ANIMA_REF_LOGGED = set()
+
+
 BLOCK_MAPPINGS: Final[dict[tuple[int, int], list[int]]] = {
     (28, 40): [0, 1, 1, 2, 3, 3, 4, 5, 5, 6, 7, 7, 8, 9, 9, 10, 11, 11, 12, 13, 14, 14, 15, 16, 16, 17, 18, 18, 19, 20, 20, 21, 22, 22, 23, 24, 24, 25, 26, 27],
     (28, 52): [0, 1, 1, 1, 2, 3, 3, 3, 4, 5, 5, 5, 6, 7, 7, 7, 8, 9, 9, 9, 10, 11, 11, 11, 12, 13, 14, 14, 14, 15, 16, 16, 16, 17, 18, 18, 18, 19, 20, 20, 20, 21, 22, 22, 22, 23, 24, 24, 24, 25, 26, 27],
@@ -479,6 +508,14 @@ class Anima(nn.Module):
             x = x.unsqueeze(2)
 
         orig_shape = list(x.shape)
+        _t_gen = orig_shape[-3]          # 本次要生成/更新的帧数（图像路径 = 1）
+
+        # 参考帧顺序决定“取哪一帧回去给采样器”：
+        #   prepend → [ref..., gen...]，取末尾 _t_gen 帧
+        #   append  → [gen..., ref...]，取开头 _t_gen 帧（旧行为）
+        _ref_order = _anima_ref_frame_order()
+        _ref_added = False
+        _ref_shapes = []
 
         for ref in dynamic_args.ref_latents:
             ref = ref.to(x)
@@ -486,7 +523,32 @@ class Anima(nn.Module):
                 ref = ref.unsqueeze(2)
             if x.shape[0] == 2:  # batch_cond_uncond
                 ref = torch.cat((ref, ref), dim=0)
-            x = torch.cat((x, ref), dim=2)
+            # 参考图分辨率与本次采样分辨率可能不同（img2img 输出跟随输入图，
+            # 但 ref_latents 可能来自另一张图/另一比例）。cat 前必须对齐空间尺寸，
+            # 否则 torch.cat 除拼接维外要求严格同形 → 尺寸不匹配崩溃。
+            # 注意：5D 张量的 trilinear 会把 T 也当作空间维（3 个），
+            # 所以 5D 用 size=x.shape[2:]（T,H,W）；4D 用 x.shape[-2:]（H,W）。
+            if ref.shape[-2:] != x.shape[-2:]:
+                if ref.dim() == 5:
+                    ref = torch.nn.functional.interpolate(
+                        ref, size=x.shape[2:], mode="trilinear", align_corners=False)
+                else:
+                    ref = torch.nn.functional.interpolate(
+                        ref, size=x.shape[-2:], mode="bilinear", align_corners=False)
+            _ref_shapes.append(tuple(ref.shape))
+            if _ref_order == "prepend":
+                x = torch.cat((ref, x), dim=2)
+            else:
+                x = torch.cat((x, ref), dim=2)
+            _ref_added = True
+
+        if _ref_added:
+            _key = (_ref_order, tuple(_ref_shapes[-1]), tuple(x.shape))
+            if _key not in _ANIMA_REF_LOGGED:
+                _ANIMA_REF_LOGGED.add(_key)
+                print(f"[Anima/REF] order={_ref_order} ref={_ref_shapes} "
+                      f"seq={tuple(x.shape)} keep={'tail' if _ref_order == 'prepend' else 'head'}"
+                      f"({_t_gen} frame(s))")
 
         x = pad_to_patch_size(x, (self.patch_temporal, self.patch_spatial, self.patch_spatial))
         x_B_C_T_H_W = x
@@ -520,7 +582,14 @@ class Anima(nn.Module):
             )
 
         x_B_T_H_W_O = self.final_layer(x_B_T_H_W_D.to(crossattn_emb.dtype), t_embedding_B_T_D, adaln_lora_B_T_3D=adaln_lora_B_T_3D)
-        x_B_C_Tt_Hp_Wp = self.unpatchify(x_B_T_H_W_O)[:, :, : orig_shape[-3], : orig_shape[-2], : orig_shape[-1]]
+        _unpatched = self.unpatchify(x_B_T_H_W_O)
+        # 只把「生成帧」还给采样器：prepend 时生成帧在序列末尾，append 时在开头。
+        # （之前固定取头部：参考帧被放在序列末尾时，取到的是“被参考帧拉过去”的第 0 帧
+        #   → 结构正确但细节被抹平。）
+        if _ref_added and _ref_order == "prepend":
+            x_B_C_Tt_Hp_Wp = _unpatched[:, :, -_t_gen:, : orig_shape[-2], : orig_shape[-1]]
+        else:
+            x_B_C_Tt_Hp_Wp = _unpatched[:, :, : orig_shape[-3], : orig_shape[-2], : orig_shape[-1]]
         if input_is_4d:  # 图像路径：输入 4D → 输出也保持 4D
             x_B_C_Tt_Hp_Wp = x_B_C_Tt_Hp_Wp.squeeze(2)
         return x_B_C_Tt_Hp_Wp
